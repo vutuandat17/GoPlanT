@@ -7,6 +7,27 @@ import '@/global.css';
 
 import { Platform } from 'react-native';
 
+export const GoPlantColors = {
+  background: '#F4FBF5',
+  forest: '#023423',
+  primary: '#1E4B38',
+  text: '#161D19',
+  secondaryText: '#414944',
+  mutedText: '#717973',
+  surface: '#FFFFFF',
+  softSurface: '#EEF5EF',
+  mint: '#BDEDD3',
+  brightMint: '#99F5C6',
+  peach: '#FFDBCC',
+  terracotta: '#994619',
+} as const;
+
+export const GoPlantTypography = {
+  regular: 'PlusJakartaSans_400Regular',
+  semiBold: 'PlusJakartaSans_600SemiBold',
+  bold: 'PlusJakartaSans_700Bold',
+} as const;
+
 export const Colors = {
   light: {
     text: '#000000',
