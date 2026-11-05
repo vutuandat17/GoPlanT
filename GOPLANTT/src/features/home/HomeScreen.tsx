@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { TabScreenTransition } from '@/components/tab-screen-transition';
+import { AppTopBar } from '@/components/app-top-bar';
 
 // Local sample content for the visual prototype; no live weather or plant service is connected.
 
@@ -29,21 +29,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <View style={styles.header}>
-        <View style={styles.brandRow}>
-          <Image source={require('@/assets/images/figma/welcome/logo.jpeg')} style={styles.logo} contentFit="cover" />
-          <View>
-            <Text style={styles.brandName}>GoPlant</Text>
-            <Text style={styles.headerTitle}>Trang Chủ</Text>
-          </View>
-        </View>
-        <View style={styles.headerActions}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Thông báo" onPress={() => unavailable('Thông báo')} style={styles.iconButton}>
-            <Text style={styles.headerIcon}>♧</Text>
-          </Pressable>
-          <View style={styles.avatar}><Text style={styles.avatarText}>G</Text></View>
-        </View>
-      </View>
+      <AppTopBar title="Trang Chủ" />
 
       <TabScreenTransition>
       <ScrollView style={styles.contentScroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -141,16 +127,6 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: C.background },
-  header: { width: '100%', maxWidth: 760, height: 56, paddingHorizontal: 16, alignSelf: 'center', backgroundColor: C.background, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#E2EBE4' },
-  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  logo: { width: 30, height: 30, borderRadius: 5 },
-  brandName: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12, lineHeight: 16 },
-  headerTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14, lineHeight: 20 },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  iconButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  headerIcon: { color: C.secondaryText, fontSize: 22 },
-  avatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#C7D9CC', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: C.forest, fontFamily: F.bold, fontSize: 14 },
   contentScroll: { width: '100%', flex: 1, alignSelf: 'center' },
   content: { width: '100%', maxWidth: 760, alignSelf: 'center', paddingHorizontal: 14, paddingTop: 8, paddingBottom: 20, gap: 8 },
   greetingRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

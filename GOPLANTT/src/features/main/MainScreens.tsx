@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { TabScreenTransition } from '@/components/tab-screen-transition';
+import { AppTopBar } from '@/components/app-top-bar';
 import { plantCatalog, usePlantData } from '@/features/plants/PlantDataStore';
 
 type PageKind = 'gardens' | 'plants' | 'journal' | 'schedule' | 'monitoring';
@@ -16,17 +17,6 @@ const tabs = [
   { label: 'Nhật ký', icon: '▤', route: '/journal' },
   { label: 'Theo dõi', icon: '☼', route: '/monitoring' },
 ];
-
-function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <View style={s.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Quay lại" onPress={() => router.back()} style={s.back}><Text style={s.backText}>‹</Text></Pressable>
-      <View style={s.headerCopy}><Text style={s.brand}>GoPlant</Text><Text style={s.headerTitle}>{title}</Text></View>
-      <Pressable onPress={() => Alert.alert('Bản xem trước', 'Thông báo sẽ được triển khai ở đợt tiếp theo.')} style={s.avatar}><Text style={s.avatarText}>G</Text></Pressable>
-      <Text style={s.headerSubtitle}>{subtitle}</Text>
-    </View>
-  );
-}
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return <View style={s.section}><View style={s.sectionHeading}><Text style={s.sectionTitle}>{title}</Text>{hint ? <Text style={s.hint}>{hint}</Text> : null}</View>{children}</View>;
@@ -197,7 +187,7 @@ function PageContent({ kind }: { kind: PageKind }) {
   const route = `/${kind}`;
   const alertLater = (action: string) => Alert.alert('Bản xem trước', `${action} đang dùng dữ liệu giao diện mẫu; chức năng sẽ được triển khai tiếp theo.`);
   return <SafeAreaView style={s.safe} edges={['top']}>
-    <PageHeader title={title} subtitle={subtitle} />
+    <AppTopBar title={subtitle} />
     <TabScreenTransition>
     <ScrollView style={s.contentScroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
       <View style={s.introRow}><View style={s.cardCopy}><Text style={s.pageTitle}>{subtitle}</Text><Text style={s.body}>{intro}</Text></View></View>
@@ -216,11 +206,6 @@ export function MonitoringScreen() { return <PageContent kind="monitoring" />; }
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.background },
-  header: { width: '100%', maxWidth: 760, minHeight: 58, paddingHorizontal: 14, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#DDE8E0' },
-  back: { width: 28, height: 38, justifyContent: 'center' }, backText: { color: C.forest, fontSize: 30, lineHeight: 34 },
-  headerCopy: { flex: 1 }, brand: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11 }, headerTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 },
-  avatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: C.mint, alignItems: 'center', justifyContent: 'center' }, avatarText: { color: C.forest, fontFamily: F.bold },
-  headerSubtitle: { position: 'absolute', left: 50, top: 58, color: C.secondaryText, fontFamily: F.regular, fontSize: 11 },
   contentScroll: { width: '100%', flex: 1, alignSelf: 'center' },
   content: { width: '100%', maxWidth: 760, alignSelf: 'center', paddingHorizontal: 14, paddingTop: 18, paddingBottom: 20, gap: 9 },
   introRow: { minHeight: 54, marginBottom: 4, flexDirection: 'row', alignItems: 'center', gap: 8 }, pageTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 18, lineHeight: 24 },
