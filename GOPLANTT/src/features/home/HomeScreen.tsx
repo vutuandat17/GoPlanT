@@ -46,7 +46,7 @@ export default function HomeScreen() {
       </View>
 
       <TabScreenTransition>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.contentScroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.greetingRow}>
           <View style={styles.greetingCopy}>
             <Text style={styles.greeting}>Chào buổi sáng, Amy🌱</Text>
@@ -141,7 +141,7 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: C.background },
-  header: { height: 56, paddingHorizontal: 16, backgroundColor: C.background, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#E2EBE4' },
+  header: { width: '100%', maxWidth: 760, height: 56, paddingHorizontal: 16, alignSelf: 'center', backgroundColor: C.background, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#E2EBE4' },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   logo: { width: 30, height: 30, borderRadius: 5 },
   brandName: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12, lineHeight: 16 },
@@ -151,7 +151,8 @@ const styles = StyleSheet.create({
   headerIcon: { color: C.secondaryText, fontSize: 22 },
   avatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#C7D9CC', alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: C.forest, fontFamily: F.bold, fontSize: 14 },
-  content: { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 20, gap: 8 },
+  contentScroll: { width: '100%', flex: 1, alignSelf: 'center' },
+  content: { width: '100%', maxWidth: 760, alignSelf: 'center', paddingHorizontal: 14, paddingTop: 8, paddingBottom: 20, gap: 8 },
   greetingRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   greetingCopy: { flex: 1, gap: 2 },
   greeting: { color: C.forest, fontFamily: F.semiBold, fontSize: 16, lineHeight: 22 },
@@ -221,9 +222,9 @@ const styles = StyleSheet.create({
   wishButtonText: { color: C.surface, fontFamily: F.semiBold, fontSize: 11 },
   morePlants: { minHeight: 42, borderRadius: 12, backgroundColor: C.softSurface, alignItems: 'center', justifyContent: 'center' },
   morePlantsText: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 },
-  bottomNav: { minHeight: 62, paddingHorizontal: 5, paddingTop: 6, paddingBottom: 4, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#DCE6DF', backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
+  bottomNav: { width: '100%', maxWidth: 760, minHeight: 60, alignSelf: 'center', paddingHorizontal: 3, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#DDE8E0', backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center' },
   navItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 },
-  navIcon: { color: '#58635D', fontSize: 18, lineHeight: 22 },
-  navLabel: { color: '#58635D', fontFamily: F.regular, fontSize: 9, lineHeight: 13 },
+  navIcon: { color: C.secondaryText, fontSize: 18, lineHeight: 22 },
+  navLabel: { color: C.secondaryText, fontFamily: F.regular, fontSize: 9 },
   navSelected: { color: C.forest, fontFamily: F.semiBold },
 });

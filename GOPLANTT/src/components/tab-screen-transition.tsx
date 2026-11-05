@@ -8,7 +8,7 @@ export function TabScreenTransition({ children }: { children: ReactNode }) {
     progress.setValue(0);
     Animated.timing(progress, {
       toValue: 1,
-      duration: 280,
+      duration: 520,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
