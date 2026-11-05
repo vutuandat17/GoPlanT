@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { TabScreenTransition } from '@/components/tab-screen-transition';
 
 // Local sample content for the visual prototype; no live weather or plant service is connected.
 
@@ -44,6 +45,7 @@ export default function HomeScreen() {
         </View>
       </View>
 
+      <TabScreenTransition>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.greetingRow}>
           <View style={styles.greetingCopy}>
@@ -117,6 +119,7 @@ export default function HomeScreen() {
         <View style={styles.suggestionCard}><Text style={styles.plantEmoji}>🪴</Text><View style={styles.flexCopy}><Text style={styles.cardTitle}>Trầu bà lá xẻ</Text><Text style={styles.bodyText}>Dễ chăm sóc • Phù hợp trong nhà</Text></View><Text style={styles.caption}>Dữ liệu minh họa</Text></View>
         <View style={styles.newUserTip}><Text style={styles.cardTitle}>Mẹo nhỏ cho người mới</Text><Text style={styles.bodyText}>Bắt đầu với một cây phù hợp ánh sáng và không gian của bạn.</Text></View>
       </ScrollView>
+      </TabScreenTransition>
 
       <View style={styles.bottomNav}>
         {[
@@ -126,7 +129,7 @@ export default function HomeScreen() {
           ['▤', 'Nhật ký', false],
           ['☼', 'Theo dõi', false],
         ].map(([icon, label, selected], index) => (
-          <Pressable key={label as string} accessibilityRole="tab" accessibilityState={{ selected: Boolean(selected) }} onPress={() => navigate(['/home', '/gardens', '/plants', '/journal', '/monitoring'][index])} style={styles.navItem}>
+          <Pressable key={label as string} accessibilityRole="tab" accessibilityState={{ selected: Boolean(selected) }} onPress={() => { if (!selected) navigate(['/home', '/gardens', '/plants', '/journal', '/monitoring'][index]); }} style={styles.navItem}>
             <Text style={[styles.navIcon, selected && styles.navSelected]}>{icon}</Text>
             <Text style={[styles.navLabel, selected && styles.navSelected]}>{label}</Text>
           </Pressable>

@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { TabScreenTransition } from '@/components/tab-screen-transition';
 import { plantCatalog, usePlantData } from '@/features/plants/PlantDataStore';
 
 type PageKind = 'gardens' | 'plants' | 'journal' | 'schedule' | 'monitoring';
@@ -34,7 +35,7 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 function BottomNav({ current }: { current: string }) {
   return (
     <View style={s.bottomNav}>
-      {tabs.map((tab) => <Pressable key={tab.route} accessibilityRole="tab" accessibilityState={{ selected: current === tab.route }} onPress={() => router.replace(tab.route as never)} style={s.navItem}>
+      {tabs.map((tab) => <Pressable key={tab.route} accessibilityRole="tab" accessibilityState={{ selected: current === tab.route }} onPress={() => { if (current !== tab.route) router.replace(tab.route as never); }} style={s.navItem}>
         <Text style={[s.navIcon, current === tab.route && s.active]}>{tab.icon}</Text><Text style={[s.navLabel, current === tab.route && s.active]}>{tab.label}</Text>
       </Pressable>)}
     </View>
@@ -197,10 +198,12 @@ function PageContent({ kind }: { kind: PageKind }) {
   const alertLater = (action: string) => Alert.alert('Bản xem trước', `${action} đang dùng dữ liệu giao diện mẫu; chức năng sẽ được triển khai tiếp theo.`);
   return <SafeAreaView style={s.safe} edges={['top']}>
     <PageHeader title={title} subtitle={subtitle} />
+    <TabScreenTransition>
     <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
       <View style={s.introRow}><View style={s.cardCopy}><Text style={s.pageTitle}>{subtitle}</Text><Text style={s.body}>{intro}</Text></View></View>
       <EmptyPage kind={kind} />
     </ScrollView>
+    </TabScreenTransition>
     <BottomNav current={route} />
   </SafeAreaView>;
 }
