@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { AccountButton } from '@/features/auth/AccountButton';
 import { plantCatalog, usePlantData } from '@/features/plants/PlantDataStore';
 
 type PageKind = 'gardens' | 'plants' | 'journal' | 'schedule' | 'monitoring';
@@ -21,7 +22,7 @@ function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
     <View style={s.header}>
       <Pressable accessibilityRole="button" accessibilityLabel="Quay lại" onPress={() => router.back()} style={s.back}><Text style={s.backText}>‹</Text></Pressable>
       <View style={s.headerCopy}><Text style={s.brand}>GoPlant</Text><Text style={s.headerTitle}>{title}</Text></View>
-      <Pressable onPress={() => Alert.alert('Bản xem trước', 'Thông báo sẽ được triển khai ở đợt tiếp theo.')} style={s.avatar}><Text style={s.avatarText}>G</Text></Pressable>
+      <AccountButton size={30} />
       <Text style={s.headerSubtitle}>{subtitle}</Text>
     </View>
   );
