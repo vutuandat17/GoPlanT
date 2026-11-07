@@ -10,6 +10,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { GoPlantColors } from '@/constants/theme';
+import { AuthSessionProvider } from '@/features/auth/AuthSession';
 import { PlantDataProvider } from '@/features/plants/PlantDataStore';
 
 SplashScreen.preventAutoHideAsync();
@@ -32,9 +33,11 @@ export default function RootLayout() {
   return (
     <>
       <StatusBar style="dark" />
-      <PlantDataProvider>
-        <Stack screenOptions={{ headerShown: false, animation: 'none', contentStyle: { backgroundColor: GoPlantColors.background } }} />
-      </PlantDataProvider>
+      <AuthSessionProvider>
+        <PlantDataProvider>
+          <Stack screenOptions={{ headerShown: false, animation: 'none', contentStyle: { backgroundColor: GoPlantColors.background } }} />
+        </PlantDataProvider>
+      </AuthSessionProvider>
     </>
   );
 }

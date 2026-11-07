@@ -6,6 +6,7 @@ import type { SvgProps } from 'react-native-svg';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { authenticateWithMockAuth } from '@/services/mockAuth';
+import { useAuthSession } from '@/features/auth/AuthSession';
 import RegisterPot from '@/assets/images/figma/auth/signup/signup-23ac7.svg';
 import RegisterLeaf from '@/assets/images/figma/auth/signup/signup-30c2d.svg';
 import UserIcon from '@/assets/images/figma/auth/signup/signup-eecde.svg';
@@ -122,7 +123,13 @@ export function RegisterScreen() {
   const submit = () => {
     const next: Record<string, string> = {};
     if (!name.trim()) next.name = 'Vui lòng nhập họ và tên.';
-    if (!account.trim()) next.account = 'Vui lòng nhập email hoặc số điện thoại.';
+    const normalizedAccount = account.trim();
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const phoneDigits = normalizedAccount.replace(/\D/g, '');
+    const validPhone = /^\+?[\d\s().-]+$/.test(normalizedAccount) && phoneDigits.length >= 9 && phoneDigits.length <= 15;
+    if (!normalizedAccount) next.account = 'Vui lòng nhập email hoặc số điện thoại.';
+    else if (!emailPattern.test(normalizedAccount) && !validPhone) next.account = 'Nhập email hợp lệ hoặc số điện thoại có từ 9 đến 15 chữ số.';
+    if (recoveryEmail.trim() && !emailPattern.test(recoveryEmail.trim())) next.recoveryEmail = 'Email khôi phục chưa đúng định dạng.';
     if (password.length < 8) next.password = 'Mật khẩu cần có ít nhất 8 ký tự.';
     if (!confirm || confirm !== password) next.confirm = 'Mật khẩu xác nhận chưa khớp.';
     if (!accepted) next.terms = 'Vui lòng đồng ý với điều khoản để tiếp tục.';
@@ -153,7 +160,7 @@ export function RegisterScreen() {
           <Field label="Họ và tên" placeholder="Ví dụ: Nguyễn Văn An" icon={UserIcon} value={name} onChangeText={setName} error={errors.name} />
           <Field label="Số điện thoại hoặc Email" placeholder="Nhập số điện thoại hoặc email" icon={ContactIcon} value={account} onChangeText={setAccount} error={errors.account} keyboardType="email-address" />
           <View style={styles.recoveryField}>
-            <Field label="Email khôi phục tài khoản" placeholder="Email dự phòng khi cần lấy lại mật khẩu" icon={MailIcon} value={recoveryEmail} onChangeText={setRecoveryEmail} optional keyboardType="email-address" />
+            <Field label="Email khôi phục tài khoản" placeholder="Email dự phòng khi cần lấy lại mật khẩu" icon={MailIcon} value={recoveryEmail} onChangeText={setRecoveryEmail} error={errors.recoveryEmail} optional keyboardType="email-address" />
             <View style={styles.helperRow}><InfoIcon width={13} height={13} /><Text style={styles.helperText}>Dùng để xác minh bảo mật khi bạn quên mật khẩu</Text></View>
           </View>
 
@@ -207,7 +214,7 @@ export function RegisterScreen() {
               <View style={styles.warningIcon}><Text style={styles.warningMark}>!</Text></View>
               <Text style={styles.modalTitle}>Thông tin không hợp lệ, hãy kiểm tra lại</Text>
               <Text style={styles.modalDescription}>Một số trường bắt buộc chưa được nhập hoặc chưa chính xác để tiếp tục.</Text>
-              <View style={styles.errorList}>{Object.entries(errors).map(([key, message]) => <View key={key} style={styles.modalErrorRow}><Text style={styles.errorCross}>×</Text><View style={styles.modalErrorCopy}><Text style={styles.modalErrorTitle}>{({ name: 'Họ và tên', account: 'Số điện thoại hoặc Email', password: 'Mật khẩu', confirm: 'Xác nhận mật khẩu', terms: 'Điều khoản dịch vụ' } as Record<string, string>)[key]}</Text><Text style={styles.modalErrorMessage}>{message}</Text></View></View>)}</View>
+              <View style={styles.errorList}>{Object.entries(errors).map(([key, message]) => <View key={key} style={styles.modalErrorRow}><Text style={styles.errorCross}>×</Text><View style={styles.modalErrorCopy}><Text style={styles.modalErrorTitle}>{({ name: 'Họ và tên', account: 'Số điện thoại hoặc Email', recoveryEmail: 'Email khôi phục', password: 'Mật khẩu', confirm: 'Xác nhận mật khẩu', terms: 'Điều khoản dịch vụ' } as Record<string, string>)[key]}</Text><Text style={styles.modalErrorMessage}>{message}</Text></View></View>)}</View>
               <Pressable onPress={() => setShowValidationSummary(false)} style={styles.modalPrimary}><Text style={styles.modalPrimaryText}>☷  Kiểm tra và sửa lại</Text></Pressable>
               <Pressable onPress={() => setShowValidationSummary(false)} style={styles.modalSecondary}><Text style={styles.modalSecondaryText}>Đóng cảnh báo</Text></Pressable>
               <Text style={styles.modalPrivacy}>GoPlant tôn trọng quyền riêng tư và mầm xanh an toàn</Text>
@@ -220,6 +227,7 @@ export function RegisterScreen() {
 }
 
 export function LoginScreen() {
+  const { signIn } = useAuthSession();
   const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -247,6 +255,7 @@ export function LoginScreen() {
       }
 
       setPassword('');
+      signIn(result.user);
       router.replace('/home');
     } catch {
       setError('Không thể hoàn tất đăng nhập demo. Vui lòng thử lại.');

@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { useAuthSession } from '@/features/auth/AuthSession';
 import { TabScreenTransition } from '@/components/tab-screen-transition';
 import { AppTopBar } from '@/components/app-top-bar';
 
@@ -21,6 +22,7 @@ function SectionTitle({ title, trailing }: { title: string; trailing?: string })
 }
 
 export default function HomeScreen() {
+  const { user } = useAuthSession();
   const [category, setCategory] = useState(categories[0]);
   const [query, setQuery] = useState('');
 
@@ -35,7 +37,7 @@ export default function HomeScreen() {
       <ScrollView style={styles.contentScroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.greetingRow}>
           <View style={styles.greetingCopy}>
-            <Text style={styles.greeting}>Chào buổi sáng, Amy🌱</Text>
+            <Text style={styles.greeting}>Chào buổi sáng, {user?.name ?? 'bạn'} 🌱</Text>
             <Text style={styles.subtitle}>Hôm nay là thời điểm lý tưởng để chăm vườn nhỏ!</Text>
           </View>
           <View style={styles.sunBadge}><Text style={styles.sun}>☼</Text></View>
@@ -44,10 +46,10 @@ export default function HomeScreen() {
         <View style={styles.weatherCard}>
           <View style={[styles.roundIcon, { backgroundColor: '#E1F3E8' }]}><Text>☼</Text></View>
           <View style={styles.flexCopy}>
-            <Text style={styles.cardTitle}>28°C <Text style={styles.secondary}>• Độ ẩm 75%</Text></Text>
-            <Text style={styles.bodyText}>Nắng nhẹ - Rất tốt để tưới cây</Text>
+            <Text style={styles.cardTitle}>Thời tiết chưa kết nối</Text>
+            <Text style={styles.bodyText}>Nhiệt độ, độ ẩm và gợi ý chăm sóc chưa có dữ liệu.</Text>
           </View>
-          <Text style={styles.lightPill}>Tối ưu</Text>
+          <Text style={styles.lightPill}>Chưa có dữ liệu</Text>
         </View>
 
         <View style={styles.scheduleCard}>
