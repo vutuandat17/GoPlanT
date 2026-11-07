@@ -4,7 +4,12 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+<<<<<<< HEAD
 import { AccountButton } from '@/features/auth/AccountButton';
+=======
+import { TabScreenTransition } from '@/components/tab-screen-transition';
+import { AppTopBar } from '@/components/app-top-bar';
+>>>>>>> 488a06d1b1b47df93ea8d96be174f2789f14dacf
 import { plantCatalog, usePlantData } from '@/features/plants/PlantDataStore';
 
 type PageKind = 'gardens' | 'plants' | 'journal' | 'schedule' | 'monitoring';
@@ -17,6 +22,7 @@ const tabs = [
   { label: 'Theo dõi', icon: '☼', route: '/monitoring' },
 ];
 
+<<<<<<< HEAD
 function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <View style={s.header}>
@@ -28,6 +34,8 @@ function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
   );
 }
 
+=======
+>>>>>>> 488a06d1b1b47df93ea8d96be174f2789f14dacf
 function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return <View style={s.section}><View style={s.sectionHeading}><Text style={s.sectionTitle}>{title}</Text>{hint ? <Text style={s.hint}>{hint}</Text> : null}</View>{children}</View>;
 }
@@ -35,7 +43,7 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 function BottomNav({ current }: { current: string }) {
   return (
     <View style={s.bottomNav}>
-      {tabs.map((tab) => <Pressable key={tab.route} accessibilityRole="tab" accessibilityState={{ selected: current === tab.route }} onPress={() => router.replace(tab.route as never)} style={s.navItem}>
+      {tabs.map((tab) => <Pressable key={tab.route} accessibilityRole="tab" accessibilityState={{ selected: current === tab.route }} onPress={() => { if (current !== tab.route) router.replace(tab.route as never); }} style={s.navItem}>
         <Text style={[s.navIcon, current === tab.route && s.active]}>{tab.icon}</Text><Text style={[s.navLabel, current === tab.route && s.active]}>{tab.label}</Text>
       </Pressable>)}
     </View>
@@ -197,11 +205,13 @@ function PageContent({ kind }: { kind: PageKind }) {
   const route = `/${kind}`;
   const alertLater = (action: string) => Alert.alert('Bản xem trước', `${action} đang dùng dữ liệu giao diện mẫu; chức năng sẽ được triển khai tiếp theo.`);
   return <SafeAreaView style={s.safe} edges={['top']}>
-    <PageHeader title={title} subtitle={subtitle} />
-    <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+    <AppTopBar title={subtitle} />
+    <TabScreenTransition>
+    <ScrollView style={s.contentScroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
       <View style={s.introRow}><View style={s.cardCopy}><Text style={s.pageTitle}>{subtitle}</Text><Text style={s.body}>{intro}</Text></View></View>
       <EmptyPage kind={kind} />
     </ScrollView>
+    </TabScreenTransition>
     <BottomNav current={route} />
   </SafeAreaView>;
 }
@@ -214,12 +224,8 @@ export function MonitoringScreen() { return <PageContent kind="monitoring" />; }
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.background },
-  header: { minHeight: 58, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#DDE8E0' },
-  back: { width: 28, height: 38, justifyContent: 'center' }, backText: { color: C.forest, fontSize: 30, lineHeight: 34 },
-  headerCopy: { flex: 1 }, brand: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11 }, headerTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 },
-  avatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: C.mint, alignItems: 'center', justifyContent: 'center' }, avatarText: { color: C.forest, fontFamily: F.bold },
-  headerSubtitle: { position: 'absolute', left: 50, top: 58, color: C.secondaryText, fontFamily: F.regular, fontSize: 11 },
-  content: { paddingHorizontal: 14, paddingTop: 18, paddingBottom: 20, gap: 9 },
+  contentScroll: { width: '100%', flex: 1, alignSelf: 'center' },
+  content: { width: '100%', maxWidth: 760, alignSelf: 'center', paddingHorizontal: 14, paddingTop: 18, paddingBottom: 20, gap: 9 },
   introRow: { minHeight: 54, marginBottom: 4, flexDirection: 'row', alignItems: 'center', gap: 8 }, pageTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 18, lineHeight: 24 },
   section: { gap: 8, marginTop: 5 }, sectionHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, sectionTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 15, lineHeight: 21 }, hint: { color: C.mutedText, fontFamily: F.regular, fontSize: 11 },
   card: { padding: 10, borderRadius: 14, backgroundColor: C.surface, gap: 7 }, gardenArt: { minHeight: 104, borderRadius: 11, backgroundColor: '#DDEFE3', alignItems: 'center', justifyContent: 'center' }, artGlyph: { color: '#49815E', fontSize: 38 }, artLabel: { color: '#446751', fontFamily: F.semiBold, fontSize: 9, letterSpacing: 1 },
@@ -238,5 +244,5 @@ const s = StyleSheet.create({
   emptyGlyph: { color: C.forest, fontSize: 30, lineHeight: 36 },
   emptyDescription: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11, lineHeight: 17, textAlign: 'center' },
   managementActions: { flexDirection: 'row', gap: 8 },
-  bottomNav: { minHeight: 60, paddingHorizontal: 3, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#DDE8E0', backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center' }, navItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 }, navIcon: { color: C.secondaryText, fontSize: 18, lineHeight: 22 }, navLabel: { color: C.secondaryText, fontFamily: F.regular, fontSize: 9 }, active: { color: C.forest, fontFamily: F.semiBold },
+  bottomNav: { width: '100%', maxWidth: 760, minHeight: 60, paddingHorizontal: 3, alignSelf: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#DDE8E0', backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center' }, navItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 }, navIcon: { color: C.secondaryText, fontSize: 18, lineHeight: 22 }, navLabel: { color: C.secondaryText, fontFamily: F.regular, fontSize: 9 }, active: { color: C.forest, fontFamily: F.semiBold },
 });
