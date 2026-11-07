@@ -4,12 +4,8 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
-<<<<<<< HEAD
-import { AccountButton } from '@/features/auth/AccountButton';
-=======
 import { TabScreenTransition } from '@/components/tab-screen-transition';
 import { AppTopBar } from '@/components/app-top-bar';
->>>>>>> 488a06d1b1b47df93ea8d96be174f2789f14dacf
 import { plantCatalog, usePlantData } from '@/features/plants/PlantDataStore';
 
 type PageKind = 'gardens' | 'plants' | 'journal' | 'schedule' | 'monitoring';
@@ -22,20 +18,6 @@ const tabs = [
   { label: 'Theo dõi', icon: '☼', route: '/monitoring' },
 ];
 
-<<<<<<< HEAD
-function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <View style={s.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Quay lại" onPress={() => router.back()} style={s.back}><Text style={s.backText}>‹</Text></Pressable>
-      <View style={s.headerCopy}><Text style={s.brand}>GoPlant</Text><Text style={s.headerTitle}>{title}</Text></View>
-      <AccountButton size={30} />
-      <Text style={s.headerSubtitle}>{subtitle}</Text>
-    </View>
-  );
-}
-
-=======
->>>>>>> 488a06d1b1b47df93ea8d96be174f2789f14dacf
 function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return <View style={s.section}><View style={s.sectionHeading}><Text style={s.sectionTitle}>{title}</Text>{hint ? <Text style={s.hint}>{hint}</Text> : null}</View>{children}</View>;
 }

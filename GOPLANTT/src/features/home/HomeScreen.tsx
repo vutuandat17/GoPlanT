@@ -4,13 +4,9 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
-<<<<<<< HEAD
-import { AccountButton } from '@/features/auth/AccountButton';
 import { useAuthSession } from '@/features/auth/AuthSession';
-=======
 import { TabScreenTransition } from '@/components/tab-screen-transition';
 import { AppTopBar } from '@/components/app-top-bar';
->>>>>>> 488a06d1b1b47df93ea8d96be174f2789f14dacf
 
 // Local sample content for the visual prototype; no live weather or plant service is connected.
 
@@ -35,25 +31,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-<<<<<<< HEAD
-      <View style={styles.header}>
-        <View style={styles.brandRow}>
-          <Image source={require('@/assets/images/figma/welcome/logo.jpeg')} style={styles.logo} contentFit="cover" />
-          <View>
-            <Text style={styles.brandName}>GoPlant</Text>
-            <Text style={styles.headerTitle}>Trang Chủ</Text>
-          </View>
-        </View>
-        <View style={styles.headerActions}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Thông báo" onPress={() => unavailable('Thông báo')} style={styles.iconButton}>
-            <Text style={styles.headerIcon}>♧</Text>
-          </Pressable>
-          <AccountButton />
-        </View>
-      </View>
-=======
       <AppTopBar title="Trang Chủ" />
->>>>>>> 488a06d1b1b47df93ea8d96be174f2789f14dacf
 
       <TabScreenTransition>
       <ScrollView style={styles.contentScroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

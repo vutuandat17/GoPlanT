@@ -33,17 +33,11 @@ export default function RootLayout() {
   return (
     <>
       <StatusBar style="dark" />
-<<<<<<< HEAD
       <AuthSessionProvider>
         <PlantDataProvider>
-          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: GoPlantColors.background } }} />
+          <Stack screenOptions={{ headerShown: false, animation: 'none', contentStyle: { backgroundColor: GoPlantColors.background } }} />
         </PlantDataProvider>
       </AuthSessionProvider>
-=======
-      <PlantDataProvider>
-        <Stack screenOptions={{ headerShown: false, animation: 'none', contentStyle: { backgroundColor: GoPlantColors.background } }} />
-      </PlantDataProvider>
->>>>>>> 488a06d1b1b47df93ea8d96be174f2789f14dacf
     </>
   );
 }
