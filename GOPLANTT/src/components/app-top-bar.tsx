@@ -2,6 +2,7 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { AccountButton } from '@/features/auth/AccountButton';
 
 export function AppTopBar({ title }: { title: string }) {
   return (
@@ -17,7 +18,7 @@ export function AppTopBar({ title }: { title: string }) {
         <Pressable accessibilityRole="button" accessibilityLabel="Thông báo" onPress={() => Alert.alert('Bản xem trước', 'Thông báo sẽ được triển khai ở đợt tiếp theo.')} style={styles.iconButton}>
           <Text style={styles.headerIcon}>♧</Text>
         </Pressable>
-        <View style={styles.avatar}><Text style={styles.avatarText}>G</Text></View>
+        <AccountButton />
       </View>
     </View>
   );
@@ -32,6 +33,4 @@ const styles = StyleSheet.create({
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   iconButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   headerIcon: { color: C.secondaryText, fontSize: 22 },
-  avatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#C7D9CC', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: C.forest, fontFamily: F.bold, fontSize: 14 },
 });

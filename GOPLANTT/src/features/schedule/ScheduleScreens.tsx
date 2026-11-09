@@ -4,11 +4,12 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { AccountButton } from '@/features/auth/AccountButton';
 
 const plants = ['Cà chua bi Cherry', 'Hồng leo Huntington', 'Cây hương thảo', 'Sung Mỹ Cẩm Thạch'];
 const tasks = ['Tưới nước', 'Bón phân', 'Cắt tỉa', 'Kiểm tra sâu bệnh', 'Phun sương', 'Ghi nhận phát triển'];
 
-function Header({ title }: { title: string }) { return <View style={sc.header}><Pressable onPress={() => router.back()}><Text style={sc.back}>‹</Text></Pressable><Text style={sc.headerTitle}>{title}</Text><Pressable onPress={() => Alert.alert('Bản xem trước', 'Thông báo chưa kết nối.')}><Text style={sc.profile}>G</Text></Pressable></View>; }
+function Header({ title }: { title: string }) { return <View style={sc.header}><Pressable onPress={() => router.back()}><Text style={sc.back}>‹</Text></Pressable><Text style={sc.headerTitle}>{title}</Text><AccountButton size={29} /></View>; }
 
 export function CreateScheduleScreen() {
   const [plant, setPlant] = useState('');

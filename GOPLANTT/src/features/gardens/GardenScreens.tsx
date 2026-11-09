@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { AccountButton } from '@/features/auth/AccountButton';
 import { plantCatalog, usePlantData } from '@/features/plants/PlantDataStore';
 
 const gardenPlants = [
@@ -14,7 +15,7 @@ const gardenPlants = [
 ];
 
 function GardenHeader({ title }: { title: string }) {
-  return <View style={g.header}><Pressable onPress={() => router.back()} style={g.back}><Text style={g.backText}>‹</Text></Pressable><Text style={g.headerTitle}>{title}</Text><Pressable onPress={() => Alert.alert('Bản xem trước', 'Tùy chọn tài khoản chưa kết nối.')}><Text style={g.profile}>G</Text></Pressable></View>;
+  return <View style={g.header}><Pressable onPress={() => router.back()} style={g.back}><Text style={g.backText}>‹</Text></Pressable><Text style={g.headerTitle}>{title}</Text><AccountButton size={29} /></View>;
 }
 
 function ActionButton({ label, secondary = false, onPress }: { label: string; secondary?: boolean; onPress: () => void }) {
@@ -52,7 +53,7 @@ function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
   const title = editId ? 'Chỉnh sửa hồ sơ cây' : addPlant ? 'Thêm cây trồng' : 'Tạo khu vườn mới';
   const selectedProfile = plantCatalog.find((plant) => plant.id === selected);
   const submit = () => {
-    const invalid = addPlant ? !selectedProfile || !name.trim() || !place : !name.trim() || !place.trim();
+    const invalid = (addPlant ? !selectedProfile || !name.trim() || !place : !name.trim() || !place.trim()) || Boolean(editId && !editingPlant);
     setError(invalid);
     if (invalid) return;
     if (addPlant && selectedProfile) {
@@ -78,8 +79,8 @@ function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
       <Text style={g.label}>Tìm cây trong thư viện</Text><TextInput value={plantQuery} onChangeText={setPlantQuery} placeholder="Nhập tên cây hoặc tên khoa học" style={g.input}/><Text style={g.label}>1. Chọn cây trồng</Text>{plantCatalog.filter((plant) => `${plant.name} ${plant.scientificName}`.toLocaleLowerCase().includes(plantQuery.trim().toLocaleLowerCase())).map((plant) => <Pressable key={plant.id} onPress={() => { setSelected(plant.id); if (!name.trim() || plantCatalog.some((item) => item.name === name)) setName(plant.name); }} style={[g.plantCard, selected === plant.id && g.choiceActive]}><View style={g.plantImage}><Text style={g.plantEmoji}>♧</Text></View><View style={g.plantCopy}><Text style={g.plantName}>{plant.name}</Text><Text style={g.body}>{plant.scientificName} • {plant.category} • Dữ liệu thư viện mẫu</Text></View><Text style={g.link}>{selected === plant.id ? '✓' : 'Chọn'}</Text></Pressable>)}
       {selectedProfile ? <><Text style={g.label}>Tên hiển thị <Text style={g.required}>*</Text></Text><TextInput value={name} onChangeText={setName} placeholder="Tên cây trong hồ sơ của bạn" style={[g.input, error && !name.trim() && g.inputError]}/><Text style={g.label}>2. Vị trí trồng</Text><View style={g.choices}>{['Trong nhà', 'Ban công', 'Sân thượng', 'Sân vườn', 'Ngoài sân', 'Nhà kính', 'Khác', 'Chưa xác định'].map((x) => <Pressable key={x} onPress={() => setPlace(x)} style={[g.choice, place === x && g.choiceActive]}><Text style={g.body}>{x}</Text></Pressable>)}</View><Text style={g.label}>Ngày trồng / bắt đầu chăm sóc (không bắt buộc)</Text><TextInput value={plantedAt} onChangeText={setPlantedAt} placeholder="Ngày/tháng/năm" style={g.input}/><Text style={g.label}>Ghi chú (không bắt buộc)</Text><TextInput value={note} onChangeText={setNote} placeholder="Ghi chú về cây" style={[g.input, g.multiline]} multiline/></> : null}
       </>}
-    {error ? <Text style={g.error}>Vui lòng nhập đầy đủ thông tin bắt buộc.</Text> : null}
-    <ActionButton label={addPlant ? 'Thêm cây vào vườn' : 'Tạo khu vườn'} onPress={submit}/><Text style={g.note}>Đây là biểu mẫu giao diện; chưa tạo hoặc lưu dữ liệu thật.</Text>
+    {error ? <Text style={g.error}>{editId && !editingPlant ? 'Không tìm thấy hồ sơ cây trong phiên hiện tại.' : 'Vui lòng nhập đầy đủ thông tin bắt buộc.'}</Text> : null}
+    <ActionButton label={editId ? 'Lưu thay đổi' : addPlant ? 'Thêm cây vào danh sách' : 'Tạo khu vườn'} onPress={submit}/><Text style={g.note}>{addPlant ? 'Hồ sơ cây là dữ liệu demo trong bộ nhớ phiên, không được đồng bộ hoặc lưu sau khi đóng ứng dụng.' : 'Biểu mẫu tạo vườn hiện là giao diện xem trước; chưa lưu dữ liệu.'}</Text>
   </ScrollView></SafeAreaView>;
 }
 

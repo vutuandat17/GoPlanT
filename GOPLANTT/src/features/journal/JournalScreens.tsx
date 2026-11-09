@@ -4,8 +4,9 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { AccountButton } from '@/features/auth/AccountButton';
 
-function Header({ title }: { title: string }) { return <View style={j.header}><Pressable onPress={() => router.back()}><Text style={j.back}>‹</Text></Pressable><Text style={j.headerTitle}>{title}</Text><Pressable onPress={() => Alert.alert('Bản xem trước', 'Tài khoản chưa kết nối.')}><Text style={j.profile}>G</Text></Pressable></View>; }
+function Header({ title }: { title: string }) { return <View style={j.header}><Pressable onPress={() => router.back()}><Text style={j.back}>‹</Text></Pressable><Text style={j.headerTitle}>{title}</Text><AccountButton size={29} /></View>; }
 
 export function JournalDetailScreen() {
   return <SafeAreaView style={j.safe} edges={['top']}><Header title="Nhật ký phát triển"/><ScrollView contentContainerStyle={j.content}>
