@@ -4,7 +4,7 @@
 
 GoPlant là ứng dụng di động hỗ trợ khám phá và quản lý cây trồng, khu vườn và hoạt động chăm sóc. Phạm vi sản phẩm được tham khảo từ thiết kế Figma và tài liệu chức năng trong repository.
 
-Dự án hiện tập trung vào frontend bằng Expo, React Native, TypeScript và Expo Router. Phase 3 đã xây dựng các màn hình chính; Phase 4 đang hoàn thiện tương tác và state cục bộ để kiểm thử luồng. Chưa có backend, API, database hoặc xác thực production.
+Dự án hiện tập trung vào frontend bằng Expo, React Native, TypeScript và Expo Router. Phase 3 đã xây dựng các màn hình chính; Phase 4 hoàn thiện một số tương tác, xác thực mock và state cục bộ để kiểm thử luồng. Các thay đổi gần đây cũng đã gỡ conflict markers và khôi phục bundling Web. Chưa có backend, API, database hoặc xác thực production.
 
 ## Công nghệ
 
@@ -12,10 +12,10 @@ Phiên bản khai báo lấy từ `package.json`; phiên bản cài đặt đư�
 
 | Công nghệ | Khai báo | Đã cài | Vai trò |
 |---|---:|---:|---|
-| Expo | `~57.0.31` | `57.0.31` | Nền tảng và công cụ phát triển |
+| Expo | `~57.0.32` | `57.0.32` | Nền tảng và công cụ phát triển |
 | React | `19.2.3` | `19.2.3` | Giao diện theo component |
 | React Native | `0.86.3` | `0.86.3` | Giao diện di động đa nền tảng |
-| Expo Router | `~57.0.29` | `57.0.29` | Điều hướng theo file trong `src/app/` |
+| Expo Router | `~57.0.30` | `57.0.30` | Điều hướng theo file trong `src/app/` |
 | TypeScript | `~6.0.3` | `6.0.3` | Kiểu tĩnh |
 | npm | — | `11.19.1` trên môi trường được kiểm tra | Quản lý package; không phải phiên bản bắt buộc cho mọi máy |
 
@@ -26,7 +26,7 @@ Các package khác được liệt kê trong `package.json`, gồm Expo modules,
 | Khu vực | Trạng thái hiện tại |
 |---|---|
 | Chào mừng | Màn hình có liên kết đến đăng nhập và đăng ký. |
-| Đăng nhập | Mock auth chỉ bật trong development. Đăng nhập admin demo mở `/home`; session được giữ trong bộ nhớ ứng dụng và mất khi khởi động lại. Có thể đăng xuất qua avatar tài khoản. |
+| Đăng nhập | Mock auth chỉ bật trong development. Đăng nhập admin demo mở `/home`; session được giữ trong bộ nhớ ứng dụng và mất khi khởi động lại. Có thể mở khu vực tài khoản từ avatar và đăng xuất sau bước xác nhận. |
 | Đăng ký | Có kiểm tra trường bắt buộc, định dạng email/số điện thoại, email khôi phục, độ dài mật khẩu và xác nhận mật khẩu. Tạo tài khoản chưa kết nối dịch vụ và không lưu tài khoản. |
 | Trang chủ | Có tìm kiếm, điều hướng tới các khu vực, trạng thái chưa có cây/vườn. Thời tiết được hiển thị là chưa có dữ liệu vì chưa kết nối dịch vụ. Một số nội dung gợi ý vẫn là minh họa. |
 | Cây trồng | Có tìm kiếm, yêu thích, lọc, xem chi tiết, thêm, sửa và xóa cây. Hồ sơ và yêu thích là state demo trong RAM; không được lưu bền vững. Xóa có bước xác nhận. |
@@ -34,11 +34,12 @@ Các package khác được liệt kê trong `package.json`, gồm Expo modules,
 | Khu vườn | Có danh sách, chi tiết và biểu mẫu. Tạo/lưu khu vườn chưa được triển khai; nội dung chi tiết dùng dữ liệu giao diện mẫu. |
 | Nhật ký và lịch chăm sóc | Có danh sách/chi tiết và biểu mẫu tương ứng. Dữ liệu là mẫu; form chưa lưu hoặc đồng bộ backend. Camera chưa được bật. |
 | Theo dõi | Có màn hình tổng quan/chi tiết. Chỉ số, lịch sử và trạng thái cảm biến hiện hiển thị rỗng/chưa có dữ liệu; chưa kết nối nguồn theo dõi thật. |
+| Quản lý tài khoản | Có trang tổng quan cùng các màn hình hồ sơ, thông tin đăng nhập, bảo mật, thông báo, cài đặt và quyền riêng tư. Các tác vụ cần backend hoặc dịch vụ hệ thống được ghi rõ là chưa kết nối. |
 
-Tài khoản mock để kiểm thử giao diện:
+## Mục tiêu sản phẩm
 GoPlant là ứng dụng di động hỗ trợ người dùng khám phá và quản lý cây trồng, khu vườn cùng các hoạt động chăm sóc. Phạm vi sản phẩm được thể hiện trong thiết kế Figma và tài liệu chức năng của dự án.
 
-Repository hiện có giao diện frontend React Native theo Expo SDK 57, được tổ chức bằng Expo Router và TypeScript. Phase 3 đã bổ sung các màn hình và luồng frontend chính; nhiều phần vẫn dùng dữ liệu minh họa hoặc chưa kết nối dịch vụ. Ứng dụng chưa có backend, cơ sở dữ liệu hay xác thực thật.
+Repository hiện có giao diện frontend React Native theo Expo SDK 57, được tổ chức bằng Expo Router và TypeScript. Phase 3 đã bổ sung các màn hình và luồng frontend chính; Phase 4 hoàn thiện một số tương tác và state cục bộ. Nhiều phần vẫn dùng dữ liệu minh họa hoặc chưa kết nối dịch vụ. Ứng dụng chưa có backend, cơ sở dữ liệu hay xác thực thật.
 
 ## Trạng thái công nghệ
 
@@ -46,11 +47,11 @@ Phiên bản khai báo lấy từ `package.json`; phiên bản cài đặt đư�
 
 | Công nghệ | Khai báo | Đã cài | Vai trò |
 |---|---:|---:|---|
-| Expo | `~57.0.31` | `57.0.31` | Nền tảng và công cụ phát triển ứng dụng |
+| Expo | `~57.0.32` | `57.0.32` | Nền tảng và công cụ phát triển ứng dụng |
 | React | `19.2.3` | `19.2.3` | Xây dựng giao diện theo component |
 | React Native | `0.86.3` | `0.86.3` | Giao diện di động đa nền tảng |
 | TypeScript | `~6.0.3` | `6.0.3` | Kiểu tĩnh cho mã JavaScript |
-| Expo Router | `~57.0.29` | `57.0.29` | Điều hướng theo file trong `src/app/` |
+| Expo Router | `~57.0.30` | `57.0.30` | Điều hướng theo file trong `src/app/` |
 | npm | — | `11.19.1` trên môi trường kiểm tra | Quản lý package; đây không phải phiên bản khóa cho mọi máy |
 
 Các package khác được khai báo trong `package.json`, gồm Expo modules, `react-native-reanimated`, `react-native-svg`, `react-native-safe-area-context` và font Plus Jakarta Sans.
@@ -60,7 +61,7 @@ Các package khác được khai báo trong `package.json`, gồm Expo modules, 
 | Khu vực | Trạng thái trong frontend |
 |---|---|
 | Chào mừng | Có giao diện và liên kết đến đăng nhập, đăng ký. |
-| Đăng nhập | Có mock authentication trong môi trường development (`__DEV__`). Tài khoản demo hợp lệ đưa người dùng đến `/home`; đây không phải xác thực bảo mật và không dùng cho production. |
+| Đăng nhập | Có mock authentication trong môi trường development (`__DEV__`). Tài khoản demo hợp lệ đưa người dùng đến `/home`; đây không phải xác thực bảo mật và không dùng cho production. Session nằm trong RAM, có thể mất khi khởi động lại. |
 | Đăng ký | Có biểu mẫu, kiểm tra trường nhập và thông báo lỗi. Tạo tài khoản chưa kết nối backend và không lưu tài khoản. |
 | Trang chủ | Có ô tìm kiếm, phím tắt, trạng thái vườn/cây rỗng và nội dung gợi ý. Một số thẻ như thời tiết, lời chào và gợi ý cây là dữ liệu giao diện mẫu. |
 | Quản lý cây | Có tìm kiếm, trạng thái rỗng, danh sách cây, yêu thích và thao tác thêm/xem/sửa/xóa frontend. Hồ sơ và yêu thích được giữ trong bộ nhớ ứng dụng trong phiên, không lưu bền vững. |
@@ -70,6 +71,7 @@ Các package khác được khai báo trong `package.json`, gồm Expo modules, 
 | Nhật ký | Có danh sách, chi tiết và biểu mẫu nhập/chỉnh sửa. Nội dung là mẫu; biểu mẫu chưa lưu nhật ký vào backend. Camera được hoãn. |
 | Lịch chăm sóc | Có danh sách, chi tiết và biểu mẫu tạo lịch. Kiểm tra nhập liệu ở frontend; lịch chưa được lưu và chưa đồng bộ thông báo. |
 | Theo dõi | Có giao diện tổng quan và chi tiết. Chưa kết nối cảm biến hoặc nguồn dữ liệu sức khỏe; nội dung hiển thị có thể là dữ liệu mẫu. |
+| Quản lý tài khoản | Có trang tổng quan và sáu route con cho hồ sơ, thông tin đăng nhập, bảo mật, thông báo, cài đặt và quyền riêng tư. Tùy chọn thay đổi chỉ phục vụ demo; các tác vụ cần backend/API chưa thực hiện. |
 
 Tài khoản mock development được khai báo trong `src/services/mockAuth.ts`:
 
@@ -83,8 +85,19 @@ Thông tin trên được khai báo trong `src/services/mockAuth.ts`, chỉ dùn
 
 - `AuthSessionProvider` giữ user hiện tại trong RAM. Đăng xuất xóa session frontend; không có token hoặc mật khẩu được lưu trong persistent storage.
 - `PlantDataProvider` giữ cây và danh sách yêu thích trong RAM. Dữ liệu được chia sẻ giữa các route trong cùng phiên và mất khi ứng dụng khởi động lại.
+- Hồ sơ cây thiếu hoặc đã bị xóa sẽ hiển thị trạng thái dự phòng thay vì giả định rằng bản ghi vẫn tồn tại.
 - Mock data trên các màn hình vườn, nhật ký và lịch chỉ phục vụ trình bày. Không xem các nội dung đó là dữ liệu người dùng đã được lưu.
 - Không có số liệu cảm biến, ngưỡng chăm sóc, cảnh báo hoặc kết luận sức khỏe cây thực tế.
+
+### Phase 4 — Frontend Functionality and Data Integration Preparation
+
+- Mock login chỉ bật trong development; session được giữ trong RAM và đăng xuất yêu cầu xác nhận.
+- Biểu mẫu đăng ký kiểm tra trường bắt buộc, định dạng email/số điện thoại, email khôi phục, mật khẩu và xác nhận mật khẩu. Tạo tài khoản thật chưa được hỗ trợ.
+- Quản lý hồ sơ cây và yêu thích hoạt động cục bộ trong phiên; không có lưu trữ bền vững.
+- Thời tiết, dữ liệu sức khỏe cây và biểu đồ theo dõi thể hiện trạng thái chưa có dữ liệu khi chưa có nguồn thật.
+- Biểu mẫu vườn, nhật ký và lịch chăm sóc chưa ghi dữ liệu lên backend.
+
+Phase 4 tập trung vào frontend và chuẩn bị tích hợp dữ liệu; không bao gồm backend, API, database hoặc xác thực production.
 
 ## Route
 
@@ -112,6 +125,13 @@ Các route nằm trong `src/app/`:
 ├── /schedule/detail
 ├── /monitoring
 ├── /monitoring/detail
+├── /account
+├── /account/profile
+├── /account/credentials
+├── /account/security
+├── /account/notifications
+├── /account/settings
+├── /account/privacy
 └── /explore (màn hình mẫu Expo)
 ```
 
@@ -150,6 +170,13 @@ Các route được đặt dưới `src/app/`:
 ├── /schedule/detail
 ├── /monitoring
 ├── /monitoring/detail
+├── /account
+├── /account/profile
+├── /account/credentials
+├── /account/security
+├── /account/notifications
+├── /account/settings
+├── /account/privacy
 └── /explore (màn hình mẫu Expo còn trong project)
 ```
 
@@ -165,7 +192,7 @@ GOPLANTT/
 │   ├── app/                  # Route Expo Router
 │   ├── components/           # Component dùng chung và component mẫu
 │   ├── constants/            # Theme và design tokens
-│   ├── features/             # UI theo nhóm chức năng
+│   ├── features/             # UI theo nhóm chức năng, gồm account và auth
 │   ├── hooks/                # Hook dùng chung
 │   ├── services/             # Mock authentication
 │   └── types/                # Khai báo kiểu bổ sung
@@ -177,6 +204,7 @@ GOPLANTT/
 ```
 
 Thư mục `android/` và `ios/` chưa được commit. Expo quản lý native project theo cấu hình và workflow được chọn.
+```text
 ├── assets/
 │   ├── images/                 # Asset ứng dụng và ảnh xuất từ thiết kế
 │   └── images/figma/            # Một số asset Figma được dùng trong giao diện
@@ -186,6 +214,7 @@ Thư mục `android/` và `ios/` chưa được commit. Expo quản lý native p
 │   ├── components/              # Component dùng chung và component mẫu Expo
 │   ├── constants/theme.ts       # Token màu và kiểu chữ
 │   ├── features/                # Giao diện theo nhóm chức năng
+│   │   └── account/             # Màn hình quản lý tài khoản
 │   ├── hooks/                   # Hook dùng chung và hỗ trợ theme
 │   ├── services/                # Mock authentication
 │   ├── types/                   # Khai báo kiểu bổ sung
@@ -251,6 +280,14 @@ Khi Metro sẵn sàng, nhấn `a` để yêu cầu Expo mở ứng dụng trong 
 
 Trong PowerShell, dùng `npm.cmd`/`npx.cmd` nếu lệnh không có hậu tố bị chặn bởi Execution Policy.
 
+### 5. Chạy trên Expo Web
+
+```powershell
+npx.cmd expo start --web --clear
+```
+
+Expo Web dùng Metro để tạo bundle cho trình duyệt. Lệnh này khởi chạy môi trường phát triển, không tạo gói phân phối.
+
 ## Kiểm tra
 Khi Metro sẵn sàng, nhấn `a` trong terminal để yêu cầu Expo mở ứng dụng trên Android Emulator. Quy trình này chạy ứng dụng trong môi trường phát triển, thường qua Expo Go tương thích; `expo start` không tạo APK. Nếu cần native module không có trong Expo Go thì cần đánh giá development build riêng.
 
@@ -267,14 +304,15 @@ npx.cmd expo install --check
 npx.cmd expo-doctor
 ```
 
-Kết quả kiểm tra trong Phase 4:
+Kết quả kiểm tra được ghi nhận trong Phase 4 và lần sửa bundling Web gần đây:
 
-- `npm.cmd ls ... --depth=0`: các phiên bản chính hiện diện đúng như bảng công nghệ.
-- `npx.cmd tsc --noEmit`: đạt.
-- `npx.cmd expo install --check`: cảnh báo 5 package thấp hơn bản vá Expo khuyến nghị: `expo` (`57.0.31`, mong đợi `~57.0.32`), `expo-constants` (`57.0.22`, mong đợi `~57.0.23`), `expo-glass-effect` (`57.0.4`, mong đợi `~57.0.5`), `expo-router` (`57.0.29`, mong đợi `~57.0.30`) và `expo-splash-screen` (`57.0.10`, mong đợi `~57.0.11`). Chưa cập nhật package trong Phase 4.
-- `npx.cmd expo-doctor`: 20/21 kiểm tra đạt; kiểm tra phiên bản package thất bại do cùng 5 bản vá trên.
+- `npm.cmd ls expo react react-native expo-router typescript --depth=0`: đã xác minh Expo `57.0.32`, React `19.2.3`, React Native `0.86.3`, Expo Router `57.0.30` và TypeScript `6.0.3`.
+- `npx.cmd tsc --noEmit`: đạt trong lần kiểm tra sau khi sửa conflict markers.
+- `npx.cmd expo install --check`: lần kiểm tra gần nhất báo dependencies up to date.
+- `npx.cmd expo-doctor`: lần kiểm tra gần nhất được báo cáo đạt 21/21. Kết quả 20/21 ở lần kiểm tra Phase 4 đầu tiên là lịch sử; khi đó có 5 package chưa ở bản vá khuyến nghị. Các bản khai báo hiện tại đã khớp và Expo install check sau đó đạt.
+- Expo Web: conflict markers đã được gỡ trong `MainScreens.tsx`, `HomeScreen.tsx` và `_layout.tsx`; `app-top-bar.tsx` dùng lại `AccountButton`. Metro ghi nhận `Web Bundled`; trang và bundle endpoint trả HTTP 200. Lần chạy dùng cổng 8082 do cổng 8081 đã có tiến trình khác. Cảnh báo `spawn EPERM` khi khởi chạy React Native DevTools không ngăn bundling.
+- Kiểm thử tương tác trong trình duyệt: chưa thực hiện được vì công cụ điều khiển UI không kết nối. Android Emulator cũng chưa được khởi chạy; chưa xác minh trực quan trên Android.
 - `npm.cmd run lint`: chưa chạy vì script hiện cố tự tạo cấu hình ESLint khi chưa có cấu hình. Không chấp nhận tạo cấu hình trong phạm vi này.
-- Android Emulator: không khởi chạy trong Phase 4; chưa xác minh giao diện trực tiếp trên thiết bị.
 
 ## Giới hạn và công việc tiếp theo
 
@@ -283,6 +321,8 @@ Kết quả kiểm tra trong Phase 4:
 - [x] Kiểm tra frontend đăng ký; chưa tạo tài khoản thật.
 - [x] Thao tác cây cục bộ: thêm, xem, sửa, xóa, tìm kiếm và yêu thích.
 - [x] Đánh dấu rõ dữ liệu môi trường/theo dõi chưa có nguồn.
+- [x] Sửa conflict markers và xác minh Expo Web bundling.
+- [x] Bổ sung giao diện quản lý tài khoản theo các route hiện có trong repository.
 - [ ] Thêm nguồn dữ liệu có căn cứ cho thư viện và điều kiện sinh trưởng cây.
 - [ ] Hoàn thiện lưu trữ/nghiệp vụ vườn, nhật ký, lịch chăm sóc và theo dõi.
 - [ ] Tích hợp backend, API, database và xác thực thật theo yêu cầu giai đoạn sau.
@@ -295,9 +335,9 @@ Kết quả kiểm tra trong Phase 4:
 - Chạy lại TypeScript và kiểm tra Expo sau khi thay đổi dependency hoặc cấu hình.
 - Không commit secret, token hoặc API key. Tài khoản mock trong source chỉ dùng demo, không dùng production.
 - Cập nhật README khi route, quy trình hoặc trạng thái chức năng thay đổi.
-Kết quả được xác minh khi cập nhật README:
+Kết quả lịch sử từ lần cập nhật README trước (các phiên bản dưới đây đã được thay thế bởi trạng thái hiện tại ở phần trên):
 
-- `npm.cmd ls expo react-native expo-router typescript --depth=0`: các package chính hiện diện với Expo `57.0.31`, React `19.2.3`, React Native `0.86.3`, Expo Router `57.0.29` và TypeScript `6.0.3`.
+- `npm.cmd ls expo react-native expo-router typescript --depth=0`: khi đó các package chính hiện diện với Expo `57.0.31`, React `19.2.3`, React Native `0.86.3`, Expo Router `57.0.29` và TypeScript `6.0.3`.
 - `npx.cmd tsc --noEmit`: hoàn tất thành công.
 - `npm.cmd run lint`: chưa chạy được. Script `expo lint` của project cố tự tạo cấu hình ESLint; lệnh đã được dừng để tránh sửa cấu hình ngoài phạm vi README.
 - `expo install --check` và Expo Doctor 21/21: kết quả đã được báo cáo ở lần kiểm tra Phase 3 trước đó, không chạy lại trong nhiệm vụ README này.
@@ -308,7 +348,11 @@ Kết quả được xác minh khi cập nhật README:
 - [x] Khởi tạo frontend bằng Expo SDK 57, React Native và TypeScript.
 - [x] Bổ sung các route UI chính cho chào mừng, đăng nhập/đăng ký, trang chủ, cây trồng, vườn, tìm kiếm, nhật ký, lịch và theo dõi.
 - [x] Bổ sung mock login development và quản lý cây cục bộ trong phiên.
+- [x] Hoàn thành các tương tác frontend đã xác định trong Phase 4; không bao gồm backend hoặc xác thực production.
+- [x] Gỡ conflict markers và xác minh bundle Expo Web trả về HTTP 200.
 - [x] Chạy TypeScript và kiểm tra dependency chính khi cập nhật tài liệu.
+- [x] Khôi phục bundling Expo Web sau khi xử lý conflict markers.
+- [ ] Kiểm thử tương tác toàn luồng trên Web và Android Emulator.
 - [ ] Hoàn thiện dữ liệu nội dung cây, gồm điều kiện sinh trưởng có nguồn xác định.
 - [ ] Kết nối lưu trữ/backend/API và xác thực thật.
 - [ ] Hoàn thiện các nghiệp vụ vườn, nhật ký, lịch chăm sóc và theo dõi.
