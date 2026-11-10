@@ -1,0 +1,183 @@
+Dữ liệu hiển thị, thao tác người dùng và màn hình chuyển tới :
+
+1. Màn hình “ Trang chào mừng ” :
+
+Dữ liệu hiển thị :
+Tên app và lời chào mừng 
+Dòng văn mô tả ngắn về app
+Chức năng và tiện ích nổi bật 
+Nút điều hướng “ Bắt đầu ngay ” 
+Nút điều hướng “ Đăng nhập ” ( Tôi đã có tài khoản …. ) 
+
+Thao tác người dùng :
+Ấn nút “ Bắt đầu ngay ” khi muốn bắt đầu sử dụng app
+Nếu đã có tài khoản thì ấn nút “ Đăng nhập ”
+
+Màn hình chuyển tới : 
+Khi ấn vào nút “ Bắt đầu ngay” sẽ chuyển sang màn hình “ Đăng ký tài khoản ” hoặc “ Đăng nhập ”( phụ thuộc vào user có tài khoản hay chưa )
+Khi ấn vào nút “ Đăng nhập ” sẽ chuyển sang màn hình “ Đăng nhập ” 
+
+2. Màn hình “ Đăng ký tài khoản ” : 
+
+Dữ liệu hiển thị :
+Form đăng ký tài khoản : Họ và tên, email hoặc số điện thoại, email khôi phục tài khoản, thiết bị sử dụng chính, mật khẩu, nhập lại mật khẩu
+Nút bấm “ Đăng ký tài khoản ”
+Checkbox xác nhận đồng ý với chính sách và điều khoản
+Phần điều hướng “ Đăng nhập ngay ” ( Đã có tài khoản? … )
+
+Thao tác người dùng :
+Nhập thông tin cá nhân của người dùng vào form đăng ký
+Ấn tích checkbox chính sách và điều khoản
+Ấn nút “ Đăng ký tài khoản ” khi nhập thông tin xong
+Nếu đã có tài khoản thì ấn “ Đăng nhập ngay ”
+
+Màn hình chuyển tới : 
+Khi ấn vào nút “ Đăng ký tài khoản ” sẽ chuyển sang phần xác thực thông tin ( đang xem xét thêm, chưa làm vội ) ( hiện tại là khi ấn sẽ đăng ký thành công → trang chủ )
+Khi ấn vào nút “ Đăng nhập ngay ” sẽ chuyển sang màn hình “ Đăng nhập ”
+
+3. Màn hình “ Đăng nhập tài khoản ” :
+
+Dữ liệu hiển thị :
+Form đăng nhập tài khoản : Tài khoản, mật khẩu
+Nút bấm “ Đăng nhập ”
+Phần điều hướng “ Quên mật khẩu ” ( Xem xét bổ sung ) hiện tại chưa làm 
+Phần lựa chọn đăng nhập theo phương thức khác
+Phần điều hướng “ Đăng ký ngay ” ( Chưa có tài khoản? …. ) 
+
+Thao tác người dùng :
+Nhập thông tin cá nhân của người dùng vào form đăng nhập
+Ấn vào “ Quên mật khẩu” khi cần 
+Ấn nút “ Đăng nhập ” khi nhập thông tin xong
+Lựa chọn các phương thức đăng nhập khác
+Ấn nút “ Đăng ký ngay ” nếu chưa có tài khoản
+
+Màn hình chuyển tới : 
+Khi ấn vào nút “ Đăng nhập ” sẽ chuyển sang màn hình “ Trang chủ ”
+Khi ấn vào nút “ Đăng ký ngay ” sẽ chuyển sang màn hình “ Đăng ký tài khoản ”
+
+4. Màn hình “ Trang chủ ” :
+
+Dữ liệu hiển thị :
+Lời chào mừng người dùng 
+Thời tiết, thông báo nhắc nhở
+Phần điều hướng “ Tạo lịch ngay ”
+Thanh tìm kiếm cây trồng + nút bộ lọc
+Hiển thị các lối tắt “ Quản lý cây ” ; “ Quản lý vườn” ; “ Nhật ký chăm sóc ” ; “ Sâu bệnh ”
+Vườn, cây trồng đang quản lý / nếu chưa có thì hiện nút “ Tạo khu vườn mới ” ; “ Thêm cây trồng đầu tiên ”
+Gợi ý các cây trồng 
+Danh sách cây mong muốn
+Thanh điều hướng giữa các màn hình
+
+Thao tác người dùng :
+Ấn thực hiện các nhắc nhở nếu cần
+Ấn nút “ Tạo lịch ngay ” khi muốn tạo lịch chăm sóc
+Thực hiện tìm kiếm và khám phá cây trồng qua thanh tìm kiếm, nút bộ lọc
+Truy cập các lối tắt nếu muốn thực hiện nhanh nhiệm vụ, lời nhắc nào đó
+Thực hiện tạo vườn mới, thêm cây trồng nếu chưa có
+Chuyển các cây trong danh sách mong muốn vào vườn, danh sách cây trồng đang sở hữu
+Sử dụng thanh điều hướng để qua màn hình khác
+
+Màn hình chuyển tới : 
+Khi ấn vào “ Tạo lịch ngay ” sẽ chuyển qua màn hình “ Lập lịch chăm sóc ”
+Khi ấn vào nút “ Tạo vườn mới ” sẽ chuyển sang màn hình “ Quản lý vườn ”
+Khi ấn vào nút “ Thêm cây trồng đầu tiên ” sẽ chuyển sang màn hình “ Cây trồng ”
+Khi ấn vào nút “ Chuyển vào vườn trồng ” sẽ chuyển sang màn hình “ Quản lý vườn ”
+Khi ấn vào nút “ Xem kỹ thuật ” sẽ chuyển sang một màn hình thông tin cây trồng 
+Khi sử dụng thanh điều hướng sẽ chuyển qua các màn hình tương ứng
+
+5. Màn hình “ Quản lý vườn ” :
+
+Dữ liệu hiển thị :
+Trạng thái vườn hiện tại 
+Nút “ Tạo khu vườn mới ”
+Các box hiển thị tất cả vườn đang sở hữu kèm thông tin cơ bản, trạng thái, tiến độ
+Phần điều hướng “ Quản lý vườn ”
+
+Thao tác người dùng :
+Ấn nút “ Tạo khu vườn mới ” khi muốn tạo vườn
+Truy cập “ Quản lý vườn ” khi muốn xem và sửa đổi thông tin vườn
+
+Màn hình chuyển tới : 
+Khi ấn vào nút “ Tạo vườn mới ” sẽ chuyển sang màn hình “ Quản lý vườn ”
+Khi ấn  “ Quản lý vườn ” sẽ chuyển sang màn hình “ Quản lý vườn ”
+
+6. Màn hình “ Quản lý cây trồng ” : 
+
+Dữ liệu hiển thị :
+Nút “ Thêm cây ”
+Hiển thị các cây đang sở hữu, danh sách mong muốn, gợi ý, vừa xem gần đây
+Các nút “ xem chi tiết ” ; “ chỉnh sửa ” ; “ xóa cây” ; “ chuyển cây vào vườn ” ; “ xem lại cây ”
+
+Thao tác người dùng :
+Ấn nút “ Thêm cây ” để thêm 1 cây trồng mới muốn quản lý
+Người dùng có thể thực hiện xem, thêm, sửa, xóa thông tin cây trồng qua các nút trên
+
+Màn hình chuyển tới :
+Khi ấn nút “ Thêm cây ” sẽ chuyển tới giao diện thêm cây
+Khi thực hiện xem và chỉnh sửa cây sẽ chuyển tới giao diện thông tin chi tiết của cây
+
+
+
+
+
+7. Màn hình “ Nhật ký ” :
+
+Dữ liệu hiển thị :
+Nút ghi chép qua ảnh ( xem xét thêm ) 
+Hiển thị nhật ký phát triển của từng cây và vườn 
+Nút “ Chỉnh sửa nhật ký cây / vườn ” ; “ Xem nhật ký cây ”
+
+Thao tác người dùng :
+Ấn nút “ chỉnh sửa nhật ký vườn ” khi cần thay đổi thông tin 
+Ấn nút “ sửa nhật ký cây ” khi cần thay đổi thông tin 
+Ấn nút “ xem chi tiết ” khi muốn xem cụ thể thông tin nhật ký cây
+
+Màn hình chuyển tới : 
+Nút “ chỉnh sửa nhật ký vườn ” sẽ chuyển tới giao diện chỉnh sửa nhật ký vườn
+Nút “ sửa nhật ký cây ” sẽ chuyển tới giao diện chỉnh sửa nhật ký cây
+Nút “ xem chi tiết ” sẽ chuyển tới giao diện xem cụ thể thông tin nhật ký cây
+
+8. Màn hình “ Theo dõi và ghi nhận ” :
+
+ Dữ liệu hiển thị :
+Nút “ Thêm ghi nhận mới ”
+Hiển thị tiến độ, trạng thái, thông tin ghi nhận của cây và vườn
+Nút “ Xem chỉ số vườn ” ; “ Chi tiết ghi nhận ( cây ) ”
+
+Thao tác người dùng :
+Ấn nút “ Thêm ghi nhận mới ” khi cần thêm hoặc thay đổi ghi nhận 
+Ấn nút “ Xem chỉ số vườn ” khi cần xem cụ thể thông tin
+Ấn nút “ Chi tiết ghi nhận  ” khi muốn xem cụ thể thông tin cây
+
+Màn hình chuyển tới : 
+Nút “ Thêm ghi nhận mới ” sẽ chuyển tới giao diện chỉnh sửa ghi nhận 
+Nút “ Xem chỉ số vườn ” sẽ chuyển tới giao diện xem cụ thể thông tin 
+Nút “ Chi tiết ghi nhận ” sẽ chuyển tới giao diện xem cụ thể thông tin cây
+
+
+
+
+
+
+
+
+
+9. Màn hình “ Lập lịch chăm sóc ” :
+
+  Dữ liệu hiển thị :
+Nút “ Tạo lịch ”, hiển thị thông tin thiết lập lịch thủ công
+Hiển thị lịch chăm sóc cây và vườn đang sở hữu, lịch đang thực hiện
+Nút “ Xem lịch ” ; “ Thêm lịch ”
+
+Thao tác người dùng :
+Ấn nút “ Tạo lịch” khi cần thêm lịch chăm sóc
+Ấn nút “ Xem lịch ” khi cần xem cụ thể thông tin lịch
+Ấn nút “Thêm lịch” khi muốn thêm cụ thể lịch cho 1 cây trồng
+
+Màn hình chuyển tới : 
+Nút “ Tạo lịch” sẽ chuyển tới giao diện thêm lịch chăm sóc mới
+Nút “ Xem lịch ” sẽ chuyển tới giao diện xem cụ thể thông tin 
+Nút “ Thêm lịch ” sẽ chuyển tới giao diện thêm lịch chăm sóc mới
+
+
+

@@ -1,0 +1,22 @@
+{
+  "plants": [
+    {
+      "id": 2,
+      "name": "Cây trầu bà",
+      "scientificName": "Epipremnum aureum",
+      "location": "Ban công"
+    },
+    {
+      "id": 3,
+      "name": "Cây lưỡi hổ",
+      "scientificName": "Dracaena trifasciata",
+      "location": "Phòng ngủ"
+    },
+    {
+      "name": "Cây kim tiền",
+      "scientificName": "Zamioculcas zamiifolia",
+      "location": "Phòng làm việc",
+      "id": 5
+    }
+  ]
+}
