@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { Image } from 'expo-image';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Pressable, ScrollView, StyleSheet, Text, View } from '@/components/app-primitives';
+import { SafeAreaView } from '@/components/app-primitives';
 
 import ArrowIcon from '@/assets/images/figma/welcome/arrow-right.svg';
 import BadgeLeafIcon from '@/assets/images/figma/welcome/badge-leaf.svg';

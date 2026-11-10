@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, StyleSheet, Text } from '@/components/app-primitives';
 import { router } from 'expo-router';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';

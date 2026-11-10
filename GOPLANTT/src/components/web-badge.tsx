@@ -1,6 +1,6 @@
 import { version } from 'expo/package.json';
 import { Image } from 'expo-image';
-import { useColorScheme, StyleSheet } from 'react-native';
+import { useColorScheme, StyleSheet } from '@/components/app-primitives';
 
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';

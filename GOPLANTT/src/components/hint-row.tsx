@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet } from '@/components/app-primitives';
 
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';

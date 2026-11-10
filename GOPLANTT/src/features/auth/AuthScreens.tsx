@@ -1,7 +1,7 @@
 import { useMemo, useState, type ComponentType } from 'react';
-import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
 import { router } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView } from '@/components/app-primitives';
 import type { SvgProps } from 'react-native-svg';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';

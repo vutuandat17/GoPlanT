@@ -1,4 +1,4 @@
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from '@/components/app-primitives';
 import { Image } from 'expo-image';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';

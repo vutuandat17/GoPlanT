@@ -12,6 +12,7 @@ import {
 import { GoPlantColors } from '@/constants/theme';
 import { AuthSessionProvider } from '@/features/auth/AuthSession';
 import { PlantDataProvider } from '@/features/plants/PlantDataStore';
+import { AppPreferencesProvider, useAppPreferences } from '@/features/preferences/AppPreferences';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -30,14 +31,18 @@ export default function RootLayout() {
 
   if (!fontsLoaded && !fontError) return null;
 
-  return (
-    <>
-      <StatusBar style="dark" />
-      <AuthSessionProvider>
-        <PlantDataProvider>
-          <Stack screenOptions={{ headerShown: false, animation: 'none', contentStyle: { backgroundColor: GoPlantColors.background } }} />
-        </PlantDataProvider>
-      </AuthSessionProvider>
-    </>
-  );
+  return <AppPreferencesProvider><AppShell /></AppPreferencesProvider>;
+}
+
+function AppShell() {
+  const { resolvedTheme } = useAppPreferences();
+  const backgroundColor = resolvedTheme === 'dark' ? '#101814' : GoPlantColors.background;
+  return <>
+    <StatusBar style={resolvedTheme === 'dark' ? 'light' : 'dark'} />
+    <AuthSessionProvider>
+      <PlantDataProvider>
+        <Stack screenOptions={{ headerShown: false, animation: 'none', contentStyle: { backgroundColor } }} />
+      </PlantDataProvider>
+    </AuthSessionProvider>
+  </>;
 }
