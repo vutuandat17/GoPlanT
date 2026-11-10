@@ -1,10 +1,11 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Pressable, StyleSheet, Text, View } from '@/components/app-primitives';
+import { SafeAreaView } from '@/components/app-primitives';
 import { Tabs, type BottomTabBarProps } from 'expo-router/js-tabs';
 import { usePathname } from 'expo-router';
 
 import { AppTopBar } from '@/components/app-top-bar';
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { useAppPreferences } from '@/features/preferences/AppPreferences';
 
 const tabs = [
   { name: 'home', label: 'Trang chủ', icon: '⌂' },
@@ -54,12 +55,13 @@ function MainTabBar({ state, navigation }: BottomTabBarProps) {
 
 export default function MainTabsLayout() {
   const pathname = usePathname();
+  const { resolvedTheme } = useAppPreferences();
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <AppTopBar title={titles[pathname] ?? 'GoPlant'} />
       <Tabs
-        screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: C.background } }}
+        screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: resolvedTheme === 'dark' ? '#101814' : C.background } }}
         tabBar={(props) => <MainTabBar {...props} />}>
         <Tabs.Screen name="home" />
         <Tabs.Screen name="gardens" />
