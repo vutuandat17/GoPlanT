@@ -1,18 +1,27 @@
 import { useEffect, useRef, type ReactNode } from 'react';
-import { Animated, Easing, StyleSheet } from 'react-native';
+import { Animated, Easing, Platform, StyleSheet } from 'react-native';
+import { useIsFocused } from 'expo-router';
 
 export function TabScreenTransition({ children }: { children: ReactNode }) {
   const progress = useRef(new Animated.Value(0)).current;
+  const isFocused = useIsFocused();
 
   useEffect(() => {
+    if (!isFocused) return;
+
     progress.setValue(0);
-    Animated.timing(progress, {
+    const animation = Animated.timing(progress, {
       toValue: 1,
       duration: 520,
       easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [progress]);
+      isInteraction: false,
+      // Opacity and translateY are native-driver compatible. Keeping the animation
+      // off the JS thread avoids frame drops while Android mounts the next tab.
+      useNativeDriver: Platform.OS !== 'web',
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [isFocused, progress]);
 
   return (
     <Animated.View
