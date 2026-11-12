@@ -17,7 +17,7 @@ export function JournalDetailScreen() {
       ['18/10/2025', 'Phát hiện một số lá vàng nhẹ', 'Đã cắt tỉa lá hỏng và kiểm tra đất'],
       ['05/10/2025', 'Cây thích nghi tốt với vị trí mới', 'Theo dõi độ ẩm • Không phát hiện sâu bệnh'],
     ].map(([date, title, note]) => <View key={date} style={j.entry}><Text style={j.date}>{date} • Ban công</Text><Text style={j.titleSmall}>{title}</Text><Text style={j.body}>{note}</Text><View style={j.photoRow}><View style={j.photo}><Text>🌱</Text></View><View style={j.photo}><Text>🍃</Text></View></View><Pressable onPress={() => router.push('/journal/edit' as never)}><Text style={j.link}>Chỉnh sửa ghi nhận ›</Text></Pressable></View>)}</View>
-    <Pressable onPress={() => router.push('/journal/new' as never)} style={j.submit}><Text style={j.submitText}>＋  Thêm ghi nhận mới</Text></Pressable><Text style={j.note}>Nhật ký này dùng dữ liệu mẫu, chưa lưu lên máy chủ.</Text>
+    <Text style={j.note}>Chưa có nhật ký được lưu.</Text>
   </ScrollView></SafeAreaView>;
 }
 
@@ -27,16 +27,16 @@ function JournalForm({ editing = false }: { editing?: boolean }) {
   const [type, setType] = useState('Phát triển');
   const [health, setHealth] = useState('Khỏe mạnh');
   const [error, setError] = useState(false);
-  const save = () => { const invalid = !plant || !note.trim(); setError(invalid); if (!invalid) Alert.alert('Bản xem trước', 'Ghi nhận hợp lệ nhưng chưa được lưu vì chưa có backend.'); };
+  const save = () => { const invalid = !plant || !note.trim(); setError(invalid); if (!invalid) Alert.alert('Chưa thể lưu ghi nhận', 'Máy chủ hiện chưa hỗ trợ nhật ký chăm sóc.'); };
   return <SafeAreaView style={j.safe} edges={['top']}><Header title={editing ? 'Chỉnh sửa nhật ký' : 'Thêm ghi nhận mới'}/><ScrollView contentContainerStyle={j.content}>
     <View style={j.tip}><Text style={j.sectionTitle}>{editing ? 'Cập nhật nhật ký cây' : 'Ghi nhận tình trạng cây'}</Text><Text style={j.body}>Lưu lại tình trạng và tiến triển để tiện theo dõi.</Text></View>
     <Text style={j.label}>1. Chọn cây trồng <Text style={j.required}>*</Text></Text>{['Cà Chua Cherry', 'Hương Thảo (Rosemary)', 'Hồng leo Huntington'].map((name, i) => <Pressable key={name} onPress={() => setPlant(name)} style={[j.plantCard, plant === name && j.selected]}><View style={j.thumbSmall}><Text>{['🍅','🌿','🌸'][i]}</Text></View><Text style={j.titleSmall}>{name}</Text><Text style={j.radio}>{plant === name ? '●' : '○'}</Text></Pressable>)}
     <Text style={j.label}>2. Loại ghi nhận</Text><View style={j.chips}>{['Phát triển', 'Tưới nước', 'Bón phân', 'Sâu bệnh'].map((name) => <Pressable key={name} onPress={() => setType(name)} style={[j.chip, type === name && j.selected]}><Text style={j.body}>{name}</Text></Pressable>)}</View>
     <Text style={j.label}>3. Tình trạng cây</Text><View style={j.chips}>{['Khỏe mạnh', 'Cần theo dõi', 'Cần can thiệp'].map((name) => <Pressable key={name} onPress={() => setHealth(name)} style={[j.chip, health === name && j.selected]}><Text style={j.body}>{name}</Text></Pressable>)}</View>
-    <Text style={j.label}>4. Hình ảnh tham khảo</Text><View style={j.photoRow}><Pressable onPress={() => Alert.alert('Camera chưa bật', 'Camera đang được hoãn theo phạm vi hiện tại.')} style={j.addPhoto}><Text style={j.photoAdd}>＋</Text><Text style={j.body}>Thêm ảnh sau</Text></Pressable><View style={j.addPhoto}><Text style={j.photoAdd}>🌿</Text><Text style={j.body}>Ảnh minh họa</Text></View></View>
+    <Text style={j.label}>4. Hình ảnh</Text><View style={j.photoRow}><Pressable onPress={() => Alert.alert('Ảnh', 'Tải ảnh sẽ khả dụng khi dịch vụ lưu trữ được cấu hình.')} style={j.addPhoto}><Text style={j.photoAdd}>＋</Text><Text style={j.body}>Thêm ảnh</Text></Pressable></View>
     <Text style={j.label}>5. Ghi chú <Text style={j.required}>*</Text></Text><TextInput value={note} onChangeText={setNote} multiline placeholder="Mô tả tình trạng, biện pháp chăm sóc..." style={[j.input, j.multiline, error && !note.trim() && j.errorBorder]} />
     <Text style={j.label}>Ngày ghi nhận</Text><TextInput value="Hôm nay" editable={false} style={j.input}/>
-    {error ? <Text style={j.errorText}>Chọn cây và nhập ghi chú để tiếp tục.</Text> : null}<Pressable onPress={save} style={j.submit}><Text style={j.submitText}>{editing ? 'Lưu thay đổi' : 'Lưu ghi nhận'}</Text></Pressable><Text style={j.note}>Lưu hiện chỉ kiểm tra dữ liệu giao diện, chưa tạo nhật ký thật.</Text>
+    {error ? <Text style={j.errorText}>Chọn cây và nhập ghi chú để tiếp tục.</Text> : null}<Pressable onPress={save} style={j.submit}><Text style={j.submitText}>{editing ? 'Lưu thay đổi' : 'Lưu ghi nhận'}</Text></Pressable>
   </ScrollView></SafeAreaView>;
 }
 

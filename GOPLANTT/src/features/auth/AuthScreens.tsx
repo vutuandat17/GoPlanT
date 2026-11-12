@@ -5,7 +5,7 @@ import { SafeAreaView } from '@/components/app-primitives';
 import type { SvgProps } from 'react-native-svg';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
-import { authenticateWithMockAuth } from '@/services/mockAuth';
+import { apiRequest, ApiError, isApiConfigured, type ApiUser, type AuthResult } from '@/services/api';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import RegisterPot from '@/assets/images/figma/auth/signup/signup-23ac7.svg';
 import RegisterLeaf from '@/assets/images/figma/auth/signup/signup-30c2d.svg';
@@ -120,24 +120,46 @@ export function RegisterScreen() {
     return score;
   }, [password]);
 
-  const submit = () => {
+  const submit = async () => {
     const next: Record<string, string> = {};
     if (!name.trim()) next.name = 'Vui lòng nhập họ và tên.';
     const normalizedAccount = account.trim();
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const phoneDigits = normalizedAccount.replace(/\D/g, '');
     const validPhone = /^\+?[\d\s().-]+$/.test(normalizedAccount) && phoneDigits.length >= 9 && phoneDigits.length <= 15;
-    if (!normalizedAccount) next.account = 'Vui lòng nhập email hoặc số điện thoại.';
-    else if (!emailPattern.test(normalizedAccount) && !validPhone) next.account = 'Nhập email hợp lệ hoặc số điện thoại có từ 9 đến 15 chữ số.';
+    if (!normalizedAccount) next.account = isApiConfigured ? 'Vui lòng nhập email.' : 'Vui lòng nhập email hoặc số điện thoại.';
+    else if (isApiConfigured ? !emailPattern.test(normalizedAccount) : !emailPattern.test(normalizedAccount) && !validPhone) {
+      next.account = isApiConfigured ? 'Backend hiện chỉ hỗ trợ đăng ký bằng email.' : 'Nhập email hợp lệ hoặc số điện thoại có từ 9 đến 15 chữ số.';
+    }
     if (recoveryEmail.trim() && !emailPattern.test(recoveryEmail.trim())) next.recoveryEmail = 'Email khôi phục chưa đúng định dạng.';
-    if (password.length < 8) next.password = 'Mật khẩu cần có ít nhất 8 ký tự.';
+    if (password.length < (isApiConfigured ? 12 : 8)) next.password = `Mật khẩu cần có ít nhất ${isApiConfigured ? 12 : 8} ký tự.`;
     if (!confirm || confirm !== password) next.confirm = 'Mật khẩu xác nhận chưa khớp.';
     if (!accepted) next.terms = 'Vui lòng đồng ý với điều khoản để tiếp tục.';
     setErrors(next);
     if (Object.keys(next).length > 0) {
       setShowValidationSummary(true);
     } else {
-      InlineUnavailable('Đăng ký tài khoản chưa kết nối backend trong phiên bản frontend này.');
+      if (!isApiConfigured) {
+        InlineUnavailable('Hãy cấu hình EXPO_PUBLIC_API_URL để đăng ký tài khoản bằng backend.');
+        return;
+      }
+      try {
+        const registration = await apiRequest<{ verificationToken?: string; message: string }>('/api/v1/auth/register', {
+          method: 'POST',
+          body: { displayName: name.trim(), email: normalizedAccount, password },
+        });
+        if (registration.verificationToken) {
+          await apiRequest<void>('/api/v1/auth/verify-email', { method: 'POST', body: { token: registration.verificationToken } });
+          Alert.alert('Đăng ký thành công', 'Email đã được xác minh trong môi trường phát triển. Bạn có thể đăng nhập.');
+        } else {
+          Alert.alert('Đã gửi email xác minh', 'Mở email của bạn và nhấn nút “Xác minh email”. Sau khi xác minh, hãy đăng nhập vào GoPlant.');
+        }
+        setPassword('');
+        setConfirm('');
+        router.replace('/auth/login');
+      } catch (requestError) {
+        Alert.alert('Không thể đăng ký', requestError instanceof ApiError ? requestError.message : 'Vui lòng thử lại sau.');
+      }
     }
   };
 
@@ -242,23 +264,24 @@ export function LoginScreen() {
     setError('');
     setIsSubmitting(true);
     try {
-      const result = await authenticateWithMockAuth(account, password);
-      if (!result.ok) {
-        if (result.reason === 'disabled') {
-          setError('Mock authentication đã bị tắt. Tài khoản demo không thể đăng nhập trong cấu hình này.');
-        } else if (result.reason === 'invalid-credentials') {
-          setError('Email hoặc mật khẩu không chính xác.');
-        } else {
-          setError('Vui lòng nhập email và mật khẩu.');
-        }
+      if (isApiConfigured) {
+        const result = await apiRequest<AuthResult>('/api/v1/auth/login', {
+          method: 'POST',
+          body: { email: account.trim(), password },
+        });
+        const user: ApiUser = result.user;
+        setPassword('');
+        await signIn({ id: user.id, email: user.email, name: user.displayName, role: user.roles.includes('admin') ? 'admin' : 'user' }, result.accessToken);
+        router.replace('/home');
         return;
       }
-
-      setPassword('');
-      signIn(result.user);
-      router.replace('/home');
-    } catch {
-      setError('Không thể hoàn tất đăng nhập demo. Vui lòng thử lại.');
+      if (!isApiConfigured) {
+        setError('Chưa cấu hình địa chỉ máy chủ. Vui lòng thiết lập EXPO_PUBLIC_API_URL.');
+        return;
+      }
+      setError('Không thể kết nối máy chủ. Vui lòng thử lại.');
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : 'Không thể hoàn tất đăng nhập. Vui lòng thử lại.');
     } finally {
       setIsSubmitting(false);
     }
@@ -298,7 +321,7 @@ export function LoginScreen() {
           <Pressable onPress={() => InlineUnavailable('Khôi phục mật khẩu chưa được kết nối dịch vụ xác thực.')} style={styles.forgotButton}><Text style={styles.forgotText}>Quên mật khẩu?</Text></Pressable>
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
           <Pressable disabled={isSubmitting} onPress={submit} style={({ pressed }) => [styles.loginSubmit, pressed && styles.pressed, isSubmitting && styles.loginSubmitDisabled]}><Text style={styles.loginSubmitLabel}>{isSubmitting ? 'Đang đăng nhập…' : 'Đăng nhập'}</Text><View style={styles.loginSubmitIcon}><ProfileIcon width={15} height={15} /></View></Pressable>
-          <View style={styles.successHint}><InfoIcon width={14} height={14} /><Text style={styles.helperText}>Đăng nhập demo thành công sẽ mở Trang chủ và các giao diện hiện có.</Text></View>
+          <View style={styles.successHint}><InfoIcon width={14} height={14} /><Text style={styles.helperText}>Đăng nhập bằng tài khoản GoPlant của bạn.</Text></View>
 
           <View style={styles.orRow}><View style={styles.rule} /><Text style={styles.orText}>HOẶC TIẾP TỤC VỚI</Text><View style={styles.rule} /></View>
           <View style={styles.socialRow}>

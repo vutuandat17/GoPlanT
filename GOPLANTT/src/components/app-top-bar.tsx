@@ -1,4 +1,4 @@
-import { Alert, Pressable, StyleSheet, Text, View } from '@/components/app-primitives';
+import { Pressable, StyleSheet, Text, View } from '@/components/app-primitives';
 import { Image } from 'expo-image';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
@@ -15,9 +15,6 @@ export function AppTopBar({ title }: { title: string }) {
         </View>
       </View>
       <View style={styles.headerActions}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Thông báo" onPress={() => Alert.alert('Bản xem trước', 'Thông báo sẽ được triển khai ở đợt tiếp theo.')} style={styles.iconButton}>
-          <Text style={styles.headerIcon}>♧</Text>
-        </Pressable>
         <AccountButton />
       </View>
     </View>

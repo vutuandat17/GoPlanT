@@ -1,0 +1,90 @@
+import { fetch as expoFetch } from 'expo/fetch';
+import { File } from 'expo-file-system';
+
+export const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '') ?? '';
+export const isApiConfigured = Boolean(apiBaseUrl);
+
+export class ApiError extends Error {
+  constructor(message: string, readonly status?: number) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+type RequestOptions = {
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  token?: string | null;
+  body?: unknown;
+};
+
+export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  if (!apiBaseUrl) throw new ApiError('Chưa cấu hình EXPO_PUBLIC_API_URL.');
+
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      method: options.method ?? 'GET',
+      headers: {
+        Accept: 'application/json',
+        ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      },
+      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+    });
+  } catch {
+    throw new ApiError('Không kết nối được máy chủ. Kiểm tra backend và địa chỉ API.');
+  }
+
+  if (!response.ok) {
+    let message = `Yêu cầu thất bại (${response.status}).`;
+    try {
+      const payload = await response.json() as { detail?: string; message?: string; title?: string };
+      message = payload.detail ?? payload.message ?? payload.title ?? message;
+    } catch {
+      // Keep the status-based message if the response has no JSON body.
+    }
+    throw new ApiError(message, response.status);
+  }
+  if (response.status === 204) return undefined as T;
+  return response.json() as Promise<T>;
+}
+
+export async function uploadPlantPhoto(plantId: string, token: string, photo: { uri: string; mimeType?: string | null; fileName?: string | null }) {
+  if (!apiBaseUrl) throw new ApiError('Chưa cấu hình EXPO_PUBLIC_API_URL.');
+  const mimeType = photo.mimeType ?? (photo.fileName?.toLocaleLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
+  if (mimeType !== 'image/jpeg' && mimeType !== 'image/png') {
+    throw new ApiError('Ảnh cần ở định dạng JPEG hoặc PNG.');
+  }
+  const file = new File(photo.uri);
+  const body = new FormData();
+  body.append('file', file, photo.fileName ?? `plant-${plantId}.jpg`);
+  let response: Response;
+  try {
+    response = await expoFetch(`${apiBaseUrl}/api/v1/plants/${plantId}/photo`, {
+      method: 'POST', headers: { Accept: 'application/json', Authorization: `Bearer ${token}` }, body,
+    });
+  } catch (error) {
+    const reason = error instanceof Error && error.message ? ` Chi tiết mạng: ${error.message}` : '';
+    throw new ApiError(`Không gửi được yêu cầu tải ảnh tới ${apiBaseUrl}. Kiểm tra URL API của ứng dụng và kết nối mạng.${reason}`);
+  }
+  if (!response.ok) {
+    let message = `Không tải được ảnh (${response.status}).`;
+    try {
+      const payload = await response.json() as { detail?: string; message?: string; title?: string };
+      message = payload.detail ?? payload.message ?? payload.title ?? message;
+    } catch { /* Keep the status-based message when the response has no JSON body. */ }
+    throw new ApiError(message, response.status);
+  }
+}
+
+export type ApiUser = { id: string; email: string; displayName: string; roles: string[] };
+export type AuthResult = { accessToken: string; tokenType: string; expiresIn: number; user: ApiUser };
+export type PlantCatalogItem = { id: string; commonName: string; scientificName: string; category: string };
+export type ApiGarden = {
+  id: string; name: string; locationType: string; locationDetail: string | null; description: string | null;
+  createdAt: string; updatedAt: string;
+};
+export type ApiOwnedPlant = {
+  id: string; catalogId: string; gardenId: string | null; displayName: string; commonName: string;
+  scientificName: string; specificLocation: string | null; plantedOn: string | null; note: string | null; addedAt: string; photoUpdatedAt: string | null;
+};
