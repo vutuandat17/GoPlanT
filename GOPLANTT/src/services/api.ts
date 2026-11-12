@@ -1,3 +1,6 @@
+import { fetch as expoFetch } from 'expo/fetch';
+import { File } from 'expo-file-system';
+
 export const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '') ?? '';
 export const isApiConfigured = Boolean(apiBaseUrl);
 
@@ -52,15 +55,17 @@ export async function uploadPlantPhoto(plantId: string, token: string, photo: { 
   if (mimeType !== 'image/jpeg' && mimeType !== 'image/png') {
     throw new ApiError('Ảnh cần ở định dạng JPEG hoặc PNG.');
   }
+  const file = new File(photo.uri);
   const body = new FormData();
-  body.append('file', { uri: photo.uri, name: photo.fileName ?? `plant-${plantId}.jpg`, type: mimeType } as unknown as Blob);
+  body.append('file', file, photo.fileName ?? `plant-${plantId}.jpg`);
   let response: Response;
   try {
-    response = await fetch(`${apiBaseUrl}/api/v1/plants/${plantId}/photo`, {
+    response = await expoFetch(`${apiBaseUrl}/api/v1/plants/${plantId}/photo`, {
       method: 'POST', headers: { Accept: 'application/json', Authorization: `Bearer ${token}` }, body,
     });
-  } catch {
-    throw new ApiError('Không kết nối được máy chủ để tải ảnh lên.');
+  } catch (error) {
+    const reason = error instanceof Error && error.message ? ` Chi tiết mạng: ${error.message}` : '';
+    throw new ApiError(`Không gửi được yêu cầu tải ảnh tới ${apiBaseUrl}. Kiểm tra URL API của ứng dụng và kết nối mạng.${reason}`);
   }
   if (!response.ok) {
     let message = `Không tải được ảnh (${response.status}).`;
