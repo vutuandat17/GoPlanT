@@ -33,7 +33,13 @@
           "imageWidth": 76
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Cho phép GoPlant truy cập ảnh để cập nhật ảnh cây trồng."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { useAuthSession } from '@/features/auth/AuthSession';
-import { apiRequest, isApiConfigured, type ApiGarden, type ApiOwnedPlant, type PlantCatalogItem } from '@/services/api';
+import { apiRequest, isApiConfigured, uploadPlantPhoto, type ApiGarden, type ApiOwnedPlant, type PlantCatalogItem } from '@/services/api';
+import { speciesDetails } from '@/features/plants/speciesDetails';
 
 export type PlantProfile = {
   id: string;
@@ -41,6 +42,7 @@ export type OwnedPlant = {
   plantedAt: string;
   location: string;
   note: string;
+  photoUpdatedAt?: string | null;
 };
 
 export type GardenProfile = {
@@ -58,18 +60,22 @@ type PlantDataContextValue = {
   favorites: string[];
   isLoading: boolean;
   apiError: string;
+  filterStates: Record<string, Record<string, string[]>>;
+  setFilterState: (context: string, filters: Record<string, string[]>) => void;
   refresh: () => Promise<void>;
   addPlant: (plant: Omit<OwnedPlant, 'id'>) => Promise<string>;
   updatePlant: (id: string, plant: Omit<OwnedPlant, 'id'>) => Promise<void>;
+  updatePlantPhoto: (id: string, photo: { uri: string; mimeType?: string | null; fileName?: string | null }) => Promise<void>;
   removePlant: (id: string) => Promise<void>;
   addGarden: (garden: Omit<GardenProfile, 'id'>) => Promise<string>;
+  removeGarden: (id: string) => Promise<void>;
   toggleFavorite: (catalogId: string) => Promise<void>;
 };
 
 const PlantDataContext = createContext<PlantDataContextValue | null>(null);
 
 function mapCatalog(plant: PlantCatalogItem): PlantProfile {
-  return { id: plant.id, name: plant.commonName, scientificName: plant.scientificName, category: plant.category };
+  return { id: plant.id, name: plant.commonName, scientificName: plant.scientificName, category: plant.category, ...speciesDetails(plant.scientificName) };
 }
 
 function mapOwnedPlant(plant: ApiOwnedPlant, catalog: PlantProfile[]): OwnedPlant {
@@ -83,6 +89,7 @@ function mapOwnedPlant(plant: ApiOwnedPlant, catalog: PlantProfile[]): OwnedPlan
     plantedAt: plant.plantedOn ?? '',
     location: plant.specificLocation ?? '',
     note: plant.note ?? '',
+    photoUpdatedAt: plant.photoUpdatedAt,
   };
 }
 
@@ -106,6 +113,10 @@ export function PlantDataProvider({ children }: { children: ReactNode }) {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState('');
+  const [filterStates, setFilterStates] = useState<Record<string, Record<string, string[]>>>({});
+  const setFilterState = useCallback((context: string, filters: Record<string, string[]>) => {
+    setFilterStates((current) => ({ ...current, [context]: filters }));
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!isApiConfigured) return;
@@ -135,7 +146,7 @@ export function PlantDataProvider({ children }: { children: ReactNode }) {
   }, [isReady, refresh]);
 
   const value = useMemo<PlantDataContextValue>(() => ({
-    catalog, ownedPlants, gardens, favorites, isLoading, apiError, refresh,
+    catalog, ownedPlants, gardens, favorites, isLoading, apiError, refresh, filterStates, setFilterState,
     addPlant: async (plant) => {
       if (isApiConfigured && accessToken) {
         const created = await apiRequest<ApiOwnedPlant>('/api/v1/plants', {
@@ -160,6 +171,11 @@ export function PlantDataProvider({ children }: { children: ReactNode }) {
       }
       throw new Error('Cần đăng nhập và kết nối máy chủ để cập nhật cây.');
     },
+    updatePlantPhoto: async (id, photo) => {
+      if (!isApiConfigured || !accessToken) throw new Error('Cần đăng nhập và kết nối máy chủ để tải ảnh lên.');
+      await uploadPlantPhoto(id, accessToken, photo);
+      await refresh();
+    },
     removePlant: async (id) => {
       if (isApiConfigured && accessToken) await apiRequest<void>(`/api/v1/plants/${id}`, { method: 'DELETE', token: accessToken });
       if (!isApiConfigured || !accessToken) throw new Error('Cần đăng nhập và kết nối máy chủ để xóa cây.');
@@ -176,6 +192,12 @@ export function PlantDataProvider({ children }: { children: ReactNode }) {
       }
       throw new Error('Cần đăng nhập và kết nối máy chủ để tạo khu vườn.');
     },
+    removeGarden: async (id) => {
+      if (!isApiConfigured || !accessToken) throw new Error('Cần đăng nhập và kết nối máy chủ để xóa khu vườn.');
+      await apiRequest<void>(`/api/v1/gardens/${id}`, { method: 'DELETE', token: accessToken });
+      setGardens((items) => items.filter((item) => item.id !== id));
+      setOwnedPlants((items) => items.map((item) => item.gardenId === id ? { ...item, gardenId: null } : item));
+    },
     toggleFavorite: async (catalogId) => {
       const isFavorite = favorites.includes(catalogId);
       try {
@@ -187,7 +209,7 @@ export function PlantDataProvider({ children }: { children: ReactNode }) {
         setApiError(error instanceof Error ? error.message : 'Không thể cập nhật danh sách yêu thích.');
       }
     },
-  }), [catalog, ownedPlants, gardens, favorites, isLoading, apiError, accessToken, refresh]);
+  }), [catalog, ownedPlants, gardens, favorites, isLoading, apiError, accessToken, refresh, filterStates, setFilterState]);
 
   return <PlantDataContext.Provider value={value}>{children}</PlantDataContext.Provider>;
 }

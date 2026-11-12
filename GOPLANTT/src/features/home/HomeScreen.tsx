@@ -6,6 +6,9 @@ import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { TabScreenTransition } from '@/components/tab-screen-transition';
 import { usePlantData } from '@/features/plants/PlantDataStore';
+import { PlantArtwork } from '@/features/plants/PlantArtwork';
+import { apiBaseUrl } from '@/services/api';
+import { matchesPlantFilters } from '@/features/plants/plantFilters';
 
 const categories = ['Tất cả', 'Cây ăn quả', 'Cây rau lá', 'Hoa cảnh', 'Cây mọng nước', 'Cây gia vị'];
 
@@ -19,12 +22,22 @@ function SectionTitle({ title, trailing }: { title: string; trailing?: string })
 }
 
 export default function HomeScreen() {
-  const { user } = useAuthSession();
-  const { catalog, gardens, ownedPlants, isLoading, apiError } = usePlantData();
+  const { user, accessToken } = useAuthSession();
+  const { catalog, gardens, ownedPlants, isLoading, apiError, filterStates } = usePlantData();
   const [category, setCategory] = useState(categories[0]);
   const [query, setQuery] = useState('');
 
   const navigate = (route: string) => router.push(route as never);
+  const discoveries = catalog.filter((plant) => {
+    const nameAndCategory = `${plant.name} ${plant.category}`.toLocaleLowerCase();
+    const categoryMatch = category === 'Tất cả'
+      || category === 'Cây ăn quả' && /ăn quả|trái cây/.test(nameAndCategory)
+      || category === 'Cây rau lá' && /rau ăn lá|rau gia vị/.test(nameAndCategory)
+      || category === 'Hoa cảnh' && /hoa/.test(nameAndCategory)
+      || category === 'Cây mọng nước' && /nha đam|lưỡi hổ|mọng nước/.test(nameAndCategory)
+      || category === 'Cây gia vị' && /gia vị/.test(nameAndCategory);
+    return categoryMatch && matchesPlantFilters(plant, filterStates.home ?? {});
+  });
 
   return (
     <TabScreenTransition>
@@ -49,7 +62,7 @@ export default function HomeScreen() {
         <View style={styles.searchBox}>
           <Text style={styles.searchIcon}>⌕</Text>
           <TextInput value={query} onChangeText={setQuery} onSubmitEditing={() => router.push({ pathname: '/search', params: { query } } as never)} placeholder="Tìm kiếm giống cây, sâu bệnh, kỹ thuật..." placeholderTextColor="#7B8580" style={styles.searchInput} returnKeyType="search" />
-          <Pressable accessibilityRole="button" accessibilityLabel="Bộ lọc" onPress={() => navigate('/filter')} style={styles.searchAction}><Text>☷</Text></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Bộ lọc" onPress={() => router.push({ pathname: '/filter', params: { context: 'home' } } as never)} style={styles.searchAction}><Text>☷</Text></Pressable>
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
@@ -82,9 +95,8 @@ export default function HomeScreen() {
           <Text style={styles.bodyText}>Tạo không gian riêng để sắp xếp và chăm sóc cây.</Text>
           <Pressable onPress={() => navigate('/garden/create')} style={styles.emptyHomeButton}><Text style={styles.white}>＋  Tạo khu vườn mới</Text></Pressable>
         </View> : null}
-        {gardens.length === 0 ? <View style={styles.emptyHomeCard}><Text style={styles.emptyHomeArt}>⌂</Text><Text style={styles.emptyHomeTitle}>Bắt đầu tạo khu vườn đầu tiên</Text><Text style={styles.bodyText}>Tạo không gian riêng để sắp xếp và chăm sóc cây.</Text><Pressable onPress={() => navigate('/garden/create')} style={styles.emptyHomeButton}><Text style={styles.white}>＋  Tạo khu vườn mới</Text></Pressable></View> : null}
         <SectionTitle title="Cây trồng & chăm sóc" trailing={`${ownedPlants.length} cây`} />
-        {ownedPlants.map((plant) => <Pressable key={plant.id} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id } } as never)} style={styles.suggestionCard}><Text style={styles.plantEmoji}>♧</Text><View style={styles.flexCopy}><Text style={styles.cardTitle}>{plant.name}</Text><Text style={styles.bodyText}>{plant.location || plant.category}</Text></View></Pressable>)}
+        {ownedPlants.map((plant) => <Pressable key={plant.id} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id } } as never)} style={styles.suggestionCard}><PlantArtwork category={plant.category} accessToken={accessToken} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null} style={styles.suggestionPlantArtwork}/><View style={styles.flexCopy}><Text style={styles.cardTitle}>{plant.name}</Text><Text style={styles.bodyText}>{plant.location || plant.category}</Text></View></Pressable>)}
         {ownedPlants.length === 0 ? <View style={styles.emptyHomeCard}>
           <Text style={styles.emptyHomeArt}>♧</Text>
           <Text style={styles.emptyHomeTitle}>Chưa có cây nào trong vườn</Text>
@@ -93,8 +105,8 @@ export default function HomeScreen() {
         </View> : null}
         {apiError ? <Text style={styles.bodyText}>{apiError}</Text> : null}
         {isLoading ? <Text style={styles.bodyText}>Đang tải dữ liệu…</Text> : null}
-        <SectionTitle title="Khám phá cây" trailing={`${catalog.length} cây`} />
-        {catalog.slice(0, 4).map((plant) => <Pressable key={plant.id} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name } } as never)} style={styles.suggestionCard}><Text style={styles.plantEmoji}>♧</Text><View style={styles.flexCopy}><Text style={styles.cardTitle}>{plant.name}</Text><Text style={styles.bodyText}>{plant.scientificName} • {plant.category}</Text></View></Pressable>)}
+        <View style={styles.exploreTitleRow}><Text style={styles.sectionTitle}>Khám phá cây</Text><Pressable accessibilityRole="button" accessibilityLabel="Xem tất cả các loại cây" onPress={() => router.push({ pathname: '/search', params: { query: '' } } as never)} style={styles.exploreAll}><Text style={styles.sectionTrailing}>{catalog.length} cây</Text><Text style={styles.exploreArrow}>›</Text></Pressable></View>
+        {discoveries.slice(0, 4).map((plant) => <Pressable key={plant.id} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name } } as never)} style={styles.suggestionCard}><PlantArtwork category={plant.category} style={styles.suggestionPlantArtwork}/><View style={styles.flexCopy}><Text style={styles.cardTitle}>{plant.name}</Text><Text style={styles.bodyText}>{plant.scientificName} • {plant.category}</Text></View></Pressable>)}
       </ScrollView>
     </TabScreenTransition>
   );
@@ -140,6 +152,9 @@ const styles = StyleSheet.create({
   shortcutGlyph: { color: C.forest, fontSize: 18 },
   shortcutLabel: { color: C.text, fontFamily: F.regular, fontSize: 10, textAlign: 'center' },
   sectionTitleRow: { marginTop: 8, marginBottom: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  exploreTitleRow: { marginTop: 8, marginBottom: 1, minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  exploreAll: { minHeight: 30, flexDirection: 'row', alignItems: 'center', gap: 7 },
+  exploreArrow: { color: C.primary, fontFamily: F.bold, fontSize: 24, lineHeight: 28 },
   sectionTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14, lineHeight: 20 },
   sectionTrailing: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11 },
   horizontalCards: { gap: 10, paddingRight: 4 },
@@ -149,6 +164,7 @@ const styles = StyleSheet.create({
   emptyHomeTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14, textAlign: 'center' },
   emptyHomeButton: { minHeight: 40, paddingHorizontal: 14, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
   suggestionCard: { padding: 12, borderRadius: 13, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  suggestionPlantArtwork: { width: 48, height: 48, borderRadius: 10 },
   newUserTip: { padding: 12, borderRadius: 13, backgroundColor: '#E3F2E8', gap: 4 },
   gardenName: { marginTop: 7, color: C.forest, fontFamily: F.semiBold, fontSize: 12, lineHeight: 17 },
   divider: { height: StyleSheet.hairlineWidth, marginVertical: 7, backgroundColor: '#D8E2DA' },

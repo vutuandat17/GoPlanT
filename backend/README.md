@@ -95,14 +95,15 @@ Login returns a short-lived JWT (15 minutes by default); send it as `Authorizati
 | GET | `/api/v1/auth/me` | User | Return the current account |
 | GET | `/api/v1/favorites` | User | List favorite catalog entries |
 | POST, DELETE | `/api/v1/catalog/plants/{id}/favorite` | User | Add or remove a favorite |
+| POST, GET | `/api/v1/plants/{id}/photo` | Plant owner | Upload and view the private plant photo |
 
-Owned garden/plant queries are scoped by the authenticated JWT subject. The database also constrains garden ownership on a plant assignment. On startup, the backend idempotently adds 21 commonly grown indoor, flowering, herb and vegetable plants, with scientific names and Kew Plants of the World Online reference links. A verified active admin account is required for these curated rows to be seeded. No unverified care instructions or mock users are seeded. New admin-created plants require at least a source title or URL and are published with the admin recorded as reviewer.
+Owned garden/plant queries are scoped by the authenticated JWT subject. The database also constrains garden ownership on a plant assignment. Plant owners can upload JPEG or PNG photos up to 5 MB; uploads are validated and stored in PostgreSQL, and only the owner can retrieve them. On startup, the backend idempotently adds 21 commonly grown indoor, flowering, herb and vegetable plants, with scientific names and Kew Plants of the World Online reference links. A verified active admin account is required for these curated rows to be seeded. No unverified care instructions or mock users are seeded. New admin-created plants require at least a source title or URL and are published with the admin recorded as reviewer.
 
 ## V1 defaults and remaining scope
 
 This V1 records implementation defaults approved for this work: catalog states are `draft`, `approved`, `rejected`; a skipped care occurrence is to be treated as immutable history when that feature is added; catalog source fields for the initial API are `common_name`, `scientific_name`, and `category`. The account invariant is enforced transactionally by the service and unique constraints; active accounts are only promoted alongside verification of their primary email.
 
-The initial Flyway migration covers identity/RBAC roles, email verification tokens, catalog/source metadata, gardens, owned plants and favorites. Journals, care schedules/occurrences, metrics/units, image storage, account recovery, refresh sessions, admin audit, retention/backup policy and production operations remain future work. Their domain codes and operational policies need review before those modules are added.
+Flyway migrations cover identity/RBAC roles, email verification tokens, catalog/source metadata, gardens, owned plants, favorites and private user plant photos. Journals, care schedules/occurrences, metrics/units, account recovery, refresh sessions, admin audit, retention/backup policy and production operations remain future work. Their domain codes and operational policies need review before those modules are added.
 
 ## Containers
 

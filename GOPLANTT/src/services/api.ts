@@ -46,6 +46,32 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return response.json() as Promise<T>;
 }
 
+export async function uploadPlantPhoto(plantId: string, token: string, photo: { uri: string; mimeType?: string | null; fileName?: string | null }) {
+  if (!apiBaseUrl) throw new ApiError('Chưa cấu hình EXPO_PUBLIC_API_URL.');
+  const mimeType = photo.mimeType ?? (photo.fileName?.toLocaleLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
+  if (mimeType !== 'image/jpeg' && mimeType !== 'image/png') {
+    throw new ApiError('Ảnh cần ở định dạng JPEG hoặc PNG.');
+  }
+  const body = new FormData();
+  body.append('file', { uri: photo.uri, name: photo.fileName ?? `plant-${plantId}.jpg`, type: mimeType } as unknown as Blob);
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}/api/v1/plants/${plantId}/photo`, {
+      method: 'POST', headers: { Accept: 'application/json', Authorization: `Bearer ${token}` }, body,
+    });
+  } catch {
+    throw new ApiError('Không kết nối được máy chủ để tải ảnh lên.');
+  }
+  if (!response.ok) {
+    let message = `Không tải được ảnh (${response.status}).`;
+    try {
+      const payload = await response.json() as { detail?: string; message?: string; title?: string };
+      message = payload.detail ?? payload.message ?? payload.title ?? message;
+    } catch { /* Keep the status-based message when the response has no JSON body. */ }
+    throw new ApiError(message, response.status);
+  }
+}
+
 export type ApiUser = { id: string; email: string; displayName: string; roles: string[] };
 export type AuthResult = { accessToken: string; tokenType: string; expiresIn: number; user: ApiUser };
 export type PlantCatalogItem = { id: string; commonName: string; scientificName: string; category: string };
@@ -55,5 +81,5 @@ export type ApiGarden = {
 };
 export type ApiOwnedPlant = {
   id: string; catalogId: string; gardenId: string | null; displayName: string; commonName: string;
-  scientificName: string; specificLocation: string | null; plantedOn: string | null; note: string | null; addedAt: string;
+  scientificName: string; specificLocation: string | null; plantedOn: string | null; note: string | null; addedAt: string; photoUpdatedAt: string | null;
 };

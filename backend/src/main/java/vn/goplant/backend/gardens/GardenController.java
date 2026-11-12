@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.annotation.Transactional;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -49,8 +50,13 @@ public class GardenController {
 
     @DeleteMapping("/gardens/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Transactional
     public void deleteGarden(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
-        int changed = jdbc.update("DELETE FROM gardens WHERE id=? AND owner_user_id=?", id, owner(jwt));
+        UUID owner = owner(jwt);
+        int exists = jdbc.queryForObject("SELECT count(*) FROM gardens WHERE id=? AND owner_user_id=?", Integer.class, id, owner);
+        if (exists == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        jdbc.update("UPDATE user_plants SET garden_id=NULL,updated_at=now() WHERE garden_id=? AND owner_user_id=?", id, owner);
+        int changed = jdbc.update("DELETE FROM gardens WHERE id=? AND owner_user_id=?", id, owner);
         if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
     }
 
@@ -58,12 +64,14 @@ public class GardenController {
     public List<OwnedPlant> plants(@AuthenticationPrincipal Jwt jwt) {
         return jdbc.query("""
                 SELECT p.id,p.plant_catalog_id,p.garden_id,p.display_name,p.specific_location,p.planted_on,p.note,p.added_at,
-                       c.common_name,c.scientific_name
+                       c.common_name,c.scientific_name,ph.updated_at AS photo_updated_at
                 FROM user_plants p JOIN plant_catalog c ON c.id=p.plant_catalog_id
+                LEFT JOIN user_plant_photos ph ON ph.user_plant_id=p.id
                 WHERE p.owner_user_id=? AND p.archived_at IS NULL ORDER BY p.created_at DESC
                 """, (rs, row) -> new OwnedPlant(rs.getObject("id", UUID.class), rs.getObject("plant_catalog_id", UUID.class),
                 rs.getObject("garden_id", UUID.class), rs.getString("display_name"), rs.getString("common_name"), rs.getString("scientific_name"),
-                rs.getString("specific_location"), rs.getObject("planted_on", java.time.LocalDate.class), rs.getString("note"), rs.getTimestamp("added_at").toInstant()), owner(jwt));
+                rs.getString("specific_location"), rs.getObject("planted_on", java.time.LocalDate.class), rs.getString("note"), rs.getTimestamp("added_at").toInstant(),
+                rs.getTimestamp("photo_updated_at") == null ? null : rs.getTimestamp("photo_updated_at").toInstant()), owner(jwt));
     }
 
     @PostMapping("/plants")
@@ -81,11 +89,13 @@ public class GardenController {
                 VALUES (?,?,?,?,?,?,?,?)
                 """, id, owner, request.gardenId(), request.catalogId(), request.displayName().trim(), blankToNull(request.specificLocation()), request.plantedOn(), blankToNull(request.note()));
         return jdbc.queryForObject("""
-                SELECT p.id,p.plant_catalog_id,p.garden_id,p.display_name,p.specific_location,p.planted_on,p.note,p.added_at,c.common_name,c.scientific_name
-                FROM user_plants p JOIN plant_catalog c ON c.id=p.plant_catalog_id WHERE p.id=? AND p.owner_user_id=?
+                SELECT p.id,p.plant_catalog_id,p.garden_id,p.display_name,p.specific_location,p.planted_on,p.note,p.added_at,c.common_name,c.scientific_name,ph.updated_at AS photo_updated_at
+                FROM user_plants p JOIN plant_catalog c ON c.id=p.plant_catalog_id
+                LEFT JOIN user_plant_photos ph ON ph.user_plant_id=p.id WHERE p.id=? AND p.owner_user_id=?
                 """, (rs, row) -> new OwnedPlant(rs.getObject("id", UUID.class), rs.getObject("plant_catalog_id", UUID.class), rs.getObject("garden_id", UUID.class),
                 rs.getString("display_name"), rs.getString("common_name"), rs.getString("scientific_name"), rs.getString("specific_location"),
-                rs.getObject("planted_on", java.time.LocalDate.class), rs.getString("note"), rs.getTimestamp("added_at").toInstant()), id, owner);
+                rs.getObject("planted_on", java.time.LocalDate.class), rs.getString("note"), rs.getTimestamp("added_at").toInstant(),
+                rs.getTimestamp("photo_updated_at") == null ? null : rs.getTimestamp("photo_updated_at").toInstant()), id, owner);
     }
 
     @DeleteMapping("/plants/{id}")
@@ -107,11 +117,13 @@ public class GardenController {
                 """, request.displayName().trim(), request.gardenId(), blankToNull(request.specificLocation()), request.plantedOn(), blankToNull(request.note()), id, owner);
         if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         return jdbc.queryForObject("""
-                SELECT p.id,p.plant_catalog_id,p.garden_id,p.display_name,p.specific_location,p.planted_on,p.note,p.added_at,c.common_name,c.scientific_name
-                FROM user_plants p JOIN plant_catalog c ON c.id=p.plant_catalog_id WHERE p.id=? AND p.owner_user_id=?
+                SELECT p.id,p.plant_catalog_id,p.garden_id,p.display_name,p.specific_location,p.planted_on,p.note,p.added_at,c.common_name,c.scientific_name,ph.updated_at AS photo_updated_at
+                FROM user_plants p JOIN plant_catalog c ON c.id=p.plant_catalog_id
+                LEFT JOIN user_plant_photos ph ON ph.user_plant_id=p.id WHERE p.id=? AND p.owner_user_id=?
                 """, (rs, row) -> new OwnedPlant(rs.getObject("id", UUID.class), rs.getObject("plant_catalog_id", UUID.class), rs.getObject("garden_id", UUID.class),
                 rs.getString("display_name"), rs.getString("common_name"), rs.getString("scientific_name"), rs.getString("specific_location"),
-                rs.getObject("planted_on", java.time.LocalDate.class), rs.getString("note"), rs.getTimestamp("added_at").toInstant()), id, owner);
+                rs.getObject("planted_on", java.time.LocalDate.class), rs.getString("note"), rs.getTimestamp("added_at").toInstant(),
+                rs.getTimestamp("photo_updated_at") == null ? null : rs.getTimestamp("photo_updated_at").toInstant()), id, owner);
     }
 
     private UUID owner(Jwt jwt) { return UUID.fromString(jwt.getSubject()); }
@@ -122,7 +134,7 @@ public class GardenController {
                                 @NotNull @Pattern(regexp="balcony|rooftop|garden|indoor|greenhouse|other") String locationType,
                                 @Size(max=240) String locationDetail, String description) {}
     public record OwnedPlant(UUID id, UUID catalogId, UUID gardenId, String displayName, String commonName, String scientificName,
-                             String specificLocation, java.time.LocalDate plantedOn, String note, Instant addedAt) {}
+                             String specificLocation, java.time.LocalDate plantedOn, String note, Instant addedAt, Instant photoUpdatedAt) {}
     public record OwnedPlantRequest(@NotNull UUID catalogId, UUID gardenId, @NotBlank @Size(max=200) String displayName,
                                     @Size(max=200) String specificLocation, java.time.LocalDate plantedOn, String note) {}
     public record OwnedPlantUpdate(@NotBlank @Size(max=200) String displayName, UUID gardenId,

@@ -66,4 +66,4 @@ Sau khi đăng nhập bằng tài khoản admin, mở **Tài khoản → Quản 
 - [Frontend Expo/React Native](GOPLANTT/README.md)
 - [Backend Spring Boot, PostgreSQL, SMTP và API](backend/README.md)
 
-Backend hiện chưa có API cho nhật ký chăm sóc, lịch nhắc, thời tiết, cảm biến, lưu ảnh, đổi/khôi phục mật khẩu, xuất hoặc xóa tài khoản. Các phần chưa kết nối không ghi dữ liệu nghiệp vụ giả.
+Người dùng có thể thay ảnh minh họa mặc định của cây mình sở hữu bằng ảnh JPEG/PNG; ảnh được lưu riêng tư trong PostgreSQL. Backend hiện chưa có API cho nhật ký chăm sóc, lịch nhắc, thời tiết, cảm biến, đổi/khôi phục mật khẩu, xuất hoặc xóa tài khoản. Các phần chưa kết nối không ghi dữ liệu nghiệp vụ giả.

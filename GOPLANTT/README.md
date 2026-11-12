@@ -25,6 +25,9 @@ Backend giữ định danh quản trị hiện có `admin@goplant.test`. Bootstr
 - Danh mục cây đã duyệt, tìm kiếm, yêu thích.
 - Quản trị viên có thể thêm cây vào danh mục chung kèm nguồn tham khảo.
 - Tạo và xem khu vườn; thêm, sửa và xóa cây sở hữu.
+- Hồ sơ chi tiết 21 loài phổ biến có mô tả nhận diện, vùng phân bố khái quát, lưu ý an toàn và liên kết tra cứu Plants of the World Online; mục chăm sóc chưa có dữ liệu vẫn được ghi rõ thay vì tự suy đoán.
+- Bộ lọc được áp dụng theo từng tab: thư viện ở Trang Chủ, vườn, cây sở hữu, khu vườn trong Lịch chăm sóc, cây trong Nhật ký và Theo dõi.
+- Mỗi cây hiển thị ảnh minh họa mặc định; tại chi tiết cây, chọn **Thay ảnh cây** để tải ảnh JPEG/PNG tối đa 5 MB lên backend. Ảnh riêng tư chỉ chủ sở hữu xem được và được lưu trong PostgreSQL.
 - Access token được lưu bằng Expo SecureStore trên thiết bị; trình duyệt dùng local storage.
 
 Backend hiện chưa cung cấp API cho nhật ký chăm sóc, lịch chăm sóc, thời tiết, cảm biến, cập nhật hồ sơ cá nhân, đổi/khôi phục mật khẩu, xuất dữ liệu hoặc xóa tài khoản. Các màn tương ứng chỉ hiển thị dữ liệu trống hoặc trạng thái nghiệp vụ; không xác nhận thao tác chưa được lưu.
