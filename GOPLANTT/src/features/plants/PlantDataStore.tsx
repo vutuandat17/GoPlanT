@@ -1,4 +1,7 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+
+import { useAuthSession } from '@/features/auth/AuthSession';
+import { apiRequest, isApiConfigured, type ApiGarden, type ApiOwnedPlant, type PlantCatalogItem } from '@/services/api';
 
 export type PlantProfile = {
   id: string;
@@ -31,6 +34,7 @@ export type PlantProfile = {
 export type OwnedPlant = {
   id: string;
   catalogId: string;
+  gardenId?: string | null;
   name: string;
   scientificName: string;
   category: string;
@@ -39,40 +43,151 @@ export type OwnedPlant = {
   note: string;
 };
 
-export const plantCatalog: PlantProfile[] = [
-  { id: 'monstera-deliciosa', name: 'Trầu bà lá xẻ', scientificName: 'Monstera deliciosa', category: 'Cây cảnh' },
-  { id: 'epipremnum-marble-queen', name: 'Trầu bà cẩm thạch', scientificName: "Epipremnum aureum 'Marble Queen'", category: 'Cây cảnh' },
-  { id: 'philodendron-hope', name: 'Trầu bà Thanh Xuân', scientificName: 'Philodendron bipinnatifidum', category: 'Cây cảnh' },
-  { id: 'philodendron-imperial-red', name: 'Trầu bà Đế Vương đỏ', scientificName: "Philodendron 'Imperial Red'", category: 'Cây cảnh' },
-  { id: 'philodendron-pedatum', name: 'Trầu bà Tay Phật', scientificName: 'Philodendron pedatum', category: 'Cây cảnh' },
-];
+export type GardenProfile = {
+  id: string;
+  name: string;
+  locationType: string;
+  locationDetail: string;
+  description: string;
+};
 
 type PlantDataContextValue = {
+  catalog: PlantProfile[];
   ownedPlants: OwnedPlant[];
+  gardens: GardenProfile[];
   favorites: string[];
-  addPlant: (plant: Omit<OwnedPlant, 'id'>) => string;
-  updatePlant: (id: string, plant: Omit<OwnedPlant, 'id'>) => void;
-  removePlant: (id: string) => void;
-  toggleFavorite: (catalogId: string) => void;
+  isLoading: boolean;
+  apiError: string;
+  refresh: () => Promise<void>;
+  addPlant: (plant: Omit<OwnedPlant, 'id'>) => Promise<string>;
+  updatePlant: (id: string, plant: Omit<OwnedPlant, 'id'>) => Promise<void>;
+  removePlant: (id: string) => Promise<void>;
+  addGarden: (garden: Omit<GardenProfile, 'id'>) => Promise<string>;
+  toggleFavorite: (catalogId: string) => Promise<void>;
 };
 
 const PlantDataContext = createContext<PlantDataContextValue | null>(null);
 
+function mapCatalog(plant: PlantCatalogItem): PlantProfile {
+  return { id: plant.id, name: plant.commonName, scientificName: plant.scientificName, category: plant.category };
+}
+
+function mapOwnedPlant(plant: ApiOwnedPlant, catalog: PlantProfile[]): OwnedPlant {
+  return {
+    id: plant.id,
+    catalogId: plant.catalogId,
+    gardenId: plant.gardenId,
+    name: plant.displayName,
+    scientificName: plant.scientificName,
+    category: catalog.find((item) => item.id === plant.catalogId)?.category ?? 'Cây trồng',
+    plantedAt: plant.plantedOn ?? '',
+    location: plant.specificLocation ?? '',
+    note: plant.note ?? '',
+  };
+}
+
+function mapGarden(garden: ApiGarden): GardenProfile {
+  return { id: garden.id, name: garden.name, locationType: garden.locationType, locationDetail: garden.locationDetail ?? '', description: garden.description ?? '' };
+}
+
+function parseDate(value: string): string | null {
+  const normalized = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized;
+  const match = normalized.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (!match) return null;
+  return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+}
+
 export function PlantDataProvider({ children }: { children: ReactNode }) {
+  const { accessToken, isReady } = useAuthSession();
+  const [catalog, setCatalog] = useState<PlantProfile[]>([]);
   const [ownedPlants, setOwnedPlants] = useState<OwnedPlant[]>([]);
+  const [gardens, setGardens] = useState<GardenProfile[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [apiError, setApiError] = useState('');
+
+  const refresh = useCallback(async () => {
+    if (!isApiConfigured) return;
+    setIsLoading(true);
+    setApiError('');
+    try {
+      const [catalogRows, gardenRows, plantRows, favoriteRows] = await Promise.all([
+        apiRequest<PlantCatalogItem[]>('/api/v1/catalog/plants'),
+        accessToken ? apiRequest<ApiGarden[]>('/api/v1/gardens', { token: accessToken }) : Promise.resolve([] as ApiGarden[]),
+        accessToken ? apiRequest<ApiOwnedPlant[]>('/api/v1/plants', { token: accessToken }) : Promise.resolve([] as ApiOwnedPlant[]),
+        accessToken ? apiRequest<PlantCatalogItem[]>('/api/v1/favorites', { token: accessToken }) : Promise.resolve([] as PlantCatalogItem[]),
+      ]);
+      const mappedCatalog = catalogRows.map(mapCatalog);
+      setCatalog(mappedCatalog);
+      setGardens(gardenRows.map(mapGarden));
+      setOwnedPlants(plantRows.map((plant) => mapOwnedPlant(plant, mappedCatalog)));
+      setFavorites(favoriteRows.map((plant) => plant.id));
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : 'Không tải được dữ liệu từ backend.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (isReady) void refresh();
+  }, [isReady, refresh]);
+
   const value = useMemo<PlantDataContextValue>(() => ({
-    ownedPlants,
-    favorites,
-    addPlant: (plant) => {
-      const id = `demo-plant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      setOwnedPlants((items) => [...items, { ...plant, id }]);
-      return id;
+    catalog, ownedPlants, gardens, favorites, isLoading, apiError, refresh,
+    addPlant: async (plant) => {
+      if (isApiConfigured && accessToken) {
+        const created = await apiRequest<ApiOwnedPlant>('/api/v1/plants', {
+          method: 'POST', token: accessToken,
+          body: { catalogId: plant.catalogId, displayName: plant.name, specificLocation: plant.location || null,
+            plantedOn: parseDate(plant.plantedAt), note: plant.note || null, gardenId: plant.gardenId ?? null },
+        });
+        setOwnedPlants((items) => [mapOwnedPlant(created, catalog), ...items]);
+        return created.id;
+      }
+      throw new Error('Cần đăng nhập và kết nối máy chủ để thêm cây.');
     },
-    updatePlant: (id, plant) => setOwnedPlants((items) => items.map((item) => item.id === id ? { ...plant, id } : item)),
-    removePlant: (id) => setOwnedPlants((items) => items.filter((item) => item.id !== id)),
-    toggleFavorite: (catalogId) => setFavorites((items) => items.includes(catalogId) ? items.filter((item) => item !== catalogId) : [...items, catalogId]),
-  }), [ownedPlants, favorites]);
+    updatePlant: async (id, plant) => {
+      if (isApiConfigured && accessToken) {
+        const updated = await apiRequest<ApiOwnedPlant>(`/api/v1/plants/${id}`, {
+          method: 'PUT', token: accessToken,
+          body: { displayName: plant.name, specificLocation: plant.location || null,
+            plantedOn: parseDate(plant.plantedAt), note: plant.note || null, gardenId: plant.gardenId ?? null },
+        });
+        setOwnedPlants((items) => items.map((item) => item.id === id ? mapOwnedPlant(updated, catalog) : item));
+        return;
+      }
+      throw new Error('Cần đăng nhập và kết nối máy chủ để cập nhật cây.');
+    },
+    removePlant: async (id) => {
+      if (isApiConfigured && accessToken) await apiRequest<void>(`/api/v1/plants/${id}`, { method: 'DELETE', token: accessToken });
+      if (!isApiConfigured || !accessToken) throw new Error('Cần đăng nhập và kết nối máy chủ để xóa cây.');
+      setOwnedPlants((items) => items.filter((item) => item.id !== id));
+    },
+    addGarden: async (garden) => {
+      if (isApiConfigured && accessToken) {
+        const created = await apiRequest<ApiGarden>('/api/v1/gardens', {
+          method: 'POST', token: accessToken,
+          body: { name: garden.name, locationType: garden.locationType, locationDetail: garden.locationDetail || null, description: garden.description || null },
+        });
+        setGardens((items) => [mapGarden(created), ...items]);
+        return created.id;
+      }
+      throw new Error('Cần đăng nhập và kết nối máy chủ để tạo khu vườn.');
+    },
+    toggleFavorite: async (catalogId) => {
+      const isFavorite = favorites.includes(catalogId);
+      try {
+        if (!isApiConfigured || !accessToken) throw new Error('Cần đăng nhập và kết nối máy chủ để lưu cây yêu thích.');
+        await apiRequest<void>(`/api/v1/catalog/plants/${catalogId}/favorite`, { method: isFavorite ? 'DELETE' : 'POST', token: accessToken });
+        setFavorites((items) => isFavorite ? items.filter((id) => id !== catalogId) : [...items, catalogId]);
+        setApiError('');
+      } catch (error) {
+        setApiError(error instanceof Error ? error.message : 'Không thể cập nhật danh sách yêu thích.');
+      }
+    },
+  }), [catalog, ownedPlants, gardens, favorites, isLoading, apiError, accessToken, refresh]);
 
   return <PlantDataContext.Provider value={value}>{children}</PlantDataContext.Provider>;
 }

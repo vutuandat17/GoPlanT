@@ -55,12 +55,13 @@ function ToggleRow({ title, description, value, onValueChange }: { title: string
 
 export function AccountOverviewScreen() {
   const { user, signOut } = useAuthSession();
-  const logOut = () => Alert.alert('Đăng xuất', 'Kết thúc phiên đăng nhập demo?', [{ text: 'Hủy', style: 'cancel' }, { text: 'Đăng xuất', style: 'destructive', onPress: () => { signOut(); router.replace('/auth/login'); } }]);
+  const logOut = () => Alert.alert('Đăng xuất', 'Bạn muốn kết thúc phiên đăng nhập hiện tại?', [{ text: 'Hủy', style: 'cancel' }, { text: 'Đăng xuất', style: 'destructive', onPress: () => { signOut(); router.replace('/auth/login'); } }]);
   return <Page page="overview">
-    <Card style={s.identity}><View style={s.avatar}><Text style={s.avatarText}>{user?.name.trim().charAt(0).toUpperCase() || 'G'}</Text></View><View style={s.flex}><Text style={s.identityName}>{user?.name ?? 'Khách GoPlant'}</Text><Text style={s.caption}>{user?.email ?? 'Chưa đăng nhập'}</Text><Text style={s.roleBadge}>Tài khoản demo · {user?.role ?? 'guest'}</Text></View></Card>
+    <Card style={s.identity}><View style={s.avatar}><Text style={s.avatarText}>{user?.name.trim().charAt(0).toUpperCase() || 'G'}</Text></View><View style={s.flex}><Text style={s.identityName}>{user?.name ?? 'Khách GoPlant'}</Text><Text style={s.caption}>{user?.email ?? 'Chưa đăng nhập'}</Text><Text style={s.roleBadge}>{user?.role === 'admin' ? 'Quản trị viên' : 'Thành viên'}</Text></View></Card>
     <SectionHeading detail="6 mục quản lý">Trung tâm cài đặt</SectionHeading>
+    {user?.role === 'admin' ? <Row icon="♧" title="Quản lý danh mục cây" caption="Thêm và xuất bản cây mới cho mọi người dùng" onPress={() => router.push('/admin/catalog' as never)} /> : null}
     {menu.map((item) => <Row key={item.page} icon={item.icon} title={item.title} caption={item.caption} onPress={() => router.push(paths[item.page] as never)} />)}
-    <Card style={s.infoCard}><Text style={s.menuTitle}>Phiên bản demo GoPlant</Text><Text style={s.caption}>Hồ sơ và cài đặt trong giai đoạn này chưa đồng bộ với máy chủ.</Text></Card>
+    <Card style={s.infoCard}><Text style={s.menuTitle}>GoPlant</Text><Text style={s.caption}>Quản lý tài khoản và thông tin khu vườn của bạn.</Text></Card>
     <ActionButton label="⇥  Đăng xuất tài khoản" tone="danger" onPress={logOut} />
   </Page>;
 }
@@ -73,10 +74,10 @@ export function AccountProfileScreen() {
   const [birthDate, setBirthDate] = useState('');
   const [gender, setGender] = useState('Chưa cung cấp');
   return <Page page="profile">
-    <Card style={s.profileHero}><View style={s.avatarLarge}><Text style={s.avatarText}>{name.trim().charAt(0).toUpperCase() || 'G'}</Text></View><Text style={s.identityName}>{name || 'Tên hiển thị'}</Text><Text style={s.caption}>Hồ sơ tài khoản demo</Text></Card>
+    <Card style={s.profileHero}><View style={s.avatarLarge}><Text style={s.avatarText}>{name.trim().charAt(0).toUpperCase() || 'G'}</Text></View><Text style={s.identityName}>{name || 'Tên hiển thị'}</Text><Text style={s.caption}>Hồ sơ tài khoản</Text></Card>
     <Card><Field label="Họ và tên" value={name} onChangeText={setName} placeholder="Nhập họ và tên"/><Field label="Tên tài khoản" value={username} onChangeText={setUsername} placeholder="Tên hiển thị công khai"/><Field label="Hộp thư điện tử" value={user?.email ?? ''}/><Field label="Số điện thoại" value={phone} onChangeText={setPhone} placeholder="Chưa cung cấp"/><Field label="Ngày sinh" value={birthDate} onChangeText={setBirthDate} placeholder="DD/MM/YYYY"/></Card>
     <Card><Label>Giới tính</Label><View style={s.choiceRow}>{['Nữ', 'Nam', 'Khác', 'Chưa cung cấp'].map((value) => <Pressable key={value} onPress={() => setGender(value)} style={[s.choice, gender === value && s.choiceSelected]}><Text style={[s.choiceText, gender === value && s.choiceTextSelected]}>{value}</Text></Pressable>)}</View></Card>
-    <Card style={s.infoCard}><Text style={s.menuTitle}>Thông tin hồ sơ</Text><Text style={s.caption}>Các chỉnh sửa chỉ được giữ trong biểu mẫu hiện tại. Tài khoản demo chưa có dịch vụ lưu hồ sơ.</Text></Card>
+    <Card style={s.infoCard}><Text style={s.menuTitle}>Thông tin hồ sơ</Text><Text style={s.caption}>Thông tin cá nhân được quản lý theo tài khoản.</Text></Card>
     <ActionButton label="✓  Lưu thay đổi" onPress={() => unavailable('Lưu thông tin cá nhân')}/><ActionButton label="Hủy bỏ" tone="soft" onPress={() => router.back()}/>
   </Page>;
 }
@@ -84,23 +85,23 @@ export function AccountProfileScreen() {
 export function AccountCredentialsScreen() {
   const { user } = useAuthSession();
   return <Page page="credentials">
-    <Card style={s.banner}><Text style={s.bannerTitle}>Bảo mật khu vườn</Text><Text style={s.caption}>Thông tin đăng nhập của phiên demo GoPlant.</Text></Card>
+    <Card style={s.banner}><Text style={s.bannerTitle}>Bảo mật khu vườn</Text><Text style={s.caption}>Thông tin đăng nhập của tài khoản GoPlant.</Text></Card>
     <Card><Label>Email đăng nhập</Label><Text style={s.value}>{user?.email ?? 'Chưa có email'}</Text><ActionButton label="Cập nhật email và xác minh" tone="soft" onPress={() => unavailable('Cập nhật và xác minh email')}/></Card>
-    <Card><Field label="Tên đăng nhập" value={user?.email.split('@')[0] ?? '—'}/><Text style={s.caption}>Tên đăng nhập hiển thị dựa trên email demo.</Text></Card>
+    <Card><Field label="Tên đăng nhập" value={user?.email.split('@')[0] ?? '—'}/><Text style={s.caption}>Tên đăng nhập hiển thị dựa trên email tài khoản.</Text></Card>
     <Card><SectionHeading>Thay đổi mật khẩu</SectionHeading><Field label="Mật khẩu hiện tại" value="" placeholder="Nhập mật khẩu hiện tại" secureTextEntry/><Field label="Mật khẩu mới" value="" placeholder="Tối thiểu 8 ký tự" secureTextEntry/><Field label="Xác nhận mật khẩu mới" value="" placeholder="Nhập lại mật khẩu mới" secureTextEntry/><ActionButton label="Cập nhật mật khẩu" onPress={() => unavailable('Đổi mật khẩu')}/></Card>
     <Card style={s.infoCard}><Text style={s.menuTitle}>Khôi phục mật khẩu</Text><Text style={s.caption}>Liên kết khôi phục chưa được cấu hình trong ứng dụng frontend.</Text><ActionButton label="Gửi liên kết đặt lại mật khẩu" tone="soft" onPress={() => unavailable('Khôi phục mật khẩu')}/></Card>
-    <Card><SectionHeading>Phương thức đăng nhập</SectionHeading><Text style={s.caption}>Email và mật khẩu · tài khoản mock dùng trong development.</Text><Text style={s.caption}>Google Account và Apple ID chưa được kết nối.</Text></Card>
+    <Card><SectionHeading>Phương thức đăng nhập</SectionHeading><Text style={s.caption}>Email và mật khẩu</Text><Text style={s.caption}>Google Account và Apple ID chưa được bật.</Text></Card>
   </Page>;
 }
 
 export function AccountSecurityScreen() {
   return <Page page="security">
-    <Card style={s.banner}><Text style={s.bannerTitle}>Bảo mật tài khoản demo</Text><Text style={s.caption}>Ứng dụng chưa kết nối dịch vụ xác minh hoặc quản lý thiết bị.</Text></Card>
-    <Card><SectionHeading>Mật khẩu tài khoản</SectionHeading><Text style={s.caption}>Mật khẩu mock không được lưu trong phiên hoặc trên thiết bị.</Text><ActionButton label="Đổi mật khẩu" tone="soft" onPress={() => router.push('/account/credentials' as never)}/></Card>
-    <Card><SectionHeading>Xác thực email</SectionHeading><Text style={s.value}>Chưa xác minh qua dịch vụ</Text><Text style={s.caption}>Tài khoản admin@goplant.test chỉ là tài khoản kiểm thử cục bộ.</Text></Card>
+    <Card style={s.banner}><Text style={s.bannerTitle}>Bảo mật tài khoản</Text><Text style={s.caption}>Phiên đăng nhập được bảo vệ bằng mã truy cập tài khoản.</Text></Card>
+    <Card><SectionHeading>Mật khẩu tài khoản</SectionHeading><Text style={s.caption}>Để thay đổi mật khẩu, vui lòng sử dụng quy trình khôi phục tài khoản.</Text></Card>
+    <Card><SectionHeading>Xác thực email</SectionHeading><Text style={s.value}>Trạng thái được quản lý bởi máy chủ</Text><Text style={s.caption}>Đăng nhập chỉ khả dụng sau khi xác minh email.</Text></Card>
     <Card><SectionHeading>Xác thực số điện thoại</SectionHeading><Text style={s.value}>Chưa liên kết</Text><Text style={s.caption}>OTP chưa được hỗ trợ.</Text></Card>
     <Card><SectionHeading>Thiết bị đăng nhập</SectionHeading><Text style={s.caption}>Không có danh sách phiên thiết bị từ backend.</Text></Card>
-    <Card style={s.warning}><Text style={s.menuTitle}>Phiên đăng nhập hiện tại</Text><Text style={s.caption}>Bạn có thể kết thúc phiên demo từ trang tổng quan tài khoản.</Text><ActionButton label="Đăng xuất" tone="soft" onPress={() => router.replace('/account' as never)}/></Card>
+    <Card style={s.warning}><Text style={s.menuTitle}>Phiên đăng nhập hiện tại</Text><Text style={s.caption}>Bạn có thể kết thúc phiên từ trang tổng quan tài khoản.</Text><ActionButton label="Đăng xuất" tone="soft" onPress={() => router.replace('/account' as never)}/></Card>
   </Page>;
 }
 
@@ -112,7 +113,7 @@ export function AccountNotificationsScreen() {
     <Card><ToggleRow title="Cảnh báo tình trạng cây" description="Thông báo khi có dữ liệu theo dõi cần chú ý." value={plantAlerts} onValueChange={setPlantAlerts}/><View style={s.divider}/><Text style={s.caption}>Cảnh báo tự động chưa hoạt động vì chưa có dữ liệu cảm biến.</Text></Card>
     <Card><ToggleRow title="Thông báo cập nhật ứng dụng" description="Thông tin về phiên bản và nội dung mới." value={updates} onValueChange={setUpdates}/></Card>
     <Card style={s.infoCard}><Text style={s.caption}>Quyền thông báo của Android được quản lý trong phần Cài đặt hệ thống.</Text></Card>
-    <ActionButton label="Lưu cài đặt thông báo" onPress={() => Alert.alert('Thiết lập demo', 'Tùy chọn chỉ được giữ trong phiên màn hình hiện tại.')}/>
+    <ActionButton label="Lưu cài đặt thông báo" onPress={() => Alert.alert('Không thể lưu', 'Cài đặt thông báo chưa được hỗ trợ trên máy chủ.')}/>
   </Page>;
 }
 
@@ -141,13 +142,13 @@ function ChoiceRow({ title, values, selected, onSelect }: { title: string; value
 
 export function AccountPrivacyScreen() {
   return <Page page="privacy">
-    <Card style={s.banner}><Text style={s.bannerTitle}>Quyền riêng tư và dữ liệu</Text><Text style={s.caption}>GoPlant hiện chạy frontend demo. Không có dữ liệu tài khoản nào được tải lên máy chủ.</Text></Card>
+    <Card style={s.banner}><Text style={s.bannerTitle}>Quyền riêng tư và dữ liệu</Text><Text style={s.caption}>Thông tin tài khoản và dữ liệu vườn được lưu trên máy chủ GoPlant.</Text></Card>
     <Card><SectionHeading>Chính sách quyền riêng tư</SectionHeading><Text style={s.caption}>Chưa có địa chỉ chính sách chính thức trong cấu hình ứng dụng.</Text><ActionButton label="Xem chính sách" tone="soft" onPress={() => unavailable('Mở chính sách quyền riêng tư')}/></Card>
     <Card><SectionHeading>Điều khoản sử dụng</SectionHeading><Text style={s.caption}>Tài liệu điều khoản chưa được cung cấp trong ứng dụng.</Text><ActionButton label="Đọc điều khoản dịch vụ" tone="soft" onPress={() => unavailable('Mở điều khoản dịch vụ')}/></Card>
     <SectionHeading>Quản lý dữ liệu tài khoản</SectionHeading>
     <Card><Text style={s.menuTitle}>Xuất dữ liệu nhật ký và ảnh vườn</Text><Text style={s.caption}>Chưa có dịch vụ xuất dữ liệu.</Text><ActionButton label="Tải tệp ZIP" tone="soft" onPress={() => unavailable('Xuất dữ liệu ZIP')}/><ActionButton label="Bản PDF" tone="soft" onPress={() => unavailable('Xuất dữ liệu PDF')}/></Card>
     <Card><Text style={s.menuTitle}>Xóa lịch sử tìm kiếm và gợi ý</Text><Text style={s.caption}>Ứng dụng chưa có lịch sử tìm kiếm được lưu trữ.</Text><ActionButton label="Xóa lịch sử & gợi ý" tone="soft" onPress={() => unavailable('Xóa lịch sử tìm kiếm')}/></Card>
-    <Card style={s.warning}><Text style={s.dangerTitle}>Vùng nguy hiểm</Text><Text style={s.menuTitle}>Yêu cầu xóa tài khoản</Text><Text style={s.caption}>Không thể xóa tài khoản demo hoặc dữ liệu máy chủ khi chưa có backend.</Text><ActionButton label="Xóa tài khoản" tone="danger" onPress={() => unavailable('Xóa tài khoản')}/></Card>
+    <Card style={s.warning}><Text style={s.dangerTitle}>Vùng nguy hiểm</Text><Text style={s.menuTitle}>Yêu cầu xóa tài khoản</Text><Text style={s.caption}>Liên hệ bộ phận hỗ trợ để yêu cầu xóa tài khoản.</Text></Card>
   </Page>;
 }
 

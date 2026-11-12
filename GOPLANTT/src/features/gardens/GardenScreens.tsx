@@ -1,18 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from '@/components/app-primitives';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { AccountButton } from '@/features/auth/AccountButton';
-import { plantCatalog, usePlantData } from '@/features/plants/PlantDataStore';
-
-const gardenPlants = [
-  ['Cà Chua Cherry', 'Đang ra trái • Cần tưới nước', '🍅'],
-  ['Hương Thảo (Rosemary)', 'Khỏe mạnh • Ánh sáng tốt', '🌿'],
-  ['Hồng leo Huntington', 'Đang nở hoa • Theo dõi độ ẩm', '🌸'],
-  ['Bạc Hà Peppermint', 'Đang phát triển • Chăm sóc định kỳ', '🌱'],
-];
+import { usePlantData } from '@/features/plants/PlantDataStore';
+import { ApiError } from '@/services/api';
 
 function GardenHeader({ title }: { title: string }) {
   return <View style={g.header}><Pressable onPress={() => router.back()} style={g.back}><Text style={g.backText}>‹</Text></Pressable><Text style={g.headerTitle}>{title}</Text><AccountButton size={29} /></View>;
@@ -23,64 +17,97 @@ function ActionButton({ label, secondary = false, onPress }: { label: string; se
 }
 
 export function GardenDetailScreen() {
-  const info = () => Alert.alert('Bản xem trước', 'Tính năng này dùng dữ liệu mẫu, chưa lưu lên máy chủ.');
+  const { gardenId } = useLocalSearchParams<{ gardenId?: string }>();
+  const { gardens, ownedPlants } = usePlantData();
+  const garden = gardens.find((item) => item.id === gardenId);
+  const plants = ownedPlants.filter((plant) => plant.gardenId === gardenId);
   return <SafeAreaView style={g.safe} edges={['top']}><GardenHeader title="Chi tiết khu vườn"/><ScrollView contentContainerStyle={g.content}>
-    <View style={g.hero}><Text style={g.heroPlant}>♧</Text><Text style={g.heroLabel}>BAN CÔNG TẦNG 3</Text></View>
-    <Text style={g.title}>Ban Công Tầng 3 - Hướng Đông</Text><Text style={g.body}>⌖  Căn hộ 302, Tòa Thảo Mộc</Text>
-    <View style={g.metrics}>{[['28°C', 'Nhiệt độ'], ['72%', 'Độ ẩm'], ['5 giờ', 'Ánh sáng']].map(([x,y]) => <View key={y} style={g.metric}><Text style={g.metricValue}>{x}</Text><Text style={g.body}>{y}</Text></View>)}</View>
-    <View style={g.card}><Text style={g.sectionTitle}>Tổng quan khu vườn</Text><Text style={g.body}>12 cây đang trồng • Chăm sóc định kỳ • Ánh sáng hướng Đông</Text><View style={g.row}><ActionButton label="Chỉnh sửa vườn" secondary onPress={info}/><ActionButton label="Chia sẻ" secondary onPress={info}/></View></View>
-    <View style={g.card}><View style={g.row}><Text style={g.sectionTitle}>Lịch chăm sóc ban công</Text><Text style={g.link}>Xem lịch ›</Text></View>{[['💧', 'Tưới nước mỗi ngày', '08:00'], ['◉', 'Kiểm tra độ ẩm', '10:00'], ['✂', 'Cắt tỉa cành', 'Thứ Sáu']].map(([i,t,v]) => <View key={t} style={g.row}><Text style={g.icon}>{i}</Text><Text style={g.body}>{t}</Text><Text style={g.time}>{v}</Text></View>)}</View>
-    <View style={g.row}><Text style={g.sectionTitle}>Cây đang trồng (12)</Text><Pressable onPress={() => router.push('/garden/add-plant' as never)}><Text style={g.link}>＋ Thêm cây</Text></Pressable></View>
-    {gardenPlants.map(([name, detail, emoji]) => <View key={name} style={g.plantCard}><View style={g.plantImage}><Text style={g.plantEmoji}>{emoji}</Text></View><View style={g.plantCopy}><Text style={g.plantName}>{name}</Text><Text style={g.body}>{detail}</Text></View><Pressable onPress={() => router.push({ pathname: '/plant-detail', params: { name } } as never)}><Text style={g.link}>›</Text></Pressable></View>)}
-    <ActionButton label="Thêm cây vào khu vườn" onPress={() => router.push('/garden/add-plant' as never)}/><Text style={g.note}>Dữ liệu khu vườn là mẫu giao diện, thao tác chưa lưu dữ liệu thật.</Text>
+    {!garden ? <View style={g.card}><Text style={g.sectionTitle}>Không tìm thấy khu vườn</Text><Text style={g.body}>Danh sách có thể đã thay đổi hoặc khu vườn đã bị xóa.</Text><ActionButton label="Về danh sách vườn" onPress={() => router.replace('/gardens' as never)}/></View> : <>
+      <View style={g.hero}><Text style={g.heroPlant}>♧</Text><Text style={g.heroLabel}>{garden.locationType.toLocaleUpperCase()}</Text></View>
+      <Text style={g.title}>{garden.name}</Text><Text style={g.body}>⌖  {garden.locationDetail || 'Chưa có vị trí cụ thể'}</Text>
+      <View style={g.card}><Text style={g.sectionTitle}>Tổng quan khu vườn</Text><Text style={g.body}>{garden.description || 'Chưa có mô tả.'}</Text><Text style={g.body}>{plants.length} cây đang trồng</Text></View>
+      <View style={g.row}><Text style={g.sectionTitle}>Cây đang trồng ({plants.length})</Text><Pressable onPress={() => router.push('/garden/add-plant' as never)}><Text style={g.link}>＋ Thêm cây</Text></Pressable></View>
+      {plants.map((plant) => <View key={plant.id} style={g.plantCard}><View style={g.plantImage}><Text style={g.plantEmoji}>♧</Text></View><View style={g.plantCopy}><Text style={g.plantName}>{plant.name}</Text><Text style={g.body}>{plant.scientificName} • {plant.location || 'Chưa có vị trí cụ thể'}</Text></View><Pressable onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id } } as never)}><Text style={g.link}>›</Text></Pressable></View>)}
+      {plants.length === 0 ? <Text style={g.note}>Khu vườn chưa có cây.</Text> : null}
+      <ActionButton label="Thêm cây vào khu vườn" onPress={() => router.push('/garden/add-plant' as never)}/>
+    </>}
   </ScrollView></SafeAreaView>;
 }
 
 function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
   const params = useLocalSearchParams<{ editId?: string; plantId?: string }>();
-  const { ownedPlants, addPlant: createOwnedPlant, updatePlant } = usePlantData();
+  const { catalog, gardens, ownedPlants, addGarden, addPlant: createOwnedPlant, updatePlant, refresh } = usePlantData();
   const editId = params.editId;
   const editingPlant = editId ? ownedPlants.find((item) => item.id === editId) : undefined;
   const initialCatalogId = params.plantId ?? editingPlant?.catalogId ?? '';
-  const initialCatalogPlant = plantCatalog.find((plant) => plant.id === initialCatalogId);
+  const initialCatalogPlant = catalog.find((plant) => plant.id === initialCatalogId);
   const [name, setName] = useState(editingPlant?.name ?? initialCatalogPlant?.name ?? '');
   const [place, setPlace] = useState(editingPlant?.location ?? '');
   const [error, setError] = useState(false);
+  const [requestError, setRequestError] = useState('');
   const [selected, setSelected] = useState(addPlant ? initialCatalogId : '');
+  const [gardenType, setGardenType] = useState('balcony');
+  const [gardenId, setGardenId] = useState(editingPlant?.gardenId ?? '');
+  const [description, setDescription] = useState('');
   const [plantedAt, setPlantedAt] = useState(editingPlant?.plantedAt ?? '');
   const [note, setNote] = useState(editingPlant?.note ?? '');
   const [plantQuery, setPlantQuery] = useState('');
   const title = editId ? 'Chỉnh sửa hồ sơ cây' : addPlant ? 'Thêm cây trồng' : 'Tạo khu vườn mới';
-  const selectedProfile = plantCatalog.find((plant) => plant.id === selected);
-  const submit = () => {
-    const invalid = (addPlant ? !selectedProfile || !name.trim() || !place : !name.trim() || !place.trim()) || Boolean(editId && !editingPlant);
+  const selectedProfile = catalog.find((plant) => plant.id === selected);
+
+  useEffect(() => {
+    if (initialCatalogPlant && (!name || name === initialCatalogPlant.name)) setName(initialCatalogPlant.name);
+  }, [initialCatalogPlant, name]);
+  useEffect(() => {
+    if (editingPlant) {
+      setName(editingPlant.name);
+      setPlace(editingPlant.location);
+      setPlantedAt(editingPlant.plantedAt);
+      setNote(editingPlant.note);
+      setSelected(editingPlant.catalogId);
+      setGardenId(editingPlant.gardenId ?? '');
+    }
+  }, [editingPlant]);
+
+  const submit = async () => {
+    setRequestError('');
+    const invalid = (addPlant ? !selectedProfile || !name.trim() : !name.trim()) || Boolean(editId && !editingPlant);
     setError(invalid);
     if (invalid) return;
-    if (addPlant && selectedProfile) {
-      const profile = {
-        catalogId: selectedProfile.id,
-        name: name.trim(),
-        scientificName: selectedProfile.scientificName,
-        category: selectedProfile.category,
-        plantedAt: plantedAt.trim(),
-        location: place,
-        note: note.trim(),
-      };
-      if (editId) updatePlant(editId, profile);
-      else createOwnedPlant(profile);
-      router.replace('/plants' as never);
-      return;
+    try {
+      if (addPlant && selectedProfile) {
+        const profile = {
+          catalogId: selectedProfile.id,
+          gardenId: gardenId || null,
+          name: name.trim(),
+          scientificName: selectedProfile.scientificName,
+          category: selectedProfile.category,
+          plantedAt: plantedAt.trim(),
+          location: place,
+          note: note.trim(),
+        };
+        if (editId) await updatePlant(editId, profile);
+        else await createOwnedPlant(profile);
+        router.replace('/plants' as never);
+        return;
+      }
+      await addGarden({ name: name.trim(), locationType: gardenType, locationDetail: place.trim(), description: description.trim() });
+      await refresh();
+      router.replace('/gardens' as never);
+    } catch (submitError) {
+      setRequestError(submitError instanceof ApiError ? submitError.message : 'Không thể lưu dữ liệu. Vui lòng thử lại.');
     }
-    Alert.alert('Bản xem trước', 'Thông tin hợp lệ nhưng chưa được lưu vì ứng dụng chưa kết nối backend.');
   };
   return <SafeAreaView style={g.safe} edges={['top']}><GardenHeader title={title}/><ScrollView contentContainerStyle={g.content}>
     <View style={g.tip}><Text style={g.sectionTitle}>{addPlant ? 'Thêm cây vào khu vườn' : 'Thiết lập không gian xanh'}</Text><Text style={g.body}>{addPlant ? 'Chọn cây và khu vực trồng phù hợp.' : 'Tạo khu vườn để quản lý cây và lịch chăm sóc.'}</Text></View>
-    {!addPlant ? <><Text style={g.label}>Tên khu vườn <Text style={g.required}>*</Text></Text><TextInput value={name} onChangeText={setName} placeholder="Ví dụ: Ban công tầng 3" style={[g.input, error && !name.trim() && g.inputError]}/><Text style={g.label}>Vị trí <Text style={g.required}>*</Text></Text><TextInput value={place} onChangeText={setPlace} placeholder="Địa chỉ hoặc khu vực trồng" style={[g.input, error && !place.trim() && g.inputError]}/><Text style={g.label}>Chọn loại không gian</Text><View style={g.choices}>{['Ban công', 'Sân thượng', 'Trong nhà'].map((x) => <Pressable key={x} onPress={() => setSelected(x)} style={[g.choice, selected === x && g.choiceActive]}><Text style={g.body}>{x}</Text></Pressable>)}</View><View style={g.heroSmall}><Text style={g.heroPlant}>▧</Text><Text style={g.body}>Ảnh bìa khu vườn • Chọn ảnh</Text></View><Text style={g.label}>Mô tả (không bắt buộc)</Text><TextInput placeholder="Thêm ghi chú cho khu vườn..." style={[g.input, g.multiline]} multiline/></> : <>
-      <Text style={g.label}>Tìm cây trong thư viện</Text><TextInput value={plantQuery} onChangeText={setPlantQuery} placeholder="Nhập tên cây hoặc tên khoa học" style={g.input}/><Text style={g.label}>1. Chọn cây trồng</Text>{plantCatalog.filter((plant) => `${plant.name} ${plant.scientificName}`.toLocaleLowerCase().includes(plantQuery.trim().toLocaleLowerCase())).map((plant) => <Pressable key={plant.id} onPress={() => { setSelected(plant.id); if (!name.trim() || plantCatalog.some((item) => item.name === name)) setName(plant.name); }} style={[g.plantCard, selected === plant.id && g.choiceActive]}><View style={g.plantImage}><Text style={g.plantEmoji}>♧</Text></View><View style={g.plantCopy}><Text style={g.plantName}>{plant.name}</Text><Text style={g.body}>{plant.scientificName} • {plant.category} • Dữ liệu thư viện mẫu</Text></View><Text style={g.link}>{selected === plant.id ? '✓' : 'Chọn'}</Text></Pressable>)}
-      {selectedProfile ? <><Text style={g.label}>Tên hiển thị <Text style={g.required}>*</Text></Text><TextInput value={name} onChangeText={setName} placeholder="Tên cây trong hồ sơ của bạn" style={[g.input, error && !name.trim() && g.inputError]}/><Text style={g.label}>2. Vị trí trồng</Text><View style={g.choices}>{['Trong nhà', 'Ban công', 'Sân thượng', 'Sân vườn', 'Ngoài sân', 'Nhà kính', 'Khác', 'Chưa xác định'].map((x) => <Pressable key={x} onPress={() => setPlace(x)} style={[g.choice, place === x && g.choiceActive]}><Text style={g.body}>{x}</Text></Pressable>)}</View><Text style={g.label}>Ngày trồng / bắt đầu chăm sóc (không bắt buộc)</Text><TextInput value={plantedAt} onChangeText={setPlantedAt} placeholder="Ngày/tháng/năm" style={g.input}/><Text style={g.label}>Ghi chú (không bắt buộc)</Text><TextInput value={note} onChangeText={setNote} placeholder="Ghi chú về cây" style={[g.input, g.multiline]} multiline/></> : null}
+    {!addPlant ? <><Text style={g.label}>Tên khu vườn <Text style={g.required}>*</Text></Text><TextInput value={name} onChangeText={setName} placeholder="Ví dụ: Ban công tầng 3" style={[g.input, error && !name.trim() && g.inputError]}/><Text style={g.label}>Vị trí / khu vực</Text><TextInput value={place} onChangeText={setPlace} placeholder="Ban công, sân thượng..." style={g.input}/><Text style={g.label}>Loại không gian</Text><View style={g.choices}>{[['balcony', 'Ban công'], ['rooftop', 'Sân thượng'], ['garden', 'Sân vườn'], ['indoor', 'Trong nhà'], ['greenhouse', 'Nhà kính'], ['other', 'Khác']].map(([value, label]) => <Pressable key={value} onPress={() => setGardenType(value)} style={[g.choice, gardenType === value && g.choiceActive]}><Text style={g.body}>{label}</Text></Pressable>)}</View><Text style={g.label}>Mô tả (không bắt buộc)</Text><TextInput value={description} onChangeText={setDescription} placeholder="Thêm ghi chú cho khu vườn..." style={[g.input, g.multiline]} multiline/></> : <>
+      <Text style={g.label}>Tìm cây trong thư viện</Text><TextInput value={plantQuery} onChangeText={setPlantQuery} placeholder="Nhập tên cây hoặc tên khoa học" style={g.input}/><Text style={g.label}>1. Chọn cây trồng</Text>{catalog.filter((plant) => `${plant.name} ${plant.scientificName}`.toLocaleLowerCase().includes(plantQuery.trim().toLocaleLowerCase())).map((plant) => <Pressable key={plant.id} onPress={() => { setSelected(plant.id); if (!name.trim() || catalog.some((item) => item.name === name)) setName(plant.name); }} style={[g.plantCard, selected === plant.id && g.choiceActive]}><View style={g.plantImage}><Text style={g.plantEmoji}>♧</Text></View><View style={g.plantCopy}><Text style={g.plantName}>{plant.name}</Text><Text style={g.body}>{plant.scientificName} • {plant.category}</Text></View><Text style={g.link}>{selected === plant.id ? '✓' : 'Chọn'}</Text></Pressable>)}
+      {catalog.length === 0 ? <Text style={g.note}>Thư viện chưa có cây được duyệt. Hãy cập nhật catalog từ tài khoản quản trị.</Text> : null}
+      {selectedProfile ? <><Text style={g.label}>Tên hiển thị <Text style={g.required}>*</Text></Text><TextInput value={name} onChangeText={setName} placeholder="Tên cây trong hồ sơ của bạn" style={[g.input, error && !name.trim() && g.inputError]}/><Text style={g.label}>Vườn (không bắt buộc)</Text><View style={g.choices}><Pressable onPress={() => setGardenId('')} style={[g.choice, !gardenId && g.choiceActive]}><Text style={g.body}>Chưa phân vườn</Text></Pressable>{gardens.map((garden) => <Pressable key={garden.id} onPress={() => setGardenId(garden.id)} style={[g.choice, gardenId === garden.id && g.choiceActive]}><Text style={g.body}>{garden.name}</Text></Pressable>)}</View><Text style={g.label}>Vị trí cụ thể</Text><TextInput value={place} onChangeText={setPlace} placeholder="Ví dụ: Kệ cạnh cửa sổ" style={g.input}/><Text style={g.label}>Ngày trồng / bắt đầu chăm sóc (không bắt buộc)</Text><TextInput value={plantedAt} onChangeText={setPlantedAt} placeholder="dd/mm/yyyy" style={g.input}/><Text style={g.label}>Ghi chú (không bắt buộc)</Text><TextInput value={note} onChangeText={setNote} placeholder="Ghi chú về cây" style={[g.input, g.multiline]} multiline/></> : null}
       </>}
     {error ? <Text style={g.error}>{editId && !editingPlant ? 'Không tìm thấy hồ sơ cây trong phiên hiện tại.' : 'Vui lòng nhập đầy đủ thông tin bắt buộc.'}</Text> : null}
-    <ActionButton label={editId ? 'Lưu thay đổi' : addPlant ? 'Thêm cây vào danh sách' : 'Tạo khu vườn'} onPress={submit}/><Text style={g.note}>{addPlant ? 'Hồ sơ cây là dữ liệu demo trong bộ nhớ phiên, không được đồng bộ hoặc lưu sau khi đóng ứng dụng.' : 'Biểu mẫu tạo vườn hiện là giao diện xem trước; chưa lưu dữ liệu.'}</Text>
+    {requestError ? <Text style={g.error}>{requestError}</Text> : null}
+    <ActionButton label={editId ? 'Lưu thay đổi' : addPlant ? 'Thêm cây vào danh sách' : 'Tạo khu vườn'} onPress={() => void submit()}/><Text style={g.note}>{addPlant ? 'Cây và ghi chú sẽ được lưu vào tài khoản của bạn.' : 'Vườn sẽ được lưu vào tài khoản của bạn.'}</Text>
   </ScrollView></SafeAreaView>;
 }
 

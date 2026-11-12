@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
 import { router } from 'expo-router';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { TabScreenTransition } from '@/components/tab-screen-transition';
-
-// Local sample content for the visual prototype; no live weather or plant service is connected.
+import { usePlantData } from '@/features/plants/PlantDataStore';
 
 const categories = ['Tất cả', 'Cây ăn quả', 'Cây rau lá', 'Hoa cảnh', 'Cây mọng nước', 'Cây gia vị'];
 
@@ -21,10 +20,10 @@ function SectionTitle({ title, trailing }: { title: string; trailing?: string })
 
 export default function HomeScreen() {
   const { user } = useAuthSession();
+  const { catalog, gardens, ownedPlants, isLoading, apiError } = usePlantData();
   const [category, setCategory] = useState(categories[0]);
   const [query, setQuery] = useState('');
 
-  const unavailable = (feature: string) => Alert.alert('Bản xem trước giao diện', `${feature} sẽ được triển khai theo thiết kế ở đợt tiếp theo.`);
   const navigate = (route: string) => router.push(route as never);
 
   return (
@@ -41,19 +40,10 @@ export default function HomeScreen() {
         <View style={styles.weatherCard}>
           <View style={[styles.roundIcon, { backgroundColor: '#E1F3E8' }]}><Text>☼</Text></View>
           <View style={styles.flexCopy}>
-            <Text style={styles.cardTitle}>Thời tiết chưa kết nối</Text>
-            <Text style={styles.bodyText}>Nhiệt độ, độ ẩm và gợi ý chăm sóc chưa có dữ liệu.</Text>
+            <Text style={styles.cardTitle}>Thông tin thời tiết</Text>
+            <Text style={styles.bodyText}>Chưa có dữ liệu thời tiết cho khu vườn.</Text>
           </View>
           <Text style={styles.lightPill}>Chưa có dữ liệu</Text>
-        </View>
-
-        <View style={styles.scheduleCard}>
-          <View style={styles.scheduleIcon}><Text style={styles.white}>▣</Text></View>
-          <View style={styles.flexCopy}>
-            <Text style={styles.scheduleTitle}>Lập lịch chăm sóc cây trồng</Text>
-            <Text style={styles.scheduleDescription}>Tự động hóa chu kỳ tưới nước, bón phân & tỉa cành để cây luôn xanh tốt.</Text>
-          </View>
-          <Pressable onPress={() => navigate('/schedule/create')} style={styles.scheduleButton}><Text style={styles.white}>Tạo lịch ngay →</Text></Pressable>
         </View>
 
         <View style={styles.searchBox}>
@@ -84,23 +74,27 @@ export default function HomeScreen() {
           ))}
         </View>
 
-        <SectionTitle title="Vườn của bạn" trailing="0 khu vực" />
-        <View style={styles.emptyHomeCard}>
+        <SectionTitle title="Vườn của bạn" trailing={`${gardens.length} khu vực`} />
+        {gardens.map((garden) => <Pressable key={garden.id} onPress={() => router.push({ pathname: '/garden-detail', params: { gardenId: garden.id } } as never)} style={styles.suggestionCard}><Text style={styles.plantEmoji}>⌂</Text><View style={styles.flexCopy}><Text style={styles.cardTitle}>{garden.name}</Text><Text style={styles.bodyText}>{garden.locationDetail || garden.locationType}</Text></View></Pressable>)}
+        {gardens.length === 0 ? <View style={styles.emptyHomeCard}>
           <Text style={styles.emptyHomeArt}>⌂</Text>
           <Text style={styles.emptyHomeTitle}>Bắt đầu tạo khu vườn đầu tiên</Text>
           <Text style={styles.bodyText}>Tạo không gian riêng để sắp xếp và chăm sóc cây.</Text>
           <Pressable onPress={() => navigate('/garden/create')} style={styles.emptyHomeButton}><Text style={styles.white}>＋  Tạo khu vườn mới</Text></Pressable>
-        </View>
-        <SectionTitle title="Cây trồng & chăm sóc" trailing="Chưa có cây" />
-        <View style={styles.emptyHomeCard}>
+        </View> : null}
+        {gardens.length === 0 ? <View style={styles.emptyHomeCard}><Text style={styles.emptyHomeArt}>⌂</Text><Text style={styles.emptyHomeTitle}>Bắt đầu tạo khu vườn đầu tiên</Text><Text style={styles.bodyText}>Tạo không gian riêng để sắp xếp và chăm sóc cây.</Text><Pressable onPress={() => navigate('/garden/create')} style={styles.emptyHomeButton}><Text style={styles.white}>＋  Tạo khu vườn mới</Text></Pressable></View> : null}
+        <SectionTitle title="Cây trồng & chăm sóc" trailing={`${ownedPlants.length} cây`} />
+        {ownedPlants.map((plant) => <Pressable key={plant.id} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id } } as never)} style={styles.suggestionCard}><Text style={styles.plantEmoji}>♧</Text><View style={styles.flexCopy}><Text style={styles.cardTitle}>{plant.name}</Text><Text style={styles.bodyText}>{plant.location || plant.category}</Text></View></Pressable>)}
+        {ownedPlants.length === 0 ? <View style={styles.emptyHomeCard}>
           <Text style={styles.emptyHomeArt}>♧</Text>
           <Text style={styles.emptyHomeTitle}>Chưa có cây nào trong vườn</Text>
           <Text style={styles.bodyText}>Thêm cây để bắt đầu theo dõi quá trình chăm sóc.</Text>
           <Pressable onPress={() => navigate('/garden/add-plant')} style={styles.emptyHomeButton}><Text style={styles.white}>＋  Thêm cây đầu tiên</Text></Pressable>
-        </View>
-        <SectionTitle title="Gợi ý cho bạn" trailing="Khám phá" />
-        <View style={styles.suggestionCard}><Text style={styles.plantEmoji}>🪴</Text><View style={styles.flexCopy}><Text style={styles.cardTitle}>Trầu bà lá xẻ</Text><Text style={styles.bodyText}>Dễ chăm sóc • Phù hợp trong nhà</Text></View><Text style={styles.caption}>Dữ liệu minh họa</Text></View>
-        <View style={styles.newUserTip}><Text style={styles.cardTitle}>Mẹo nhỏ cho người mới</Text><Text style={styles.bodyText}>Bắt đầu với một cây phù hợp ánh sáng và không gian của bạn.</Text></View>
+        </View> : null}
+        {apiError ? <Text style={styles.bodyText}>{apiError}</Text> : null}
+        {isLoading ? <Text style={styles.bodyText}>Đang tải dữ liệu…</Text> : null}
+        <SectionTitle title="Khám phá cây" trailing={`${catalog.length} cây`} />
+        {catalog.slice(0, 4).map((plant) => <Pressable key={plant.id} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name } } as never)} style={styles.suggestionCard}><Text style={styles.plantEmoji}>♧</Text><View style={styles.flexCopy}><Text style={styles.cardTitle}>{plant.name}</Text><Text style={styles.bodyText}>{plant.scientificName} • {plant.category}</Text></View></Pressable>)}
       </ScrollView>
     </TabScreenTransition>
   );

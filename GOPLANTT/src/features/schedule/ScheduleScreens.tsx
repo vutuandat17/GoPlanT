@@ -16,7 +16,7 @@ export function CreateScheduleScreen() {
   const [task, setTask] = useState('');
   const [repeat, setRepeat] = useState('Mỗi ngày');
   const [error, setError] = useState(false);
-  const save = () => { const invalid = !plant || !task; setError(invalid); if (!invalid) Alert.alert('Bản xem trước', 'Lịch hợp lệ nhưng chưa được lưu vì ứng dụng chưa có backend.'); };
+  const save = () => { const invalid = !plant || !task; setError(invalid); if (!invalid) Alert.alert('Chưa thể lưu lịch', 'Máy chủ hiện chưa hỗ trợ lịch chăm sóc.'); };
   return <SafeAreaView style={sc.safe} edges={['top']}><Header title="Tạo lịch chăm sóc"/><ScrollView contentContainerStyle={sc.content}>
     <View style={sc.tip}><Text style={sc.title}>Lập lịch chăm sóc cây</Text><Text style={sc.body}>Chọn cây, công việc và thời gian để tạo lịch nhắc chăm sóc.</Text></View>
     <Text style={sc.label}>1. Chọn cây cần chăm sóc <Text style={sc.required}>*</Text></Text>{plants.map((name, i) => <Pressable key={name} onPress={() => setPlant(name)} style={[sc.plant, plant === name && sc.selected]}><View style={sc.plantIcon}><Text>{['🍅','🌸','🌿','🪴'][i]}</Text></View><Text style={sc.bodyStrong}>{name}</Text><Text style={sc.radio}>{plant === name ? '●' : '○'}</Text></Pressable>)}
@@ -25,7 +25,7 @@ export function CreateScheduleScreen() {
     <Text style={sc.label}>4. Chu kỳ lặp lại</Text><View style={sc.grid}>{['Mỗi ngày', 'Cách ngày', 'Hàng tuần', 'Tùy chỉnh'].map((x) => <Pressable key={x} onPress={() => setRepeat(x)} style={[sc.task, repeat === x && sc.selected]}><Text style={sc.body}>{x}</Text></Pressable>)}</View>
     <View style={sc.tip}><Text style={sc.bodyStrong}>Thông báo nhắc lịch</Text><Text style={sc.body}>Lịch nhắc sẽ hiển thị trong ứng dụng khi tính năng thông báo được tích hợp.</Text></View>
     {error ? <Text style={sc.error}>Hãy chọn cây và công việc trước khi tiếp tục.</Text> : null}
-    <Pressable onPress={save} style={sc.submit}><Text style={sc.submitText}>✓  Tạo lịch chăm sóc</Text></Pressable><Text style={sc.note}>Tạo lịch hiện chỉ kiểm tra dữ liệu trong giao diện mẫu.</Text>
+    <Pressable onPress={save} style={sc.submit}><Text style={sc.submitText}>✓  Tạo lịch chăm sóc</Text></Pressable>
   </ScrollView></SafeAreaView>;
 }
 
@@ -40,8 +40,8 @@ export function ScheduleDetailScreen() {
       ['10:00', 'Kiểm tra độ ẩm', 'Định kỳ', 'Kiểm tra lớp đất mặt trước khi tưới.'],
       ['16:30', 'Bón phân hữu cơ', 'Sắp tới', 'Bón theo liều lượng phù hợp với cây.'],
       ['18:00', 'Ghi nhận phát triển', 'Định kỳ', 'Theo dõi tình trạng lá và quả.'],
-    ].map(([time, title, status, desc]) => <View key={title} style={sc.detailTask}><View style={sc.row}><Text style={sc.time}>{time}</Text><Text style={sc.tag}>{status}</Text></View><Text style={sc.sectionTitle}>{title}</Text><Text style={sc.body}>{desc}</Text><View style={sc.row}><Pressable onPress={() => Alert.alert('Bản xem trước', 'Lịch chưa được lưu.')}><Text style={sc.link}>Sửa</Text></Pressable><Pressable onPress={() => Alert.alert('Bản xem trước', 'Lịch chưa được lưu.')}><Text style={sc.link}>Hoàn thành</Text></Pressable></View></View>)}
-    <Pressable onPress={() => router.push('/schedule/create' as never)} style={sc.submit}><Text style={sc.submitText}>＋  Tạo lịch chăm sóc cây này</Text></Pressable><Text style={sc.note}>Lịch là dữ liệu trình bày mẫu, chưa đồng bộ thông báo.</Text>
+    ].map(([time, title, status, desc]) => <View key={title} style={sc.detailTask}><View style={sc.row}><Text style={sc.time}>{time}</Text><Text style={sc.tag}>{status}</Text></View><Text style={sc.sectionTitle}>{title}</Text><Text style={sc.body}>{desc}</Text></View>)}
+    <Text style={sc.note}>Chưa có lịch chăm sóc được lưu.</Text>
   </ScrollView></SafeAreaView>;
 }
 

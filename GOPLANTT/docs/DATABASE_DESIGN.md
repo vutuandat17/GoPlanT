@@ -432,9 +432,9 @@ Trạng thái: **DECIDED** = chủ dự án đã xác nhận; **PROPOSED** = quy
 | 5 | Journal và ảnh | Code status/sign/severity phải chuẩn hóa, không nhận code tùy ý; metric số nguyên/số thập phân theo định nghĩa. Journal có thể độc lập occurrence; occurrence link tùy chọn. | Code sets tập trung + FK/CHECK sau khi chốt danh sách. Metadata ảnh trong DB, object storage ngoài DB. | DECIDED về nguyên tắc; code sets, số ảnh/kích cỡ/định dạng và chính sách sửa-xóa OPEN |
 | 6 | Garden journal | Entry thuộc đúng một garden; có thể liên kết 0..N cây, mọi cây phải thuộc đúng garden đó. Chỉ đưa trường có căn cứ từ PDF vào schema. | Composite FK qua `garden_id`, `owner_user_id`, `user_plant_id`; kiểm tra nguồn cho từng field trước migration. | DECIDED về quan hệ; xác nhận từng field/code cụ thể theo PDF còn cần review |
 | 7 | Xóa, retention, backup | CASCADE chỉ dùng cho dữ liệu phụ thuộc; chính sách xóa tài khoản và dữ liệu sẽ bổ sung sau. | Trước production chốt hard/soft/anonymize, retention, backup/restore, quyền khôi phục, RPO/RTO và kiểm thử restore. | DECIDED về nguyên tắc; chi tiết OPEN trước production |
-| 8 | Email action token | Khi triển khai xác minh/đổi email/reset password: token ngẫu nhiên an toàn, chỉ lưu hash, dùng một lần và hết hạn; không cho duplicate pending target. | `account_action_tokens` Future; rate limit ở service/gateway, transaction promote; provider gửi email ngoài phạm vi. | DECIDED về nguyên tắc; bảng và luồng FUTURE; provider/expiry/rate limit OPEN |
-| 9 | Authentication, role và admin | Nếu tự quản lý auth, dùng Spring Security + JWT. Role `admin`/`user`; admin quản trị và cấp role/quyền. Hash mật khẩu; permission codes tập trung; bảo vệ admin cuối cùng bằng transaction/locking; audit trước admin operations thật. | JWT access token không lưu DB; refresh hash/session chỉ khi cần thu hồi; permission registry thống nhất; lock/serialize cập nhật role. | DECIDED về hướng; expiry/key/rotation/session, permission code list OPEN; audit log cần trước vận hành admin |
-| 10 | Plant catalog workflow | Admin quản lý, ghi nguồn và field được nguồn hỗ trợ; user chỉ thấy dữ liệu đã review/duyệt. Không versioning/rollback MVP, không dữ liệu chăm sóc không nguồn. | Publication gate và provenance reviewer; trạng thái/mã trạng thái cần chọn; source metadata; truy vấn chỉ trả approved + active. | DECIDED về workflow; code/status và source field codes OPEN |
+| 8 | Email action token | Khi triển khai xác minh/đổi email/reset password: token ngẫu nhiên an toàn, chỉ lưu hash, dùng một lần và hết hạn; không cho duplicate pending target. | V1 đã tạo `account_action_tokens` cho EMAIL_VERIFICATION; token 32 byte, hash SHA-256, TTL 24 giờ, chỉ dùng một lần. Email provider, rate limit và các purpose khác còn để sau. | V1 IMPLEMENTED; production email delivery/rate limit OPEN |
+| 9 | Authentication, role và admin | Nếu tự quản lý auth, dùng Spring Security + JWT. Role `admin`/`user`; admin quản trị và cấp role/quyền. Hash mật khẩu; permission codes tập trung; bảo vệ admin cuối cùng bằng transaction/locking; audit trước admin operations thật. | V1 dùng Spring Security, BCrypt cost 12, JWT HS256, access token 15 phút, không refresh/session. Role admin/user; bootstrap admin qua env. Không có API cấp quyền trong V1. | V1 IMPLEMENTED; key rotation/session/audit/admin role operations OPEN trước production |
+| 10 | Plant catalog workflow | Admin quản lý, ghi nguồn và field được nguồn hỗ trợ; user chỉ thấy dữ liệu đã review/duyệt. Không versioning/rollback MVP, không dữ liệu chăm sóc không nguồn. | V1 publication status `draft`/`approved`/`rejected`; public chỉ đọc `approved` + active; nguồn lưu các field `common_name`, `scientific_name`, `category`. | V1 IMPLEMENTED cho luồng cơ bản; taxonomy/source-field mở rộng để sau |
 
 ### Câu hỏi còn mở cần giải quyết
 
@@ -485,7 +485,7 @@ Thứ tự chi tiết có thể điều chỉnh theo FK trong mục 16; toàn b�
 
 - PDF chức năng: `PDF/content/KAN-Chi tiết thành phần của các chức năng hệ thống (GoPlant)-081126-091912.pdf` (17 trang).
 - PDF bảo mật dạng nháp: `PDF/content/KAN-Yêu cầu bảo mật ( Non-Functional Requirements ) ( Nháp )-081126-092117.pdf` (22 trang).
-- Frontend: `package.json`, route trong `src/app/`, `src/features/auth/AuthScreens.tsx`, `AuthSession.tsx`, `src/services/mockAuth.ts`, `src/features/plants/PlantDataStore.tsx`, `PlantDetailScreen.tsx`, `src/features/gardens/GardenScreens.tsx`, `src/features/schedule/ScheduleScreens.tsx`, `src/features/journal/JournalScreens.tsx`, `src/features/monitoring/MonitoringDetailScreen.tsx`, `src/features/account/AccountScreens.tsx`, `src/features/main/MainScreens.tsx`.
+- Frontend: `package.json`, routes trong `src/app/`, `src/services/api.ts`, `src/services/tokenStorage.ts`, `src/features/auth/AuthScreens.tsx`, `AuthSession.tsx`, `src/features/plants/PlantDataStore.tsx`, `PlantDetailScreen.tsx`, `src/features/gardens/GardenScreens.tsx`, `src/features/main/MainScreens.tsx`.
 - PDF chức năng và NFR cung cấp yêu cầu nghiệp vụ/bảo mật rộng hơn source hiện tại; các luồng, trạng thái và trường chưa có trong code được coi là yêu cầu mục tiêu theo tài liệu, không phải chức năng frontend đã xác minh.
 
 ## 20. Checklist trước khi bắt đầu SQL Migration
@@ -537,14 +537,12 @@ Thứ tự chi tiết có thể điều chỉnh theo FK trong mục 16; toàn b�
 - RBAC cốt lõi: roles, permissions và bảng liên kết, sau khi permission code list được chốt.
 - Cấu trúc metric/unit catalogs có thể chuẩn bị; chưa thể seed hoặc xác nhận miền metric.
 
-### Chặn trước khi tạo migration
+### Trạng thái sau khi bắt đầu backend V1
 
-- **Identity V1:** chốt cụ thể deferred constraint trigger hay invariant service + database guard để bảo đảm đúng một primary và `active` chỉ có primary verified; viết và race-test invariant.
-- **RBAC:** duyệt permission codes và phương án bảo vệ admin cuối cùng/audit trước khi bật thao tác admin.
-- **Plant Catalog:** chốt publication status codes, reviewer fields, source field codes và cách bảo đảm chỉ dữ liệu được duyệt hiển thị.
-- **Care schedule:** chốt `skipped` lifecycle; DST policy đã chốt ở nghiệp vụ nhưng cần xác định và kiểm thử thuật toán sinh occurrence.
-- **Plant Journal:** duyệt code sets, metric/unit codes, kiểu số, precision/scale, range và nguồn; chốt ảnh trước upload thật.
-- **Garden Journal:** xác minh từng field/code trực tiếp với PDF trước khi coi schema là ổn định.
+- Backend V1 đã có Flyway migration cho identity, role cơ bản, email verification token, catalog/source, gardens, owned plants và favorites. Identity invariant primary/active hiện được giữ trong transaction service; cần thêm kiểm thử race và constraint DB trước production.
+- Mặc định được chủ dự án duyệt cho V1: JWT access 15 phút HS256; token xác minh dùng một lần, TTL 24 giờ; catalog status `draft`/`approved`/`rejected`; source fields `common_name`, `scientific_name`, `category`; occurrence `skipped` bất biến khi triển khai lịch.
+- RBAC hiện chỉ có role admin/user, chưa có permission codes hay API gán role. Không bật quản trị role thật trước khi có bảo vệ admin cuối và audit.
+- Care schedule, occurrence, DST execution, Plant/Garden Journal, metric/unit, code sets và ảnh chưa nằm trong V1; giữ các điều kiện mở ở mục 17 trước khi tạo module/migration tương ứng.
 
 ### Chặn trước production
 
@@ -552,4 +550,4 @@ Thứ tự chi tiết có thể điều chỉnh theo FK trong mục 16; toàn b�
 - Chốt JWT/session expiry, key management/rotation, refresh-token rotation/revocation; triển khai audit log trước thao tác quản trị thật.
 - Chốt email provider, token expiry và rate limit khi đưa xác minh/đổi email vào backend.
 
-Vì còn các điều kiện chặn migration, **không được xem Level 3 là phê duyệt bắt đầu viết SQL**. Bước tiếp theo là chốt các OPEN ở trên, cập nhật quyết định, rồi review schema cùng backend trước khi tạo Flyway migration.
+Migrations V1 đã được tạo sau khi chủ dự án cho phép chốt mặc định V1 trong phiên làm việc 2026-11-12. Điều này chỉ áp dụng cho phạm vi identity/catalog/gardens/plants nêu trên; không phải phê duyệt cho các module lịch, nhật ký, metrics, ảnh hoặc production operations. Cần chạy migration trên PostgreSQL và kiểm thử các invariant trước khi xem V1 đã xác minh.

@@ -1,327 +1,69 @@
 # GoPlant
 
-## Giới thiệu
+GoPlant gồm ứng dụng Expo/React Native trong [`GOPLANTT/`](GOPLANTT/README.md) và REST API Spring Boot trong [`backend/`](backend/README.md). Backend dùng PostgreSQL để lưu tài khoản, danh mục cây, khu vườn, cây của người dùng và yêu thích.
 
-GoPlant là ứng dụng di động hỗ trợ khám phá và quản lý cây trồng, khu vườn và hoạt động chăm sóc. Phạm vi sản phẩm được tham khảo từ thiết kế Figma và tài liệu chức năng trong repository.
+## Yêu cầu
 
-Dự án hiện tập trung vào frontend bằng Expo, React Native, TypeScript và Expo Router. Phase 3 đã xây dựng các màn hình chính; Phase 4 đang hoàn thiện tương tác và state cục bộ để kiểm thử luồng. Chưa có backend, API, database hoặc xác thực production.
+- JDK 21
+- Maven 3.9 trở lên
+- Node.js và npm
+- Docker Desktop đang chạy
+- Android Studio Emulator hoặc thiết bị Android
 
-## Công nghệ
+## Chạy PostgreSQL và backend
 
-Phiên bản khai báo lấy từ `package.json`; phiên bản cài đặt được xác nhận bằng `npm ls`.
-
-| Công nghệ | Khai báo | Đã cài | Vai trò |
-|---|---:|---:|---|
-| Expo | `~57.0.31` | `57.0.31` | Nền tảng và công cụ phát triển |
-| React | `19.2.3` | `19.2.3` | Giao diện theo component |
-| React Native | `0.86.3` | `0.86.3` | Giao diện di động đa nền tảng |
-| Expo Router | `~57.0.29` | `57.0.29` | Điều hướng theo file trong `src/app/` |
-| TypeScript | `~6.0.3` | `6.0.3` | Kiểu tĩnh |
-| npm | — | `11.19.1` trên môi trường được kiểm tra | Quản lý package; không phải phiên bản bắt buộc cho mọi máy |
-
-Các package khác được liệt kê trong `package.json`, gồm Expo modules, `react-native-reanimated`, `react-native-svg`, `react-native-safe-area-context` và Plus Jakarta Sans.
-
-## Giao diện và trạng thái chức năng
-
-| Khu vực | Trạng thái hiện tại |
-|---|---|
-| Chào mừng | Màn hình có liên kết đến đăng nhập và đăng ký. |
-| Đăng nhập | Mock auth chỉ bật trong development. Đăng nhập admin demo mở `/home`; session được giữ trong bộ nhớ ứng dụng và mất khi khởi động lại. Có thể đăng xuất qua avatar tài khoản. |
-| Đăng ký | Có kiểm tra trường bắt buộc, định dạng email/số điện thoại, email khôi phục, độ dài mật khẩu và xác nhận mật khẩu. Tạo tài khoản chưa kết nối dịch vụ và không lưu tài khoản. |
-| Trang chủ | Có tìm kiếm, điều hướng tới các khu vực, trạng thái chưa có cây/vườn. Thời tiết được hiển thị là chưa có dữ liệu vì chưa kết nối dịch vụ. Một số nội dung gợi ý vẫn là minh họa. |
-| Cây trồng | Có tìm kiếm, yêu thích, lọc, xem chi tiết, thêm, sửa và xóa cây. Hồ sơ và yêu thích là state demo trong RAM; không được lưu bền vững. Xóa có bước xác nhận. |
-| Thư viện và chi tiết cây | Có danh mục mẫu 5 cây Trầu bà. Hiện chỉ có tên, tên khoa học và loại cây; các điều kiện sinh trưởng chưa có dữ liệu nguồn nên hiển thị là chưa có dữ liệu. |
-| Khu vườn | Có danh sách, chi tiết và biểu mẫu. Tạo/lưu khu vườn chưa được triển khai; nội dung chi tiết dùng dữ liệu giao diện mẫu. |
-| Nhật ký và lịch chăm sóc | Có danh sách/chi tiết và biểu mẫu tương ứng. Dữ liệu là mẫu; form chưa lưu hoặc đồng bộ backend. Camera chưa được bật. |
-| Theo dõi | Có màn hình tổng quan/chi tiết. Chỉ số, lịch sử và trạng thái cảm biến hiện hiển thị rỗng/chưa có dữ liệu; chưa kết nối nguồn theo dõi thật. |
-
-Tài khoản mock để kiểm thử giao diện:
-GoPlant là ứng dụng di động hỗ trợ người dùng khám phá và quản lý cây trồng, khu vườn cùng các hoạt động chăm sóc. Phạm vi sản phẩm được thể hiện trong thiết kế Figma và tài liệu chức năng của dự án.
-
-Repository hiện có giao diện frontend React Native theo Expo SDK 57, được tổ chức bằng Expo Router và TypeScript. Phase 3 đã bổ sung các màn hình và luồng frontend chính; nhiều phần vẫn dùng dữ liệu minh họa hoặc chưa kết nối dịch vụ. Ứng dụng chưa có backend, cơ sở dữ liệu hay xác thực thật.
-
-## Trạng thái công nghệ
-
-Phiên bản khai báo lấy từ `package.json`; phiên bản cài đặt được xác nhận bằng `npm ls` tại thời điểm cập nhật README.
-
-| Công nghệ | Khai báo | Đã cài | Vai trò |
-|---|---:|---:|---|
-| Expo | `~57.0.31` | `57.0.31` | Nền tảng và công cụ phát triển ứng dụng |
-| React | `19.2.3` | `19.2.3` | Xây dựng giao diện theo component |
-| React Native | `0.86.3` | `0.86.3` | Giao diện di động đa nền tảng |
-| TypeScript | `~6.0.3` | `6.0.3` | Kiểu tĩnh cho mã JavaScript |
-| Expo Router | `~57.0.29` | `57.0.29` | Điều hướng theo file trong `src/app/` |
-| npm | — | `11.19.1` trên môi trường kiểm tra | Quản lý package; đây không phải phiên bản khóa cho mọi máy |
-
-Các package khác được khai báo trong `package.json`, gồm Expo modules, `react-native-reanimated`, `react-native-svg`, `react-native-safe-area-context` và font Plus Jakarta Sans.
-
-## Giao diện và chức năng hiện có
-
-| Khu vực | Trạng thái trong frontend |
-|---|---|
-| Chào mừng | Có giao diện và liên kết đến đăng nhập, đăng ký. |
-| Đăng nhập | Có mock authentication trong môi trường development (`__DEV__`). Tài khoản demo hợp lệ đưa người dùng đến `/home`; đây không phải xác thực bảo mật và không dùng cho production. |
-| Đăng ký | Có biểu mẫu, kiểm tra trường nhập và thông báo lỗi. Tạo tài khoản chưa kết nối backend và không lưu tài khoản. |
-| Trang chủ | Có ô tìm kiếm, phím tắt, trạng thái vườn/cây rỗng và nội dung gợi ý. Một số thẻ như thời tiết, lời chào và gợi ý cây là dữ liệu giao diện mẫu. |
-| Quản lý cây | Có tìm kiếm, trạng thái rỗng, danh sách cây, yêu thích và thao tác thêm/xem/sửa/xóa frontend. Hồ sơ và yêu thích được giữ trong bộ nhớ ứng dụng trong phiên, không lưu bền vững. |
-| Tìm kiếm và bộ lọc | Tìm theo tên trong dữ liệu cục bộ; có nhóm bộ lọc và kết quả tính từ danh mục hiện có. Danh mục hiện chỉ có một số cây mẫu, phần lớn thuộc tính sinh trưởng còn thiếu. |
-| Chi tiết cây | Có các khu vực thông tin cơ bản, đặc điểm và điều kiện sinh trưởng. Trường chưa có nguồn dữ liệu hiển thị “Chưa có dữ liệu”; chưa có số đo cảm biến hoặc ngưỡng sức khỏe thực. |
-| Quản lý vườn | Có màn hình danh sách, chi tiết và biểu mẫu tạo vườn. Dữ liệu vườn và một số thao tác chỉ phục vụ xem trước, chưa được lưu. |
-| Nhật ký | Có danh sách, chi tiết và biểu mẫu nhập/chỉnh sửa. Nội dung là mẫu; biểu mẫu chưa lưu nhật ký vào backend. Camera được hoãn. |
-| Lịch chăm sóc | Có danh sách, chi tiết và biểu mẫu tạo lịch. Kiểm tra nhập liệu ở frontend; lịch chưa được lưu và chưa đồng bộ thông báo. |
-| Theo dõi | Có giao diện tổng quan và chi tiết. Chưa kết nối cảm biến hoặc nguồn dữ liệu sức khỏe; nội dung hiển thị có thể là dữ liệu mẫu. |
-
-Tài khoản mock development được khai báo trong `src/services/mockAuth.ts`:
-
-| Email | Mật khẩu | Vai trò |
-|---|---|---|
-| `admin@goplant.test` | `Admin123!` | `admin` |
-
-Thông tin trên được khai báo trong `src/services/mockAuth.ts`, chỉ dùng cho demo development. Đây không phải xác thực bảo mật; không dùng cho production.
-
-### State và dữ liệu
-
-- `AuthSessionProvider` giữ user hiện tại trong RAM. Đăng xuất xóa session frontend; không có token hoặc mật khẩu được lưu trong persistent storage.
-- `PlantDataProvider` giữ cây và danh sách yêu thích trong RAM. Dữ liệu được chia sẻ giữa các route trong cùng phiên và mất khi ứng dụng khởi động lại.
-- Mock data trên các màn hình vườn, nhật ký và lịch chỉ phục vụ trình bày. Không xem các nội dung đó là dữ liệu người dùng đã được lưu.
-- Không có số liệu cảm biến, ngưỡng chăm sóc, cảnh báo hoặc kết luận sức khỏe cây thực tế.
-
-## Route
-
-Các route nằm trong `src/app/`:
-
-```text
-/
-├── /auth/login
-├── /auth/register
-├── /home
-├── /gardens
-├── /garden/create
-├── /garden-detail
-├── /plants
-├── /garden/add-plant
-├── /plant-detail
-├── /search
-├── /filter
-├── /journal
-├── /journal/new
-├── /journal/edit
-├── /journal/detail
-├── /schedule
-├── /schedule/create
-├── /schedule/detail
-├── /monitoring
-├── /monitoring/detail
-└── /explore (màn hình mẫu Expo)
-```
-
-Có route không đồng nghĩa toàn bộ nghiệp vụ phía sau đã hoạt động hoặc có dữ liệu thật.
-Thông tin này chỉ dùng để thử giao diện trong development. Không dùng làm thông tin xác thực thật hoặc trong bản production. Tắt mock auth không thay thế cho một hệ thống xác thực an toàn.
-
-### Thông tin cây và dữ liệu
-
-Mô hình hồ sơ có chỗ cho tên cây, tên khoa học, loại cây, vị trí, ngày trồng, ghi chú, điều kiện sinh trưởng và một số đặc tính tham khảo. Danh mục hiện có năm mục Trầu bà với tên thường gọi, tên khoa học và loại cây; các trường sinh trưởng khác chưa được cung cấp.
-
-Hồ sơ cây do người dùng thêm và danh sách yêu thích chỉ lưu trong state của ứng dụng. Chúng mất khi ứng dụng khởi động lại. Các màn hình sức khỏe, chỉ số môi trường, lịch sử đo đạc, cảnh báo và nhật ký chưa có dữ liệu thật hoặc đồng bộ backend.
-
-## Điều hướng
-
-Các route được đặt dưới `src/app/`:
-
-```text
-/
-├── /auth/login
-├── /auth/register
-├── /home
-├── /gardens
-├── /garden/create
-├── /garden-detail
-├── /plants
-├── /garden/add-plant
-├── /plant-detail
-├── /search
-├── /filter
-├── /journal
-├── /journal/new
-├── /journal/edit
-├── /journal/detail
-├── /schedule
-├── /schedule/create
-├── /schedule/detail
-├── /monitoring
-├── /monitoring/detail
-└── /explore (màn hình mẫu Expo còn trong project)
-```
-
-Các route chi tiết nhận tham số qua Expo Router khi cần. Sự tồn tại của route không đồng nghĩa toàn bộ nghiệp vụ phía sau đã được triển khai.
-
-## Cấu trúc dự án
-
-```text
-GOPLANTT/
-├── assets/                  # Hình ảnh, font và asset giao diện
-├── design-reference/        # Ảnh tham chiếu xuất từ Figma
-├── src/
-│   ├── app/                  # Route Expo Router
-│   ├── components/           # Component dùng chung và component mẫu
-│   ├── constants/            # Theme và design tokens
-│   ├── features/             # UI theo nhóm chức năng
-│   ├── hooks/                # Hook dùng chung
-│   ├── services/             # Mock authentication
-│   └── types/                # Khai báo kiểu bổ sung
-├── scripts/
-├── app.json
-├── package.json
-├── package-lock.json
-└── tsconfig.json
-```
-
-Thư mục `android/` và `ios/` chưa được commit. Expo quản lý native project theo cấu hình và workflow được chọn.
-├── assets/
-│   ├── images/                 # Asset ứng dụng và ảnh xuất từ thiết kế
-│   └── images/figma/            # Một số asset Figma được dùng trong giao diện
-├── design-reference/           # Ảnh tham chiếu các màn hình Figma
-├── src/
-│   ├── app/                     # Route Expo Router
-│   ├── components/              # Component dùng chung và component mẫu Expo
-│   ├── constants/theme.ts       # Token màu và kiểu chữ
-│   ├── features/                # Giao diện theo nhóm chức năng
-│   ├── hooks/                   # Hook dùng chung và hỗ trợ theme
-│   ├── services/                # Mock authentication
-│   ├── types/                   # Khai báo kiểu bổ sung
-│   └── global.css
-├── scripts/                     # Script hỗ trợ project
-├── app.json                     # Cấu hình Expo
-├── package.json                 # Package và script
-├── package-lock.json            # Lockfile npm
-└── tsconfig.json                # Cấu hình TypeScript
-```
-
-Thư mục `android/` và `ios/` hiện không có trong repository. Expo có thể sinh native project theo quy trình cần thiết; không tạo hoặc chỉnh các thư mục này thủ công trong workflow Expo hiện tại.
-
-## Yêu cầu môi trường
-
-### Cài dependencies và chạy Metro
-
-- Node.js và npm.
-- Phiên bản đã kiểm tra trong môi trường cập nhật README: Node.js `v24.22.1`, npm `11.19.1`. Project không khai báo trường `engines`, vì vậy đây là phiên bản môi trường kiểm tra, không phải giới hạn bắt buộc cho tất cả máy.
-
-### Chạy trên Android Emulator
-
-- Android SDK, ADB và Android Emulator.
-- Một AVD đã được tạo và khởi chạy.
-- Android Studio là công cụ để cài đặt/quản lý SDK và AVD. Trạng thái cài trên từng máy cần tự kiểm tra.
-- JDK/native build chỉ cần cấu hình phù hợp nếu sử dụng workflow native hoặc Gradle; project hiện chưa có native folders được commit.
-
-## Cài đặt và chạy trên Windows
-
-Yêu cầu cơ bản là Node.js và npm. Để chạy trên Android cần thêm Android SDK, ADB, Android Emulator và một AVD đã tạo. Android Studio có thể dùng để quản lý SDK/AVD.
-
-### 1. Mở PowerShell tại thư mục dự án
+Mở PowerShell thứ nhất:
 
 ```powershell
-cd path\to\GOPLANTT
+cd backend
+docker compose up -d postgres
+
+$env:PORT = '8082'
+$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+$bytes = New-Object byte[] 48
+$rng.GetBytes($bytes)
+$env:GOPLANT_JWT_SECRET = [Convert]::ToBase64String($bytes)
+$rng.Dispose()
+
+mvn spring-boot:run
 ```
 
-### 2. Cài dependency theo lockfile
-### 2. Cài đúng dependency theo lockfile
+Nếu lệnh `mvn` chưa nhận diện, dùng Maven đã cài trên Windows:
+
+Đường dẫn Windows mẫu cho lệnh này có trong [`backend/README.md`](backend/README.md); thay bằng thư mục Maven đã cài trên máy.
+
+Giữ cửa sổ backend mở. API chạy tại `http://localhost:8082`; kiểm tra trạng thái ở `http://localhost:8082/actuator/health`. PostgreSQL dùng database/user/password `goplant` theo cấu hình Docker mặc định.
+
+Admin hiện có `admin@goplant.test` được giữ nguyên. Bootstrap chỉ tạo tài khoản khi email chưa tồn tại; không ghi đè thông tin tài khoản đã có. Với database mới, xem hướng dẫn tạo admin trong [`backend/README.md`](backend/README.md).
+
+## Chạy app trong Android Emulator
+
+Mở PowerShell thứ hai, bảo đảm Android Emulator đã khởi động, rồi chạy:
 
 ```powershell
-npm.cmd ci
+cd GOPLANTT
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+npm ci
+npm run android
 ```
 
-### 3. Khởi động Android Emulator
+Trong file `.env` (tạo từ [`GOPLANTT/.env.example`](GOPLANTT/.env.example)), đặt địa chỉ API cho emulator:
 
-Mở AVD từ Android Studio Device Manager. Có thể kiểm tra kết nối bằng:
-Mở Android Studio, vào **Device Manager** và khởi chạy AVD. Có thể kiểm tra thiết bị bằng:
-
-```powershell
-adb devices
+```env
+EXPO_PUBLIC_API_URL=http://10.0.2.2:8082
 ```
 
-Emulator cần xuất hiện với trạng thái `device`.
+`10.0.2.2` là địa chỉ để Android Emulator truy cập backend trên máy tính. Giữ cả cửa sổ Expo và backend mở khi dùng app. Nếu đổi cổng backend, cập nhật cùng cổng trong `.env` rồi khởi động lại Expo.
 
-### 4. Khởi chạy Expo/Metro
+Sau khi đăng nhập bằng tài khoản admin, mở **Tài khoản → Quản lý danh mục cây** để thêm cây. Backend tự nạp 21 cây phổ biến khi khởi động và yêu cầu nguồn tham khảo khi admin thêm cây mới.
 
-```powershell
-npx.cmd expo start
-```
+## Email xác minh
 
-Khi Metro sẵn sàng, nhấn `a` để yêu cầu Expo mở ứng dụng trong Emulator. Đây là quy trình phát triển, không tạo APK. Dùng Expo Go tương thích SDK 57 nếu workflow đó đáp ứng các native module đang dùng. Dừng Metro bằng `Ctrl + C`.
+Đăng ký người dùng cần SMTP để gửi email và `GOPLANT_PUBLIC_API_URL` là địa chỉ backend mà thiết bị nhận thư có thể truy cập. Cấu hình SMTP được hướng dẫn trong [`backend/README.md`](backend/README.md). Nếu chưa cấu hình, API từ chối đăng ký thay vì tạo tài khoản không thể xác minh.
 
-Trong PowerShell, dùng `npm.cmd`/`npx.cmd` nếu lệnh không có hậu tố bị chặn bởi Execution Policy.
+## Tài liệu theo phần
 
-## Kiểm tra
-Khi Metro sẵn sàng, nhấn `a` trong terminal để yêu cầu Expo mở ứng dụng trên Android Emulator. Quy trình này chạy ứng dụng trong môi trường phát triển, thường qua Expo Go tương thích; `expo start` không tạo APK. Nếu cần native module không có trong Expo Go thì cần đánh giá development build riêng.
+- [Frontend Expo/React Native](GOPLANTT/README.md)
+- [Backend Spring Boot, PostgreSQL, SMTP và API](backend/README.md)
 
-Dừng Metro bằng `Ctrl + C`. Trên PowerShell, dùng `npm.cmd`/`npx.cmd` nếu lệnh không hậu tố bị Execution Policy chặn.
-
-## Kiểm tra
-
-Các lệnh phù hợp với project:
-
-```powershell
-npm.cmd ls expo react react-native expo-router typescript --depth=0
-npx.cmd tsc --noEmit
-npx.cmd expo install --check
-npx.cmd expo-doctor
-```
-
-Kết quả kiểm tra trong Phase 4:
-
-- `npm.cmd ls ... --depth=0`: các phiên bản chính hiện diện đúng như bảng công nghệ.
-- `npx.cmd tsc --noEmit`: đạt.
-- `npx.cmd expo install --check`: cảnh báo 5 package thấp hơn bản vá Expo khuyến nghị: `expo` (`57.0.31`, mong đợi `~57.0.32`), `expo-constants` (`57.0.22`, mong đợi `~57.0.23`), `expo-glass-effect` (`57.0.4`, mong đợi `~57.0.5`), `expo-router` (`57.0.29`, mong đợi `~57.0.30`) và `expo-splash-screen` (`57.0.10`, mong đợi `~57.0.11`). Chưa cập nhật package trong Phase 4.
-- `npx.cmd expo-doctor`: 20/21 kiểm tra đạt; kiểm tra phiên bản package thất bại do cùng 5 bản vá trên.
-- `npm.cmd run lint`: chưa chạy vì script hiện cố tự tạo cấu hình ESLint khi chưa có cấu hình. Không chấp nhận tạo cấu hình trong phạm vi này.
-- Android Emulator: không khởi chạy trong Phase 4; chưa xác minh giao diện trực tiếp trên thiết bị.
-
-## Giới hạn và công việc tiếp theo
-
-- [x] Màn hình frontend chính và điều hướng theo route hiện có.
-- [x] Mock login admin trong development, session RAM và thao tác đăng xuất.
-- [x] Kiểm tra frontend đăng ký; chưa tạo tài khoản thật.
-- [x] Thao tác cây cục bộ: thêm, xem, sửa, xóa, tìm kiếm và yêu thích.
-- [x] Đánh dấu rõ dữ liệu môi trường/theo dõi chưa có nguồn.
-- [ ] Thêm nguồn dữ liệu có căn cứ cho thư viện và điều kiện sinh trưởng cây.
-- [ ] Hoàn thiện lưu trữ/nghiệp vụ vườn, nhật ký, lịch chăm sóc và theo dõi.
-- [ ] Tích hợp backend, API, database và xác thực thật theo yêu cầu giai đoạn sau.
-- [ ] Kiểm tra UI trên Android Emulator và đối chiếu với Figma.
-- [ ] Thiết lập ESLint nếu nhóm cần dùng script lint.
-
-## Bảo trì
-
-- Giữ tương thích giữa Expo SDK và các package; ưu tiên `npx expo install <package>` khi thêm package được Expo hỗ trợ.
-- Chạy lại TypeScript và kiểm tra Expo sau khi thay đổi dependency hoặc cấu hình.
-- Không commit secret, token hoặc API key. Tài khoản mock trong source chỉ dùng demo, không dùng production.
-- Cập nhật README khi route, quy trình hoặc trạng thái chức năng thay đổi.
-Kết quả được xác minh khi cập nhật README:
-
-- `npm.cmd ls expo react-native expo-router typescript --depth=0`: các package chính hiện diện với Expo `57.0.31`, React `19.2.3`, React Native `0.86.3`, Expo Router `57.0.29` và TypeScript `6.0.3`.
-- `npx.cmd tsc --noEmit`: hoàn tất thành công.
-- `npm.cmd run lint`: chưa chạy được. Script `expo lint` của project cố tự tạo cấu hình ESLint; lệnh đã được dừng để tránh sửa cấu hình ngoài phạm vi README.
-- `expo install --check` và Expo Doctor 21/21: kết quả đã được báo cáo ở lần kiểm tra Phase 3 trước đó, không chạy lại trong nhiệm vụ README này.
-- Android Emulator: không khởi chạy hoặc kiểm thử UI trong nhiệm vụ này.
-
-## Giới hạn hiện tại và tiến độ
-
-- [x] Khởi tạo frontend bằng Expo SDK 57, React Native và TypeScript.
-- [x] Bổ sung các route UI chính cho chào mừng, đăng nhập/đăng ký, trang chủ, cây trồng, vườn, tìm kiếm, nhật ký, lịch và theo dõi.
-- [x] Bổ sung mock login development và quản lý cây cục bộ trong phiên.
-- [x] Chạy TypeScript và kiểm tra dependency chính khi cập nhật tài liệu.
-- [ ] Hoàn thiện dữ liệu nội dung cây, gồm điều kiện sinh trưởng có nguồn xác định.
-- [ ] Kết nối lưu trữ/backend/API và xác thực thật.
-- [ ] Hoàn thiện các nghiệp vụ vườn, nhật ký, lịch chăm sóc và theo dõi.
-- [ ] Đối chiếu toàn bộ giao diện trực tiếp trên Android Emulator với ảnh Figma.
-- [ ] Thiết lập ESLint riêng nếu nhóm muốn dùng script lint hiện tại.
-
-Các mục đánh dấu hoàn thành chỉ mô tả phần frontend hoặc kiểm tra đã có bằng chứng; chúng không đồng nghĩa với backend hoặc kiểm thử UI trên thiết bị.
-
-## Bảo trì
-
-Các mục sau là hướng dẫn phát triển:
-
-- Giữ phiên bản package tương thích với Expo SDK đang dùng; ưu tiên `npx expo install <package>` cho package có hỗ trợ Expo.
-- Chạy lại kiểm tra TypeScript và tương thích sau khi thay đổi dependency hoặc cấu hình.
-- Không commit secret, token hoặc API key. Tài khoản mock trong source không phải bí mật và không được dùng cho production.
-- Cập nhật README khi route, quy trình chạy hoặc phạm vi chức năng thay đổi.
+Backend hiện chưa có API cho nhật ký chăm sóc, lịch nhắc, thời tiết, cảm biến, lưu ảnh, đổi/khôi phục mật khẩu, xuất hoặc xóa tài khoản. Các phần chưa kết nối không ghi dữ liệu nghiệp vụ giả.

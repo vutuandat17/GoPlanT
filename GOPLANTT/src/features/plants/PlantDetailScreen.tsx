@@ -3,7 +3,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from '@/components/app-primitives';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
-import { plantCatalog, usePlantData } from '@/features/plants/PlantDataStore';
+import { usePlantData } from '@/features/plants/PlantDataStore';
 
 const missing = 'Chưa có dữ liệu';
 
@@ -13,10 +13,10 @@ function InfoRow({ label, value }: { label: string; value?: string }) {
 
 export default function PlantDetailScreen() {
   const { name, ownedId } = useLocalSearchParams<{ name?: string; ownedId?: string }>();
-  const { ownedPlants, favorites, toggleFavorite } = usePlantData();
+  const { catalog, ownedPlants, favorites, toggleFavorite } = usePlantData();
   const owned = ownedPlants.find((item) => item.id === ownedId);
-  const plant = (owned && plantCatalog.find((item) => item.id === owned.catalogId))
-    ?? plantCatalog.find((item) => item.name === name || item.scientificName === name)
+  const plant = (owned && catalog.find((item) => item.id === owned.catalogId))
+    ?? catalog.find((item) => item.name === name || item.scientificName === name)
     ?? { id: 'unknown-plant', name: name ?? 'Cây trồng', scientificName: missing, category: missing };
   const isFavorite = favorites.includes(plant.id);
 
@@ -27,7 +27,7 @@ export default function PlantDetailScreen() {
       <Pressable onPress={() => toggleFavorite(plant.id)} accessibilityRole="button" accessibilityLabel={isFavorite ? 'Bỏ yêu thích' : 'Thêm yêu thích'}><Text style={d.heart}>{isFavorite ? '♥' : '♡'}</Text></Pressable>
     </View>
     <ScrollView contentContainerStyle={d.content}>
-      <View style={d.hero}><Text style={d.heroEmoji}>♧</Text><Text style={d.heroBadge}>THƯ VIỆN CÂY • DỮ LIỆU MẪU</Text></View>
+      <View style={d.hero}><Text style={d.heroEmoji}>♧</Text><Text style={d.heroBadge}>THƯ VIỆN CÂY</Text></View>
       <View style={d.titleRow}><View style={d.copy}><Text style={d.title}>{owned?.name ?? plant.name}</Text><Text style={d.latin}>{plant.scientificName}</Text><View style={d.tags}><Text style={d.tag}>{plant.category}</Text><Text style={d.tag}>{owned ? 'Cây đang sở hữu' : 'Cây tham khảo'}</Text></View></View></View>
 
       {owned ? <View style={d.card}>
@@ -36,7 +36,7 @@ export default function PlantDetailScreen() {
         <InfoRow label="Vị trí hiện tại" value={owned.location} />
         <InfoRow label="Ghi chú" value={owned.note} />
         <InfoRow label="Tình trạng" value="Chưa đánh giá" />
-        <Text style={d.note}>Hồ sơ được lưu tạm trong bộ nhớ phiên hiện tại.</Text>
+        <Text style={d.note}>Hồ sơ cây được lưu trong tài khoản GoPlant của bạn.</Text>
       </View> : null}
 
       <View style={d.card}>
@@ -79,7 +79,7 @@ export default function PlantDetailScreen() {
       <View style={d.actions}>
         {!owned ? <Pressable onPress={() => router.push({ pathname: '/garden/add-plant', params: { plantId: plant.id } } as never)} style={d.primaryButton}><Text style={d.primaryText}>＋  Thêm cây vào cây của tôi</Text></Pressable> : <Pressable onPress={() => router.push({ pathname: '/garden/add-plant', params: { editId: owned.id } } as never)} style={d.primaryButton}><Text style={d.primaryText}>Chỉnh sửa hồ sơ cây</Text></Pressable>}
       </View>
-      <Text style={d.note}>Thư viện hiện là danh sách demo cục bộ; chưa có ảnh thực, dữ liệu chuyên môn đầy đủ hoặc API.</Text>
+      <Text style={d.note}>Chỉ thông tin đã được duyệt mới xuất hiện trong thư viện. Các điều kiện sinh trưởng chưa có nguồn sẽ hiển thị là chưa có dữ liệu.</Text>
     </ScrollView>
   </SafeAreaView>;
 }
