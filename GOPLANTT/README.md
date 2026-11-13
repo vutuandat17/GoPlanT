@@ -15,6 +15,8 @@ npm run android
 
 Giữ Metro/Expo và backend chạy trong các cửa sổ terminal. `10.0.2.2` là địa chỉ đặc biệt để Android emulator gọi dịch vụ đang chạy trên máy tính. Đổi URL trong `.env` nếu backend dùng cổng khác; khởi động lại Expo sau khi sửa biến môi trường.
 
+Nếu Android Studio báo emulator process bị terminate với mọi AVD, đóng các máy ảo khác và thoát hẳn MuMuPlayer, BlueStacks, Nox hoặc phần mềm giả lập Android khác. Chạy `& "$env:ANDROID_HOME\platform-tools\adb.exe" kill-server`, sau đó mở Device Manager và thử **Cold Boot Now**. Hướng dẫn PostgreSQL/backend và xử lý emulator đầy đủ nằm trong [README dự án](../README.md).
+
 ## Tài khoản quản trị
 
 Backend giữ định danh quản trị hiện có `admin@goplant.test`. Bootstrap chỉ tạo tài khoản nếu email chưa tồn tại và không ghi đè mật khẩu/tài khoản đã có. Sau khi đăng nhập admin, mở **Tài khoản → Quản lý danh mục cây** để thêm và xuất bản cây mới; cần cung cấp tên khoa học cùng ít nhất một thông tin nguồn tham khảo.

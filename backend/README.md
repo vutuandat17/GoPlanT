@@ -6,8 +6,20 @@ REST API for the Expo/React Native application, built with Spring Boot 3.5, Java
 
 Requirements: JDK 21, Maven 3.9+, and Docker Desktop (for PostgreSQL).
 
+Use one PostgreSQL instance on port `5432`. If the Windows PostgreSQL service and this Docker container are both running, stop the Windows service from an elevated PowerShell before starting the project container:
+
+```powershell
+Stop-Service postgresql-x64-17
+```
+
 ```powershell
 docker compose up -d postgres
+$containerId = docker compose ps -q postgres
+if (-not $containerId) { throw 'PostgreSQL container was not found.' }
+$pgPasswordSetting = docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' $containerId | Select-String '^POSTGRES_PASSWORD='
+if (-not $pgPasswordSetting) { throw 'The container has no POSTGRES_PASSWORD setting.' }
+$env:DATABASE_PASSWORD = $pgPasswordSetting.Line.Substring('POSTGRES_PASSWORD='.Length)
+
 $env:PORT = '8082'
 $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
 $bytes = New-Object byte[] 48
@@ -17,7 +29,9 @@ $rng.Dispose()
 mvn spring-boot:run
 ```
 
-The API listens on `http://localhost:8082` with this example. If port 8082 is unavailable, choose another free port and set the same port in the frontend `EXPO_PUBLIC_API_URL`. Flyway applies migrations on startup. Set `GOPLANT_CORS_ALLOWED_ORIGINS` to a comma-separated allowlist for the frontend origins used by your environment. The PowerShell-compatible random secret commands above also work on Windows PowerShell versions that do not support `RandomNumberGenerator.GetBytes(int)`.
+Keep this terminal open while using the app. The API listens on `http://localhost:8082`; check `http://localhost:8082/actuator/health`. The command reads the Docker container's configured database password without displaying it. For an existing database, changing Compose's `POSTGRES_PASSWORD` does not change the password stored in PostgreSQL; if the database role password was changed separately, set `DATABASE_PASSWORD` to its current value. Do not use `docker compose down -v` to fix authentication because it deletes the database volume.
+
+If the API reports `password authentication failed`, verify that `DATABASE_PASSWORD` matches the PostgreSQL instance the API reaches. Do not run both the Windows service and the Docker container on port `5432`. To use a Windows PostgreSQL instance instead, run `docker compose stop postgres` and set `DATABASE_URL`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD` to that instance's values. Flyway applies migrations on startup. Set `GOPLANT_CORS_ALLOWED_ORIGINS` to a comma-separated allowlist for the frontend origins used by your environment. The PowerShell-compatible random secret commands above also work on Windows PowerShell versions that do not support `RandomNumberGenerator.GetBytes(int)`.
 
 If `mvn` is not on PATH, run Maven with its installed path, for example:
 
