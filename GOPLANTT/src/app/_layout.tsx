@@ -36,7 +36,7 @@ export default function RootLayout() {
 
 function AppShell() {
   const { resolvedTheme } = useAppPreferences();
-  const backgroundColor = resolvedTheme === 'dark' ? '#101814' : GoPlantColors.background;
+  const backgroundColor = resolvedTheme === 'dark' ? '#000000' : GoPlantColors.background;
   return <>
     <StatusBar style={resolvedTheme === 'dark' ? 'light' : 'dark'} />
     <AuthSessionProvider>

@@ -5,6 +5,7 @@ import { SafeAreaView } from '@/components/app-primitives';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { AccountButton } from '@/features/auth/AccountButton';
+import { usePlantData } from '@/features/plants/PlantDataStore';
 
 function Header({ title }: { title: string }) { return <View style={j.header}><Pressable onPress={() => router.back()}><Text style={j.back}>‹</Text></Pressable><Text style={j.headerTitle}>{title}</Text><AccountButton size={29} /></View>; }
 
@@ -22,15 +23,19 @@ export function JournalDetailScreen() {
 }
 
 function JournalForm({ editing = false }: { editing?: boolean }) {
-  const [plant, setPlant] = useState(editing ? 'Cà Chua Cherry' : '');
+  const { ownedPlants } = usePlantData();
+  const [plant, setPlant] = useState('');
+  const [plantQuery, setPlantQuery] = useState('');
   const [note, setNote] = useState('');
   const [type, setType] = useState('Phát triển');
   const [health, setHealth] = useState('Khỏe mạnh');
   const [error, setError] = useState(false);
+  const matchingPlants = plantQuery.trim() ? ownedPlants.filter((item) => `${item.name} ${item.scientificName} ${item.location}`.toLocaleLowerCase().includes(plantQuery.trim().toLocaleLowerCase())) : [];
   const save = () => { const invalid = !plant || !note.trim(); setError(invalid); if (!invalid) Alert.alert('Chưa thể lưu ghi nhận', 'Máy chủ hiện chưa hỗ trợ nhật ký chăm sóc.'); };
   return <SafeAreaView style={j.safe} edges={['top']}><Header title={editing ? 'Chỉnh sửa nhật ký' : 'Thêm ghi nhận mới'}/><ScrollView contentContainerStyle={j.content}>
     <View style={j.tip}><Text style={j.sectionTitle}>{editing ? 'Cập nhật nhật ký cây' : 'Ghi nhận tình trạng cây'}</Text><Text style={j.body}>Lưu lại tình trạng và tiến triển để tiện theo dõi.</Text></View>
-    <Text style={j.label}>1. Chọn cây trồng <Text style={j.required}>*</Text></Text>{['Cà Chua Cherry', 'Hương Thảo (Rosemary)', 'Hồng leo Huntington'].map((name, i) => <Pressable key={name} onPress={() => setPlant(name)} style={[j.plantCard, plant === name && j.selected]}><View style={j.thumbSmall}><Text>{['🍅','🌿','🌸'][i]}</Text></View><Text style={j.titleSmall}>{name}</Text><Text style={j.radio}>{plant === name ? '●' : '○'}</Text></Pressable>)}
+    <Text style={j.label}>1. Chọn cây trong vườn của bạn <Text style={j.required}>*</Text></Text>
+    {ownedPlants.length ? <><TextInput value={plantQuery} onChangeText={setPlantQuery} placeholder="Tìm theo tên cây hoặc tên khoa học" style={j.input}/>{!plantQuery.trim() ? <Text style={j.note}>Nhập tên cây để tìm trong danh sách {ownedPlants.length} cây của bạn.</Text> : null}{matchingPlants.slice(0, 20).map((item) => <Pressable key={item.id} onPress={() => setPlant(item.id)} style={[j.plantCard, plant === item.id && j.selected]}><View style={j.thumbSmall}><Text>♧</Text></View><View style={j.copy}><Text style={j.titleSmall}>{item.name}</Text><Text style={j.body}>{item.scientificName}{item.location ? ` • ${item.location}` : ''}</Text></View><Text style={j.radio}>{plant === item.id ? '●' : '○'}</Text></Pressable>)}{plantQuery.trim() && matchingPlants.length === 0 ? <Text style={j.note}>Không tìm thấy cây phù hợp với nội dung tìm kiếm.</Text> : null}{matchingPlants.length > 20 ? <Text style={j.note}>Có {matchingPlants.length} kết quả; hiển thị 20 cây đầu. Nhập thêm ký tự để thu hẹp.</Text> : null}</> : <View style={j.card}><Text style={j.body}>Bạn chưa có cây trong danh sách. Hãy thêm cây trước khi tạo nhật ký.</Text><Pressable onPress={() => router.push('/garden/add-plant' as never)}><Text style={j.link}>＋ Thêm cây của bạn</Text></Pressable></View>}
     <Text style={j.label}>2. Loại ghi nhận</Text><View style={j.chips}>{['Phát triển', 'Tưới nước', 'Bón phân', 'Sâu bệnh'].map((name) => <Pressable key={name} onPress={() => setType(name)} style={[j.chip, type === name && j.selected]}><Text style={j.body}>{name}</Text></Pressable>)}</View>
     <Text style={j.label}>3. Tình trạng cây</Text><View style={j.chips}>{['Khỏe mạnh', 'Cần theo dõi', 'Cần can thiệp'].map((name) => <Pressable key={name} onPress={() => setHealth(name)} style={[j.chip, health === name && j.selected]}><Text style={j.body}>{name}</Text></Pressable>)}</View>
     <Text style={j.label}>4. Hình ảnh</Text><View style={j.photoRow}><Pressable onPress={() => Alert.alert('Ảnh', 'Tải ảnh sẽ khả dụng khi dịch vụ lưu trữ được cấu hình.')} style={j.addPhoto}><Text style={j.photoAdd}>＋</Text><Text style={j.body}>Thêm ảnh</Text></Pressable></View>

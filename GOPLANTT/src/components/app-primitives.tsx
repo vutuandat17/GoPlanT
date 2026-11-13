@@ -46,6 +46,8 @@ function themedColor(color: unknown, property: string, scheme: Scheme): unknown 
   }
   if (property.toLowerCase().includes('border')) return s < 0.18 ? '#35443A' : fromHsl(h, s, Math.max(0.25, l * 0.55));
   if (property === 'backgroundColor') {
+    // This is the light-mode page canvas color; keep the dark-mode canvas truly black.
+    if (color.toUpperCase() === '#F4FBF5') return '#000000';
     if (l > 0.92 && s < 0.18) return l > 0.98 ? '#1B2820' : '#101814';
     if (l > 0.68) return s < 0.18 ? '#25342B' : fromHsl(h, Math.max(0.20, s), 0.22);
     if (l < 0.22 && s > 0.16) return fromHsl(h, s, 0.34);
