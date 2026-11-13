@@ -110,6 +110,26 @@ public class AuthService {
         return new LoginResult(jwt, "Bearer", tokenMinutes * 60, new UserView(account.id(), account.email(), account.displayName(), roles));
     }
 
+    public UserView getUser(UUID userId) {
+        var rows = jdbc.query("""
+                SELECT u.id,u.display_name,e.normalized_email
+                FROM users u JOIN user_email_addresses e ON e.user_id=u.id AND e.address_type='primary'
+                WHERE u.id=? AND u.status='active'
+                """, (rs, row) -> new UserIdentity(rs.getObject("id", UUID.class), rs.getString("normalized_email"),
+                rs.getString("display_name")), userId);
+        if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Account not found");
+        UserIdentity identity = rows.getFirst();
+        var roles = jdbc.queryForList("SELECT r.code FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=?", String.class, userId);
+        return new UserView(identity.id(), identity.email(), identity.displayName(), roles);
+    }
+
+    @Transactional
+    public UserView updateDisplayName(UUID userId, String displayName) {
+        int changed = jdbc.update("UPDATE users SET display_name=?,updated_at=now() WHERE id=? AND status='active'", displayName.trim(), userId);
+        if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Account not found");
+        return getUser(userId);
+    }
+
     private String normalizeEmail(String email) {
         String result = email.trim().toLowerCase(Locale.ROOT);
         if (result.length() > 320 || !result.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid email address");
@@ -124,5 +144,6 @@ public class AuthService {
     public record Registration(UUID id, String email, String verificationToken, String message) {}
     public record UserView(UUID id, String email, String displayName, java.util.List<String> roles) {}
     public record LoginResult(String accessToken, String tokenType, int expiresIn, UserView user) {}
+    private record UserIdentity(UUID id, String email, String displayName) {}
     private record Account(UUID id, String displayName, String passwordHash, String status, String email) {}
 }

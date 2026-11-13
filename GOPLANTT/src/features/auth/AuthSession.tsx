@@ -17,6 +17,7 @@ type AuthSessionValue = {
   isReady: boolean;
   signIn: (user: SessionUser, token?: string) => Promise<void>;
   signOut: () => Promise<void>;
+  updateDisplayName: (displayName: string) => Promise<void>;
 };
 
 const AuthSessionContext = createContext<AuthSessionValue | null>(null);
@@ -63,6 +64,13 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       await clearAccessToken();
       setAccessToken(null);
       setUser(null);
+    },
+    updateDisplayName: async (displayName: string) => {
+      if (!accessToken) throw new Error('Vui lòng đăng nhập lại để cập nhật hồ sơ.');
+      const updatedUser = await apiRequest<ApiUser>('/api/v1/auth/me', {
+        method: 'PUT', token: accessToken, body: { displayName },
+      });
+      setUser(mapApiUser(updatedUser));
     },
   }), [user, accessToken, isReady]);
 

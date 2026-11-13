@@ -1,9 +1,10 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from '@/components/app-primitives';
 import { router } from 'expo-router';
 import { SafeAreaView } from '@/components/app-primitives';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { BackButton } from '@/components/BackButton';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { useAppPreferences } from '@/features/preferences/AppPreferences';
 
@@ -28,7 +29,7 @@ const menu: { page: Exclude<AccountPage, 'overview'>; icon: string; title: strin
 function Page({ page, children }: { page: AccountPage; children: ReactNode }) {
   return <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
     <View style={s.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Quay lại" hitSlop={8} onPress={() => { if (router.canGoBack()) router.back(); else router.replace('/home' as never); }} style={[s.back, s.backCircle]}><Text style={[s.backText, s.backTextCircle]}>←</Text></Pressable>
+      <BackButton onPress={() => { if (router.canGoBack()) router.back(); else router.replace('/home' as never); }} />
       <Text numberOfLines={1} style={s.headerTitle}>{titles[page]}</Text>
       <View style={s.headerRight}><Text style={s.userMark}>♙</Text></View>
     </View>
@@ -40,8 +41,8 @@ function Label({ children }: { children: ReactNode }) { return <Text style={s.la
 function Field({ label, value, onChangeText, placeholder, secureTextEntry = false }: { label: string; value: string; onChangeText?: (value: string) => void; placeholder?: string; secureTextEntry?: boolean }) {
   return <View style={s.field}><Label>{label}</Label><TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={C.mutedText} secureTextEntry={secureTextEntry} editable={Boolean(onChangeText)} style={[s.input, !onChangeText && s.readOnly]} /></View>;
 }
-function ActionButton({ label, onPress, tone = 'primary' }: { label: string; onPress: () => void; tone?: 'primary' | 'soft' | 'danger' }) {
-  return <Pressable accessibilityRole="button" onPress={onPress} style={[s.button, tone === 'soft' && s.buttonSoft, tone === 'danger' && s.buttonDanger]}><Text style={[s.buttonText, tone === 'soft' && s.buttonSoftText]}>{label}</Text></Pressable>;
+function ActionButton({ label, onPress, tone = 'primary', disabled = false }: { label: string; onPress: () => void; tone?: 'primary' | 'soft' | 'danger'; disabled?: boolean }) {
+  return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={[s.button, tone === 'soft' && s.buttonSoft, tone === 'danger' && s.buttonDanger, disabled && s.buttonDisabled]}><Text style={[s.buttonText, tone === 'soft' && s.buttonSoftText]}>{label}</Text></Pressable>;
 }
 function unavailable(feature: string) { Alert.alert('Chưa có dịch vụ', `${feature} hiện chỉ là giao diện tham khảo. Tác vụ cần backend hoặc API hệ thống chưa được kết nối.`); }
 function Row({ icon, title, caption, onPress }: { icon: string; title: string; caption: string; onPress: () => void }) {
@@ -67,18 +68,33 @@ export function AccountOverviewScreen() {
 }
 
 export function AccountProfileScreen() {
-  const { user } = useAuthSession();
+  const { user, updateDisplayName } = useAuthSession();
   const [name, setName] = useState(user?.name ?? '');
-  const [username, setUsername] = useState(user?.email.split('@')[0] ?? '');
-  const [phone, setPhone] = useState('');
-  const [birthDate, setBirthDate] = useState('');
-  const [gender, setGender] = useState('Chưa cung cấp');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => { setName(user?.name ?? ''); }, [user?.name]);
+  const save = async () => {
+    const displayName = name.trim();
+    if (!displayName || displayName.length > 120) {
+      setError('Tên hiển thị cần có từ 1 đến 120 ký tự.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await updateDisplayName(displayName);
+      Alert.alert('Đã lưu hồ sơ', 'Tên hiển thị đã được cập nhật.');
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Không thể lưu hồ sơ. Vui lòng thử lại.');
+    } finally {
+      setSaving(false);
+    }
+  };
   return <Page page="profile">
     <Card style={s.profileHero}><View style={s.avatarLarge}><Text style={s.avatarText}>{name.trim().charAt(0).toUpperCase() || 'G'}</Text></View><Text style={s.identityName}>{name || 'Tên hiển thị'}</Text><Text style={s.caption}>Hồ sơ tài khoản</Text></Card>
-    <Card><Field label="Họ và tên" value={name} onChangeText={setName} placeholder="Nhập họ và tên"/><Field label="Tên tài khoản" value={username} onChangeText={setUsername} placeholder="Tên hiển thị công khai"/><Field label="Hộp thư điện tử" value={user?.email ?? ''}/><Field label="Số điện thoại" value={phone} onChangeText={setPhone} placeholder="Chưa cung cấp"/><Field label="Ngày sinh" value={birthDate} onChangeText={setBirthDate} placeholder="DD/MM/YYYY"/></Card>
-    <Card><Label>Giới tính</Label><View style={s.choiceRow}>{['Nữ', 'Nam', 'Khác', 'Chưa cung cấp'].map((value) => <Pressable key={value} onPress={() => setGender(value)} style={[s.choice, gender === value && s.choiceSelected]}><Text style={[s.choiceText, gender === value && s.choiceTextSelected]}>{value}</Text></Pressable>)}</View></Card>
-    <Card style={s.infoCard}><Text style={s.menuTitle}>Thông tin hồ sơ</Text><Text style={s.caption}>Thông tin cá nhân được quản lý theo tài khoản.</Text></Card>
-    <ActionButton label="✓  Lưu thay đổi" onPress={() => unavailable('Lưu thông tin cá nhân')}/><ActionButton label="Hủy bỏ" tone="soft" onPress={() => router.back()}/>
+    <Card><Field label="Họ và tên" value={name} onChangeText={setName} placeholder="Nhập họ và tên"/><Field label="Tên tài khoản" value={user?.email.split('@')[0] ?? ''}/><Field label="Hộp thư điện tử" value={user?.email ?? ''}/></Card>
+    {error ? <Text style={s.error}>{error}</Text> : null}
+    <ActionButton label={saving ? 'Đang lưu…' : '✓  Lưu thay đổi'} disabled={saving} onPress={() => void save()}/><ActionButton label="Hủy bỏ" tone="soft" disabled={saving} onPress={() => router.back()}/>
   </Page>;
 }
 
@@ -153,7 +169,5 @@ export function AccountPrivacyScreen() {
 }
 
 const s = StyleSheet.create({
-  backCircle: { width: 34, height: 34, borderRadius: 17, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
-  backTextCircle: { color: C.surface, fontSize: 24, lineHeight: 28, textAlign: 'center' },
-  safe: { flex: 1, backgroundColor: C.background }, header: { minHeight: 56, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 12 }, headerGlyph: { width: 34, height: 34, borderRadius: 17, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, headerGlyphText: { color: C.surface, fontSize: 20 }, back: { width: 28 }, backText: { color: C.forest, fontSize: 30 }, headerTitle: { flex: 1, color: C.forest, fontFamily: F.semiBold, fontSize: 17 }, headerRight: { width: 32, height: 32, borderRadius: 16, backgroundColor: C.forest, alignItems: 'center', justifyContent: 'center' }, userMark: { color: C.surface, fontSize: 17 }, headerSpacer: { width: 8 }, content: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 28, gap: 12 }, card: { padding: 14, borderRadius: 15, backgroundColor: C.surface, gap: 11 }, identity: { flexDirection: 'row', alignItems: 'center', gap: 13, padding: 16, backgroundColor: C.surface }, avatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#DDECE1', alignItems: 'center', justifyContent: 'center' }, avatarLarge: { width: 90, height: 90, borderRadius: 45, marginBottom: 8, backgroundColor: '#DDECE1', alignItems: 'center', justifyContent: 'center' }, avatarText: { color: C.primary, fontFamily: F.bold, fontSize: 29 }, flex: { flex: 1, gap: 3 }, identityName: { color: C.forest, fontFamily: F.semiBold, fontSize: 18 }, caption: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12, lineHeight: 18 }, roleBadge: { alignSelf: 'flex-start', marginTop: 4, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20, backgroundColor: '#E4F1E8', color: C.primary, fontFamily: F.semiBold, fontSize: 10 }, sectionHeading: { gap: 2, paddingTop: 4 }, sectionTitle: { color: C.text, fontFamily: F.semiBold, fontSize: 17 }, menuRow: { minHeight: 74, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 15, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 12 }, menuIcon: { width: 43, height: 43, borderRadius: 13, backgroundColor: '#E7F0E9', alignItems: 'center', justifyContent: 'center' }, menuIconText: { color: C.forest, fontSize: 22 }, menuTitle: { color: C.text, fontFamily: F.semiBold, fontSize: 15 }, chevron: { color: '#A5B3A9', fontSize: 25 }, infoCard: { backgroundColor: C.softSurface }, banner: { backgroundColor: '#E5F1E8', padding: 17 }, bannerTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 18 }, profileHero: { alignItems: 'center', paddingVertical: 20 }, field: { gap: 6 }, label: { color: C.secondaryText, fontFamily: F.semiBold, fontSize: 12 }, input: { minHeight: 44, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.softSurface, color: C.text, fontFamily: F.regular, fontSize: 14 }, readOnly: { color: C.secondaryText }, value: { color: C.forest, fontFamily: F.semiBold, fontSize: 15 }, button: { minHeight: 46, paddingHorizontal: 14, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, buttonText: { color: C.surface, fontFamily: F.semiBold, fontSize: 14 }, buttonSoft: { backgroundColor: '#E7F0E9' }, buttonSoftText: { color: C.forest }, buttonDanger: { backgroundColor: '#FBDCD7' }, choiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, choice: { flexGrow: 1, minHeight: 38, paddingHorizontal: 11, borderRadius: 9, backgroundColor: C.softSurface, alignItems: 'center', justifyContent: 'center' }, choiceSelected: { backgroundColor: C.primary }, choiceText: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12 }, choiceTextSelected: { color: C.surface, fontFamily: F.semiBold }, toggleRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 12 }, divider: { height: StyleSheet.hairlineWidth, backgroundColor: '#DDE7DF' }, warning: { backgroundColor: '#FBEEEA' }, dangerTitle: { color: '#B42318', fontFamily: F.bold, fontSize: 17 }, inlineChoices: { flexDirection: 'row', gap: 5 }, unitChoice: { minWidth: 40, minHeight: 34, paddingHorizontal: 8, borderRadius: 8, backgroundColor: C.softSurface, alignItems: 'center', justifyContent: 'center' },
+  safe: { flex: 1, backgroundColor: C.background }, header: { minHeight: 56, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 12 }, headerGlyph: { width: 34, height: 34, borderRadius: 17, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, headerGlyphText: { color: C.surface, fontSize: 20 }, headerTitle: { flex: 1, color: C.forest, fontFamily: F.semiBold, fontSize: 17 }, headerRight: { width: 32, height: 32, borderRadius: 16, backgroundColor: C.forest, alignItems: 'center', justifyContent: 'center' }, userMark: { color: C.surface, fontSize: 17 }, headerSpacer: { width: 8 }, content: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 28, gap: 12 }, card: { padding: 14, borderRadius: 15, backgroundColor: C.surface, gap: 11 }, identity: { flexDirection: 'row', alignItems: 'center', gap: 13, padding: 16, backgroundColor: C.surface }, avatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#DDECE1', alignItems: 'center', justifyContent: 'center' }, avatarLarge: { width: 90, height: 90, borderRadius: 45, marginBottom: 8, backgroundColor: '#DDECE1', alignItems: 'center', justifyContent: 'center' }, avatarText: { color: C.primary, fontFamily: F.bold, fontSize: 29 }, flex: { flex: 1, gap: 3 }, identityName: { color: C.forest, fontFamily: F.semiBold, fontSize: 18 }, caption: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12, lineHeight: 18 }, roleBadge: { alignSelf: 'flex-start', marginTop: 4, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20, backgroundColor: '#E4F1E8', color: C.primary, fontFamily: F.semiBold, fontSize: 10 }, sectionHeading: { gap: 2, paddingTop: 4 }, sectionTitle: { color: C.text, fontFamily: F.semiBold, fontSize: 17 }, menuRow: { minHeight: 74, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 15, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 12 }, menuIcon: { width: 43, height: 43, borderRadius: 13, backgroundColor: '#E7F0E9', alignItems: 'center', justifyContent: 'center' }, menuIconText: { color: C.forest, fontSize: 22 }, menuTitle: { color: C.text, fontFamily: F.semiBold, fontSize: 15 }, chevron: { color: '#A5B3A9', fontSize: 25 }, infoCard: { backgroundColor: C.softSurface }, banner: { backgroundColor: '#E5F1E8', padding: 17 }, bannerTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 18 }, profileHero: { alignItems: 'center', paddingVertical: 20 }, field: { gap: 6 }, label: { color: C.secondaryText, fontFamily: F.semiBold, fontSize: 12 }, input: { minHeight: 44, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.softSurface, color: C.text, fontFamily: F.regular, fontSize: 14 }, readOnly: { color: C.secondaryText }, error: { color: '#B42318', fontFamily: F.regular, fontSize: 12 }, value: { color: C.forest, fontFamily: F.semiBold, fontSize: 15 }, button: { minHeight: 46, paddingHorizontal: 14, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, buttonDisabled: { opacity: 0.55 }, buttonText: { color: C.surface, fontFamily: F.semiBold, fontSize: 14 }, buttonSoft: { backgroundColor: '#E7F0E9' }, buttonSoftText: { color: C.forest }, buttonDanger: { backgroundColor: '#FBDCD7' }, choiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, choice: { flexGrow: 1, minHeight: 38, paddingHorizontal: 11, borderRadius: 9, backgroundColor: C.softSurface, alignItems: 'center', justifyContent: 'center' }, choiceSelected: { backgroundColor: C.primary }, choiceText: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12 }, choiceTextSelected: { color: C.surface, fontFamily: F.semiBold }, toggleRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 12 }, divider: { height: StyleSheet.hairlineWidth, backgroundColor: '#DDE7DF' }, warning: { backgroundColor: '#FBEEEA' }, dangerTitle: { color: '#B42318', fontFamily: F.bold, fontSize: 17 }, inlineChoices: { flexDirection: 'row', gap: 5 }, unitChoice: { minWidth: 40, minHeight: 34, paddingHorizontal: 8, borderRadius: 8, backgroundColor: C.softSurface, alignItems: 'center', justifyContent: 'center' },
 });

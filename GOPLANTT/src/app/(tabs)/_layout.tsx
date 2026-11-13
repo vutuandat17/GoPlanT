@@ -61,7 +61,7 @@ export default function MainTabsLayout() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <AppTopBar title={titles[pathname] ?? 'GoPlant'} />
       <Tabs
-        screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: resolvedTheme === 'dark' ? '#101814' : C.background } }}
+        screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: resolvedTheme === 'dark' ? '#000000' : C.background } }}
         tabBar={(props) => <MainTabBar {...props} />}>
         <Tabs.Screen name="home" />
         <Tabs.Screen name="gardens" />

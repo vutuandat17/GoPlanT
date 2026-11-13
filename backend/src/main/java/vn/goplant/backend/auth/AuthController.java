@@ -10,6 +10,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -49,10 +50,14 @@ public class AuthController {
     public AuthService.LoginResult login(@Valid @RequestBody LoginRequest request) { return auth.login(request.email(), request.password()); }
     @GetMapping("/me")
     public AuthService.UserView me(@AuthenticationPrincipal Jwt jwt) {
-        return new AuthService.UserView(java.util.UUID.fromString(jwt.getSubject()), jwt.getClaimAsString("email"),
-                jwt.getClaimAsString("name"), jwt.getClaimAsStringList("roles"));
+        return auth.getUser(java.util.UUID.fromString(jwt.getSubject()));
+    }
+    @PutMapping("/me")
+    public AuthService.UserView updateMe(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody ProfileUpdateRequest request) {
+        return auth.updateDisplayName(java.util.UUID.fromString(jwt.getSubject()), request.displayName());
     }
     public record RegisterRequest(@NotBlank @Size(max=120) String displayName, @NotBlank @Email @Size(max=320) String email, @NotBlank @Size(min=12, max=72) String password) {}
     public record VerifyRequest(@NotBlank String token) {}
     public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {}
+    public record ProfileUpdateRequest(@NotBlank @Size(max=120) String displayName) {}
 }
