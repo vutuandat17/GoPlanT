@@ -24,12 +24,14 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.annotation.Transactional;
+import vn.goplant.backend.care.CareScheduleService;
 
 @RestController
 @RequestMapping("/api/v1")
 public class GardenController {
     private final JdbcTemplate jdbc;
-    public GardenController(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    private final CareScheduleService care;
+    public GardenController(JdbcTemplate jdbc, CareScheduleService care) { this.jdbc = jdbc; this.care = care; }
 
     @GetMapping("/gardens")
     public List<Garden> gardens(@AuthenticationPrincipal Jwt jwt) {
@@ -100,9 +102,11 @@ public class GardenController {
 
     @DeleteMapping("/plants/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Transactional
     public void removePlant(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
         int changed = jdbc.update("UPDATE user_plants SET archived_at=now(),updated_at=now() WHERE id=? AND owner_user_id=? AND archived_at IS NULL", id, owner(jwt));
         if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        care.deactivateForPlant(owner(jwt), id);
     }
 
     @PutMapping("/plants/{id}")

@@ -93,3 +93,161 @@ export type ApiOwnedPlant = {
   id: string; catalogId: string; gardenId: string | null; displayName: string; commonName: string;
   scientificName: string; specificLocation: string | null; plantedOn: string | null; note: string | null; addedAt: string; photoUpdatedAt: string | null;
 };
+
+export type CareTaskType =
+  | 'watering'
+  | 'fertilizing'
+  | 'pruning'
+  | 'weeding'
+  | 'repotting'
+  | 'cleaning'
+  | 'environment_check'
+  | 'pest_control'
+  | 'misting'
+  | 'other';
+
+export type CareRepeatType = 'DAILY_INTERVAL' | 'WEEKLY';
+
+export type CareTaskStatus = 'pending' | 'completed' | 'skipped';
+
+export type ApiCareScheduleRequest = {
+  taskType: CareTaskType;
+  title?: string | null;
+  note?: string | null;
+  repeatType: CareRepeatType;
+  frequencyDays?: number | null;
+  daysOfWeek?: number[] | null;
+  timeOfDay?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+};
+
+export type ApiCareSchedule = {
+  id: string;
+  plantId: string;
+  plantName: string;
+  plantScientificName: string;
+  taskType: CareTaskType;
+  title: string | null;
+  note: string | null;
+  repeatType: CareRepeatType;
+  frequencyDays: number | null;
+  daysOfWeek: number[] | null;
+  timeOfDay: string;
+  startDate: string;
+  endDate: string | null;
+  timezone: string;
+  nextDueAt: string | null;
+  active: boolean;
+  createdAt: string;
+};
+
+export type ApiCareTask = {
+  id: string;
+  scheduleId: string;
+  plantId: string;
+  plantName: string;
+  taskType: CareTaskType;
+  title: string | null;
+  dueDate: string;
+  dueAt: string;
+  status: CareTaskStatus;
+  completedAt: string | null;
+  skippedAt: string | null;
+  note: string | null;
+  overdue: boolean;
+};
+
+export type ApiCareDaySummary = {
+  total: number;
+  pending: number;
+  completed: number;
+  skipped: number;
+  overdue: number;
+};
+
+export type ApiTodayTasksView = {
+  date: string;
+  timezone: string;
+  tasks: ApiCareTask[];
+  summary: ApiCareDaySummary;
+};
+
+export type ApiCalendarTasksView = {
+  from: string;
+  to: string;
+  timezone: string;
+  tasks: ApiCareTask[];
+  summary: ApiCareDaySummary;
+};
+
+export function toLocalIsoDate(date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function fetchCareSchedules(token: string) {
+  return apiRequest<ApiCareSchedule[]>('/api/v1/schedules', { token });
+}
+
+export function fetchPlantCareSchedules(plantId: string, token: string) {
+  return apiRequest<ApiCareSchedule[]>(`/api/v1/plants/${plantId}/schedules`, { token });
+}
+
+export function createCareSchedule(plantId: string, token: string, body: ApiCareScheduleRequest) {
+  return apiRequest<ApiCareSchedule>(`/api/v1/plants/${plantId}/schedules`, {
+    method: 'POST',
+    token,
+    body,
+  });
+}
+
+export function updateCareSchedule(scheduleId: string, token: string, body: ApiCareScheduleRequest) {
+  return apiRequest<ApiCareSchedule>(`/api/v1/schedules/${scheduleId}`, {
+    method: 'PUT',
+    token,
+    body,
+  });
+}
+
+export function deleteCareSchedule(scheduleId: string, token: string) {
+  return apiRequest<void>(`/api/v1/schedules/${scheduleId}`, {
+    method: 'DELETE',
+    token,
+  });
+}
+
+export function fetchTodayCareTasks(token: string, date = toLocalIsoDate()) {
+  const query = date ? `?date=${encodeURIComponent(date)}` : '';
+  return apiRequest<ApiTodayTasksView>(`/api/v1/schedules/today${query}`, { token });
+}
+
+export function fetchCalendarCareTasks(
+  token: string,
+  from: string,
+  to: string,
+  options?: { plantId?: string; scheduleId?: string },
+) {
+  const params = new URLSearchParams({ from, to });
+  if (options?.plantId) params.set('plantId', options.plantId);
+  if (options?.scheduleId) params.set('scheduleId', options.scheduleId);
+  return apiRequest<ApiCalendarTasksView>(`/api/v1/schedules/calendar?${params.toString()}`, { token });
+}
+
+export function completeCareTask(taskId: string, token: string, body?: { note?: string | null; date?: string | null }) {
+  return apiRequest<ApiCareTask>(`/api/v1/tasks/${taskId}/complete`, {
+    method: 'POST',
+    token,
+    body: body ?? { date: toLocalIsoDate() },
+  });
+}
+
+export function skipCareTask(taskId: string, token: string, body?: { note?: string | null; date?: string | null }) {
+  return apiRequest<ApiCareTask>(`/api/v1/tasks/${taskId}/skip`, {
+    method: 'POST',
+    token,
+    body: body ?? { date: toLocalIsoDate() },
+  });
+}

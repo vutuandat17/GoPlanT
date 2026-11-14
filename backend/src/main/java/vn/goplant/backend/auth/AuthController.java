@@ -56,8 +56,13 @@ public class AuthController {
     public AuthService.UserView updateMe(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody ProfileUpdateRequest request) {
         return auth.updateDisplayName(java.util.UUID.fromString(jwt.getSubject()), request.displayName());
     }
+    @PutMapping("/me/timezone")
+    public AuthService.UserView updateTimezone(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody TimezoneUpdateRequest request) {
+        return auth.updateTimezone(java.util.UUID.fromString(jwt.getSubject()), request.timezone());
+    }
     public record RegisterRequest(@NotBlank @Size(max=120) String displayName, @NotBlank @Email @Size(max=320) String email, @NotBlank @Size(min=12, max=72) String password) {}
     public record VerifyRequest(@NotBlank String token) {}
     public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {}
     public record ProfileUpdateRequest(@NotBlank @Size(max=120) String displayName) {}
+    public record TimezoneUpdateRequest(@NotBlank @Size(max=64) String timezone) {}
 }

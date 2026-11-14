@@ -13,6 +13,7 @@ import { GoPlantColors } from '@/constants/theme';
 import { AuthSessionProvider } from '@/features/auth/AuthSession';
 import { PlantDataProvider } from '@/features/plants/PlantDataStore';
 import { AppPreferencesProvider, useAppPreferences } from '@/features/preferences/AppPreferences';
+import { CareScheduleProvider } from '@/features/schedule/CareScheduleStore';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -41,7 +42,9 @@ function AppShell() {
     <StatusBar style={resolvedTheme === 'dark' ? 'light' : 'dark'} />
     <AuthSessionProvider>
       <PlantDataProvider>
-        <Stack screenOptions={{ headerShown: false, animation: 'none', contentStyle: { backgroundColor } }} />
+        <CareScheduleProvider>
+          <Stack screenOptions={{ headerShown: false, animation: 'none', contentStyle: { backgroundColor } }} />
+        </CareScheduleProvider>
       </PlantDataProvider>
     </AuthSessionProvider>
   </>;

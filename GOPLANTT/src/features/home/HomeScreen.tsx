@@ -9,6 +9,7 @@ import { usePlantData } from '@/features/plants/PlantDataStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
 import { apiBaseUrl } from '@/services/api';
 import { matchesPlantFilters } from '@/features/plants/plantFilters';
+import { CARE_TASK_META, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 
 const categories = ['Tất cả', 'Cây ăn quả', 'Cây rau lá', 'Hoa cảnh', 'Cây mọng nước', 'Cây gia vị'];
 
@@ -24,8 +25,14 @@ function SectionTitle({ title, trailing }: { title: string; trailing?: string })
 export default function HomeScreen() {
   const { user, accessToken } = useAuthSession();
   const { catalog, gardens, ownedPlants, isLoading, apiError, filterStates } = usePlantData();
+  const { todayTasks, todaySummary, completeTask } = useCareSchedules();
   const [category, setCategory] = useState(categories[0]);
   const [query, setQuery] = useState('');
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+
+  const pendingTodayTasks = todayTasks.filter((t) => t.status === 'pending');
+  const nextTask = pendingTodayTasks[0];
+  const nextTaskMeta = nextTask ? (CARE_TASK_META[nextTask.taskType] ?? CARE_TASK_META.other) : null;
 
   const navigate = (route: string) => router.push(route as never);
   const discoveries = catalog.filter((plant) => {
@@ -58,6 +65,48 @@ export default function HomeScreen() {
           </View>
           <Text style={styles.lightPill}>Chưa có dữ liệu</Text>
         </View>
+
+        {nextTask && nextTaskMeta ? (
+          <Pressable
+            onPress={() => navigate('/schedule')}
+            style={todaySummary.overdue > 0 ? styles.reminderCard : styles.scheduleCard}>
+            <View style={styles.scheduleIcon}>
+              <Text style={styles.white}>{nextTaskMeta.emoji}</Text>
+            </View>
+            <View style={styles.flexCopy}>
+              <Text style={todaySummary.overdue > 0 ? styles.reminderText : styles.scheduleTitle} numberOfLines={1}>
+                {todaySummary.overdue > 0
+                  ? `${todaySummary.overdue} việc quá hạn · ${nextTaskMeta.label}`
+                  : `Hôm nay (${pendingTodayTasks.length} việc): ${nextTaskMeta.label}`}
+              </Text>
+              <Text style={styles.scheduleDescription} numberOfLines={1}>
+                🌱 {nextTask.plantName} · Nhấn để xem toàn bộ lịch chăm sóc
+              </Text>
+            </View>
+            <Pressable
+              disabled={completingTaskId === nextTask.id}
+              onPress={async (e) => {
+                e.stopPropagation?.();
+                setCompletingTaskId(nextTask.id);
+                try {
+                  await completeTask(nextTask.id);
+                } finally {
+                  setCompletingTaskId(null);
+                }
+              }}
+              style={todaySummary.overdue > 0 ? styles.reminderButton : styles.scheduleButton}>
+              <Text style={styles.white}>{completingTaskId === nextTask.id ? '...' : '✓ Xong'}</Text>
+            </Pressable>
+          </Pressable>
+        ) : todaySummary.total > 0 ? (
+          <Pressable onPress={() => navigate('/schedule')} style={styles.scheduleCard}>
+            <View style={styles.scheduleIcon}><Text style={styles.white}>✓</Text></View>
+            <View style={styles.flexCopy}>
+              <Text style={styles.scheduleTitle}>Đã hoàn thành hết việc hôm nay!</Text>
+              <Text style={styles.scheduleDescription}>Tuyệt vời! Tất cả {todaySummary.total} lượt chăm sóc hôm nay đã xong.</Text>
+            </View>
+          </Pressable>
+        ) : null}
 
         <View style={styles.searchBox}>
           <Text style={styles.searchIcon}>⌕</Text>

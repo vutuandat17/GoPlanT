@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -25,6 +26,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import vn.goplant.backend.care.CareScheduleService;
+
 @Service
 public class AuthService {
     private final JdbcTemplate jdbc;
@@ -33,16 +36,18 @@ public class AuthService {
     private final VerificationEmailSender verificationEmails;
     private final int tokenMinutes;
     private final boolean exposeVerificationToken;
+    private final CareScheduleService careSchedules;
     private final SecureRandom random = new SecureRandom();
 
     public AuthService(JdbcTemplate jdbc, PasswordEncoder passwords, JwtEncoder jwtEncoder,
-                       VerificationEmailSender verificationEmails,
+                       VerificationEmailSender verificationEmails, CareScheduleService careSchedules,
                        @Value("${goplant.jwt.access-token-minutes:15}") int tokenMinutes,
                        @Value("${goplant.auth.expose-verification-token:false}") boolean exposeVerificationToken,
                        Environment environment) {
         if (exposeVerificationToken && Arrays.stream(environment.getActiveProfiles()).noneMatch("local"::equals)) {
             throw new IllegalStateException("Verification tokens may only be exposed with the local profile");
         }
+        this.careSchedules = careSchedules;
         this.jdbc = jdbc;
         this.passwords = passwords;
         this.jwtEncoder = jwtEncoder;
@@ -90,11 +95,11 @@ public class AuthService {
     public LoginResult login(String email, String password) {
         String normalized = normalizeEmail(email);
         var rows = jdbc.query("""
-                SELECT u.id,u.display_name,u.password_hash,u.status,e.normalized_email
+                SELECT u.id,u.display_name,u.password_hash,u.status,u.timezone,e.normalized_email
                 FROM users u JOIN user_email_addresses e ON e.user_id=u.id AND e.address_type='primary'
                 WHERE e.normalized_email=?
                 """, (rs, row) -> new Account(rs.getObject("id", UUID.class), rs.getString("display_name"),
-                rs.getString("password_hash"), rs.getString("status"), rs.getString("normalized_email")), normalized);
+                rs.getString("password_hash"), rs.getString("status"), rs.getString("normalized_email"), rs.getString("timezone")), normalized);
         if (rows.isEmpty() || !passwords.matches(password, rows.getFirst().passwordHash())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password");
         }
@@ -107,20 +112,33 @@ public class AuthService {
                 .claim("email", account.email()).claim("name", account.displayName()).claim("roles", roles).build();
         var header = JwsHeader.with(org.springframework.security.oauth2.jose.jws.MacAlgorithm.HS256).build();
         String jwt = jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
-        return new LoginResult(jwt, "Bearer", tokenMinutes * 60, new UserView(account.id(), account.email(), account.displayName(), roles));
+        return new LoginResult(jwt, "Bearer", tokenMinutes * 60, new UserView(account.id(), account.email(), account.displayName(), roles, account.timezone()));
     }
 
     public UserView getUser(UUID userId) {
         var rows = jdbc.query("""
-                SELECT u.id,u.display_name,e.normalized_email
+                SELECT u.id,u.display_name,u.timezone,e.normalized_email
                 FROM users u JOIN user_email_addresses e ON e.user_id=u.id AND e.address_type='primary'
                 WHERE u.id=? AND u.status='active'
                 """, (rs, row) -> new UserIdentity(rs.getObject("id", UUID.class), rs.getString("normalized_email"),
-                rs.getString("display_name")), userId);
+                rs.getString("display_name"), rs.getString("timezone")), userId);
         if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Account not found");
         UserIdentity identity = rows.getFirst();
         var roles = jdbc.queryForList("SELECT r.code FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=?", String.class, userId);
-        return new UserView(identity.id(), identity.email(), identity.displayName(), roles);
+        return new UserView(identity.id(), identity.email(), identity.displayName(), roles, identity.timezone());
+    }
+
+    /** Updates the account time zone (IANA id, e.g. Asia/Ho_Chi_Minh) and re-times pending care tasks. */
+    @Transactional
+    public UserView updateTimezone(UUID userId, String timezone) {
+        String zone = timezone == null ? "" : timezone.trim();
+        if (!ZoneId.getAvailableZoneIds().contains(zone)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Múi giờ không hợp lệ. Dùng mã IANA, ví dụ Asia/Ho_Chi_Minh.");
+        }
+        int changed = jdbc.update("UPDATE users SET timezone=?,updated_at=now() WHERE id=? AND status='active'", zone, userId);
+        if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Account not found");
+        careSchedules.applyUserTimezone(userId, zone);
+        return getUser(userId);
     }
 
     @Transactional
@@ -142,8 +160,8 @@ public class AuthService {
     }
 
     public record Registration(UUID id, String email, String verificationToken, String message) {}
-    public record UserView(UUID id, String email, String displayName, java.util.List<String> roles) {}
+    public record UserView(UUID id, String email, String displayName, java.util.List<String> roles, String timezone) {}
     public record LoginResult(String accessToken, String tokenType, int expiresIn, UserView user) {}
-    private record UserIdentity(UUID id, String email, String displayName) {}
-    private record Account(UUID id, String displayName, String passwordHash, String status, String email) {}
+    private record UserIdentity(UUID id, String email, String displayName, String timezone) {}
+    private record Account(UUID id, String displayName, String passwordHash, String status, String email, String timezone) {}
 }
