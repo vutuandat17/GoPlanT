@@ -75,17 +75,37 @@ export default function HomeScreen() {
 
         <View style={styles.shortcuts}>
           {[
-            ['♧', 'Quản lý cây', '#E8EFEB'],
-            ['▦', 'Quản lý vườn', C.brightMint],
-            ['▤', 'Nhật ký chăm', C.peach],
-            ['♧', 'Sâu bệnh', '#FAD8D3'],
-          ].map(([icon, label, color]) => (
-            <Pressable key={label} onPress={() => label === 'Quản lý cây' ? navigate('/plants') : label === 'Quản lý vườn' ? navigate('/gardens') : label === 'Nhật ký chăm' ? navigate('/journal') : navigate('/monitoring')} style={styles.shortcut}>
+            ['◷', 'Lập lịch', '#D9F2E3', '/schedule'],
+            ['♧', 'Quản lý cây', '#E8EFEB', '/plants'],
+            ['▦', 'Quản lý vườn', C.brightMint, '/gardens'],
+            ['▤', 'Nhật ký chăm', C.peach, '/journal'],
+          ].map(([icon, label, color, route]) => (
+            <Pressable key={label} onPress={() => navigate(route)} style={styles.shortcut}>
               <View style={[styles.shortcutIcon, { backgroundColor: color }]}><Text style={styles.shortcutGlyph}>{icon}</Text></View>
               <Text style={styles.shortcutLabel}>{label}</Text>
             </Pressable>
           ))}
         </View>
+
+        {/* Banner chuyển hướng Lập lịch chăm sóc */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Mở màn hình Lập lịch chăm sóc"
+          onPress={() => navigate('/schedule')}
+          style={styles.scheduleBanner}>
+          <View style={styles.scheduleBannerLeft}>
+            <View style={styles.scheduleBannerIcon}>
+              <Text style={styles.scheduleBannerIconGlyph}>◷</Text>
+            </View>
+            <View style={styles.scheduleBannerCopy}>
+              <Text style={styles.scheduleBannerTitle}>Lập lịch chăm sóc</Text>
+              <Text style={styles.scheduleBannerSub}>Thiết lập chu kỳ tưới, bón phân và chăm cây định kỳ.</Text>
+            </View>
+          </View>
+          <View style={styles.scheduleBannerCta}>
+            <Text style={styles.scheduleBannerCtaText}>Mở ›</Text>
+          </View>
+        </Pressable>
 
         <SectionTitle title="Vườn của bạn" trailing={`${gardens.length} khu vực`} />
         {gardens.map((garden) => <Pressable key={garden.id} onPress={() => router.push({ pathname: '/garden-detail', params: { gardenId: garden.id } } as never)} style={styles.suggestionCard}><Text style={styles.plantEmoji}>⌂</Text><View style={styles.flexCopy}><Text style={styles.cardTitle}>{garden.name}</Text><Text style={styles.bodyText}>{garden.locationDetail || garden.locationType}</Text></View></Pressable>)}
@@ -188,4 +208,14 @@ const styles = StyleSheet.create({
   wishButtonText: { color: C.surface, fontFamily: F.semiBold, fontSize: 11 },
   morePlants: { minHeight: 42, borderRadius: 12, backgroundColor: C.softSurface, alignItems: 'center', justifyContent: 'center' },
   morePlantsText: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 },
+  // Schedule banner
+  scheduleBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14, borderRadius: 14, backgroundColor: '#D9F2E3', borderWidth: 1, borderColor: '#BCE6CD' },
+  scheduleBannerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10 },
+  scheduleBannerIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  scheduleBannerIconGlyph: { color: '#FFFFFF', fontSize: 22, lineHeight: 26 },
+  scheduleBannerCopy: { flex: 1, gap: 2 },
+  scheduleBannerTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14, lineHeight: 20 },
+  scheduleBannerSub: { color: '#3B6752', fontFamily: F.regular, fontSize: 11, lineHeight: 16 },
+  scheduleBannerCta: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: C.primary, marginLeft: 8 },
+  scheduleBannerCtaText: { color: '#FFFFFF', fontFamily: F.semiBold, fontSize: 12 },
 });
