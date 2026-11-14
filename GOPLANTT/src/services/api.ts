@@ -251,3 +251,122 @@ export function skipCareTask(taskId: string, token: string, body?: { note?: stri
     body: body ?? { date: toLocalIsoDate() },
   });
 }
+
+export type JournalLogType = 'growth' | 'watering' | 'fertilizing' | 'pest' | 'pruning' | 'other';
+export type JournalHealthStatus = 'healthy' | 'warning' | 'critical';
+
+export type ApiJournalEntry = {
+  id: string;
+  plantId: string;
+  plantName: string;
+  plantScientificName: string;
+  plantCategory: string;
+  gardenId: string | null;
+  gardenName: string | null;
+  careTaskId: string | null;
+  entryDate: string;
+  logType: JournalLogType;
+  healthStatus: JournalHealthStatus;
+  title: string | null;
+  note: string;
+  photoIds: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ApiJournalRequest = {
+  entryDate?: string | null;
+  logType: JournalLogType;
+  healthStatus: JournalHealthStatus;
+  title?: string | null;
+  note: string;
+  careTaskId?: string | null;
+};
+
+export type ApiJournalUpdateRequest = {
+  entryDate?: string | null;
+  logType: JournalLogType;
+  healthStatus: JournalHealthStatus;
+  title?: string | null;
+  note: string;
+};
+
+export type ApiJournalPhotoMeta = {
+  id: string;
+  journalId: string;
+  contentType: string;
+  createdAt: string;
+};
+
+export function fetchJournals(token: string) {
+  return apiRequest<ApiJournalEntry[]>('/api/v1/journals', { token });
+}
+
+export function fetchPlantJournals(plantId: string, token: string) {
+  return apiRequest<ApiJournalEntry[]>(`/api/v1/plants/${plantId}/journals`, { token });
+}
+
+export function createJournalEntry(plantId: string, token: string, body: ApiJournalRequest) {
+  return apiRequest<ApiJournalEntry>(`/api/v1/plants/${plantId}/journals`, {
+    method: 'POST',
+    token,
+    body,
+  });
+}
+
+export function updateJournalEntry(journalId: string, token: string, body: ApiJournalUpdateRequest) {
+  return apiRequest<ApiJournalEntry>(`/api/v1/journals/${journalId}`, {
+    method: 'PUT',
+    token,
+    body,
+  });
+}
+
+export function deleteJournalEntry(journalId: string, token: string) {
+  return apiRequest<void>(`/api/v1/journals/${journalId}`, {
+    method: 'DELETE',
+    token,
+  });
+}
+
+export async function uploadJournalPhoto(
+  journalId: string,
+  token: string,
+  photo: { uri: string; mimeType?: string | null; fileName?: string | null },
+): Promise<ApiJournalPhotoMeta> {
+  if (!apiBaseUrl) throw new ApiError('Chưa cấu hình EXPO_PUBLIC_API_URL.');
+  const mimeType = photo.mimeType ?? (photo.fileName?.toLocaleLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
+  if (mimeType !== 'image/jpeg' && mimeType !== 'image/png') {
+    throw new ApiError('Ảnh cần ở định dạng JPEG hoặc PNG.');
+  }
+  const file = new File(photo.uri);
+  const body = new FormData();
+  body.append('file', file, photo.fileName ?? `journal-${journalId}.jpg`);
+  let response: Response;
+  try {
+    response = await expoFetch(`${apiBaseUrl}/api/v1/journals/${journalId}/photos`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      body,
+    });
+  } catch (error) {
+    const reason = error instanceof Error && error.message ? ` Chi tiết mạng: ${error.message}` : '';
+    throw new ApiError(`Không gửi được ảnh nhật ký tới ${apiBaseUrl}.${reason}`);
+  }
+  if (!response.ok) {
+    let message = `Không tải được ảnh (${response.status}).`;
+    try {
+      const payload = await response.json() as { detail?: string; message?: string; title?: string };
+      message = payload.detail ?? payload.message ?? payload.title ?? message;
+    } catch { /* ignore */ }
+    throw new ApiError(message, response.status);
+  }
+  return response.json() as Promise<ApiJournalPhotoMeta>;
+}
+
+export function deleteJournalPhoto(journalId: string, photoId: string, token: string) {
+  return apiRequest<void>(`/api/v1/journals/${journalId}/photos/${photoId}`, {
+    method: 'DELETE',
+    token,
+  });
+}

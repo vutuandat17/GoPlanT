@@ -1,53 +1,558 @@
-import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
-import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
 import { SafeAreaView } from '@/components/app-primitives';
+import { router } from 'expo-router';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { AccountButton } from '@/features/auth/AccountButton';
+import { useAuthSession } from '@/features/auth/AuthSession';
 import { usePlantData } from '@/features/plants/PlantDataStore';
+import {
+  JOURNAL_HEALTH_META,
+  JOURNAL_HEALTH_STATUSES,
+  JOURNAL_LOG_TYPES,
+  JOURNAL_LOG_TYPE_META,
+  useJournals,
+  type LocalPhotoDraft,
+} from '@/features/journal/JournalStore';
+import { formatDateVi } from '@/features/schedule/CareScheduleStore';
+import { apiBaseUrl, toLocalIsoDate, type JournalHealthStatus, type JournalLogType } from '@/services/api';
 
-function Header({ title }: { title: string }) { return <View style={j.header}><Pressable onPress={() => router.back()}><Text style={j.back}>‹</Text></Pressable><Text style={j.headerTitle}>{title}</Text><AccountButton size={29} /></View>; }
+const MAX_PHOTOS = 5;
 
-export function JournalDetailScreen() {
-  return <SafeAreaView style={j.safe} edges={['top']}><Header title="Nhật ký phát triển"/><ScrollView contentContainerStyle={j.content}>
-    <View style={j.plantCard}><View style={j.thumb}><Text style={j.emoji}>🍅</Text></View><View style={j.copy}><Text style={j.title}>Cà Chua Cherry</Text><Text style={j.body}>Ban Công Tầng 3 • Đang ra trái</Text><Text style={j.tag}>Khỏe mạnh</Text></View></View>
-    <View style={j.card}><Text style={j.sectionTitle}>Hồ sơ phát triển</Text><Text style={j.body}>Cập nhật theo dõi sức khỏe và lịch sử chăm sóc của cây.</Text><View style={j.metrics}>{[['45 ngày', 'Tuổi cây'], ['4 lần', 'Ghi nhận'], ['Tốt', 'Tình trạng']].map(([a,b]) => <View style={j.metric} key={b}><Text style={j.metricValue}>{a}</Text><Text style={j.body}>{b}</Text></View>)}</View></View>
-    <View style={j.card}><View style={j.row}><Text style={j.sectionTitle}>Nhật ký theo thời gian</Text><Text style={j.tag}>4 ghi nhận</Text></View>{[
-      ['26/10/2025', 'Cây đang ra quả, lá xanh khỏe', 'Tưới nước • Đã bổ sung dinh dưỡng'],
-      ['18/10/2025', 'Phát hiện một số lá vàng nhẹ', 'Đã cắt tỉa lá hỏng và kiểm tra đất'],
-      ['05/10/2025', 'Cây thích nghi tốt với vị trí mới', 'Theo dõi độ ẩm • Không phát hiện sâu bệnh'],
-    ].map(([date, title, note]) => <View key={date} style={j.entry}><Text style={j.date}>{date} • Ban công</Text><Text style={j.titleSmall}>{title}</Text><Text style={j.body}>{note}</Text><View style={j.photoRow}><View style={j.photo}><Text>🌱</Text></View><View style={j.photo}><Text>🍃</Text></View></View><Pressable onPress={() => router.push('/journal/edit' as never)}><Text style={j.link}>Chỉnh sửa ghi nhận ›</Text></Pressable></View>)}</View>
-    <Text style={j.note}>Chưa có nhật ký được lưu.</Text>
-  </ScrollView></SafeAreaView>;
+function parseUserDate(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return toLocalIsoDate();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const match = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
-function JournalForm({ editing = false }: { editing?: boolean }) {
+function calcPlantAgeDays(plantedAt: string | null | undefined): string {
+  if (!plantedAt) return '—';
+  const planted = new Date(plantedAt);
+  if (Number.isNaN(planted.getTime())) return '—';
+  const diff = Math.max(0, Math.floor((Date.now() - planted.getTime()) / (1000 * 60 * 60 * 24)));
+  return `${diff} ngày`;
+}
+
+function Header({ title }: { title: string }) {
+  return (
+    <View style={j.header}>
+      <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Quay lại">
+        <Text style={j.back}>‹</Text>
+      </Pressable>
+      <Text style={j.headerTitle} numberOfLines={1}>{title}</Text>
+      <AccountButton size={29} />
+    </View>
+  );
+}
+
+export function JournalDetailScreen({ plantId }: { plantId?: string }) {
+  const { accessToken } = useAuthSession();
   const { ownedPlants } = usePlantData();
-  const [plant, setPlant] = useState('');
-  const [plantQuery, setPlantQuery] = useState('');
-  const [note, setNote] = useState('');
-  const [type, setType] = useState('Phát triển');
-  const [health, setHealth] = useState('Khỏe mạnh');
-  const [error, setError] = useState(false);
-  const matchingPlants = plantQuery.trim() ? ownedPlants.filter((item) => `${item.name} ${item.scientificName} ${item.location}`.toLocaleLowerCase().includes(plantQuery.trim().toLocaleLowerCase())) : [];
-  const save = () => { const invalid = !plant || !note.trim(); setError(invalid); if (!invalid) Alert.alert('Chưa thể lưu ghi nhận', 'Máy chủ hiện chưa hỗ trợ nhật ký chăm sóc.'); };
-  return <SafeAreaView style={j.safe} edges={['top']}><Header title={editing ? 'Chỉnh sửa nhật ký' : 'Thêm ghi nhận mới'}/><ScrollView contentContainerStyle={j.content}>
-    <View style={j.tip}><Text style={j.sectionTitle}>{editing ? 'Cập nhật nhật ký cây' : 'Ghi nhận tình trạng cây'}</Text><Text style={j.body}>Lưu lại tình trạng và tiến triển để tiện theo dõi.</Text></View>
-    <Text style={j.label}>1. Chọn cây trong vườn của bạn <Text style={j.required}>*</Text></Text>
-    {ownedPlants.length ? <><TextInput value={plantQuery} onChangeText={setPlantQuery} placeholder="Tìm theo tên cây hoặc tên khoa học" style={j.input}/>{!plantQuery.trim() ? <Text style={j.note}>Nhập tên cây để tìm trong danh sách {ownedPlants.length} cây của bạn.</Text> : null}{matchingPlants.slice(0, 20).map((item) => <Pressable key={item.id} onPress={() => setPlant(item.id)} style={[j.plantCard, plant === item.id && j.selected]}><View style={j.thumbSmall}><Text>♧</Text></View><View style={j.copy}><Text style={j.titleSmall}>{item.name}</Text><Text style={j.body}>{item.scientificName}{item.location ? ` • ${item.location}` : ''}</Text></View><Text style={j.radio}>{plant === item.id ? '●' : '○'}</Text></Pressable>)}{plantQuery.trim() && matchingPlants.length === 0 ? <Text style={j.note}>Không tìm thấy cây phù hợp với nội dung tìm kiếm.</Text> : null}{matchingPlants.length > 20 ? <Text style={j.note}>Có {matchingPlants.length} kết quả; hiển thị 20 cây đầu. Nhập thêm ký tự để thu hẹp.</Text> : null}</> : <View style={j.card}><Text style={j.body}>Bạn chưa có cây trong danh sách. Hãy thêm cây trước khi tạo nhật ký.</Text><Pressable onPress={() => router.push('/garden/add-plant' as never)}><Text style={j.link}>＋ Thêm cây của bạn</Text></Pressable></View>}
-    <Text style={j.label}>2. Loại ghi nhận</Text><View style={j.chips}>{['Phát triển', 'Tưới nước', 'Bón phân', 'Sâu bệnh'].map((name) => <Pressable key={name} onPress={() => setType(name)} style={[j.chip, type === name && j.selected]}><Text style={j.body}>{name}</Text></Pressable>)}</View>
-    <Text style={j.label}>3. Tình trạng cây</Text><View style={j.chips}>{['Khỏe mạnh', 'Cần theo dõi', 'Cần can thiệp'].map((name) => <Pressable key={name} onPress={() => setHealth(name)} style={[j.chip, health === name && j.selected]}><Text style={j.body}>{name}</Text></Pressable>)}</View>
-    <Text style={j.label}>4. Hình ảnh</Text><View style={j.photoRow}><Pressable onPress={() => Alert.alert('Ảnh', 'Tải ảnh sẽ khả dụng khi dịch vụ lưu trữ được cấu hình.')} style={j.addPhoto}><Text style={j.photoAdd}>＋</Text><Text style={j.body}>Thêm ảnh</Text></Pressable></View>
-    <Text style={j.label}>5. Ghi chú <Text style={j.required}>*</Text></Text><TextInput value={note} onChangeText={setNote} multiline placeholder="Mô tả tình trạng, biện pháp chăm sóc..." style={[j.input, j.multiline, error && !note.trim() && j.errorBorder]} />
-    <Text style={j.label}>Ngày ghi nhận</Text><TextInput value="Hôm nay" editable={false} style={j.input}/>
-    {error ? <Text style={j.errorText}>Chọn cây và nhập ghi chú để tiếp tục.</Text> : null}<Pressable onPress={save} style={j.submit}><Text style={j.submitText}>{editing ? 'Lưu thay đổi' : 'Lưu ghi nhận'}</Text></Pressable>
-  </ScrollView></SafeAreaView>;
+  const { journals, isLoading, removeJournal, refresh } = useJournals();
+
+  const targetPlantId = plantId ?? journals[0]?.plantId ?? ownedPlants[0]?.id;
+  const plant = ownedPlants.find((p) => p.id === targetPlantId);
+  const plantJournals = targetPlantId ? journals.filter((entry) => entry.plantId === targetPlantId) : [];
+  const latestHealth = plantJournals[0]?.healthStatus;
+  const latestHealthMeta = latestHealth ? JOURNAL_HEALTH_META[latestHealth] : null;
+
+  const confirmDelete = (journalId: string) => {
+    Alert.alert('Xóa ghi nhận', 'Bài nhật ký và các ảnh đính kèm sẽ bị xóa vĩnh viễn.', [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Xóa',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await removeJournal(journalId);
+          } catch (err) {
+            Alert.alert('Lỗi', err instanceof Error ? err.message : 'Không thể xóa bài nhật ký.');
+          }
+        },
+      },
+    ]);
+  };
+
+  return (
+    <SafeAreaView style={j.safe} edges={['top']}>
+      <Header title="Nhật ký phát triển" />
+      <ScrollView contentContainerStyle={j.content} showsVerticalScrollIndicator={false}>
+        {plant ? (
+          <View style={j.plantCard}>
+            <View style={j.thumb}><Text style={j.emoji}>🌱</Text></View>
+            <View style={j.copy}>
+              <Text style={j.title}>{plant.name}</Text>
+              <Text style={j.body}>{plant.scientificName}{plant.location ? ` • ${plant.location}` : ''}</Text>
+              {latestHealthMeta ? (
+                <Text style={[j.tag, { backgroundColor: latestHealthMeta.bg, color: latestHealthMeta.fg }]}>
+                  {latestHealthMeta.label}
+                </Text>
+              ) : (
+                <Text style={j.tag}>Chưa có đánh giá</Text>
+              )}
+            </View>
+            <Pressable
+              onPress={() => router.push({ pathname: '/journal/new', params: { plantId: plant.id } } as never)}
+              style={j.addInlineBtn}>
+              <Text style={j.addInlineText}>＋ Ghi mới</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={j.card}>
+            <Text style={j.sectionTitle}>Chưa chọn cây</Text>
+            <Text style={j.body}>Hãy thêm cây vào vườn hoặc chọn một cây để xem nhật ký.</Text>
+          </View>
+        )}
+
+        <View style={j.card}>
+          <View style={j.row}>
+            <Text style={j.sectionTitle}>Hồ sơ phát triển</Text>
+            <Pressable onPress={() => void refresh()}>
+              <Text style={j.link}>{isLoading ? 'Đang tải...' : '↻ Làm mới'}</Text>
+            </Pressable>
+          </View>
+          <View style={j.metrics}>
+            {[
+              [calcPlantAgeDays(plant?.plantedAt), 'Tuổi cây'],
+              [`${plantJournals.length} lần`, 'Ghi nhận'],
+              [latestHealthMeta?.label ?? '—', 'Tình trạng'],
+            ].map(([val, label]) => (
+              <View style={j.metric} key={label}>
+                <Text style={j.metricValue} numberOfLines={1}>{val}</Text>
+                <Text style={j.body}>{label}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        <View style={j.card}>
+          <View style={j.row}>
+            <Text style={j.sectionTitle}>Nhật ký theo thời gian</Text>
+            <Text style={j.tag}>{plantJournals.length} ghi nhận</Text>
+          </View>
+
+          {isLoading && plantJournals.length === 0 ? (
+            <ActivityIndicator color={C.primary} style={{ marginVertical: 16 }} />
+          ) : plantJournals.length === 0 ? (
+            <View style={j.emptyTimeline}>
+              <Text style={j.body}>Chưa có ghi nhận nào cho cây này.</Text>
+              {plant ? (
+                <Pressable
+                  onPress={() => router.push({ pathname: '/journal/new', params: { plantId: plant.id } } as never)}
+                  style={j.submit}>
+                  <Text style={j.submitText}>＋ Thêm ghi nhận đầu tiên</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : (
+            plantJournals.map((entry) => {
+              const typeMeta = JOURNAL_LOG_TYPE_META[entry.logType] ?? JOURNAL_LOG_TYPE_META.other;
+              const healthMeta = JOURNAL_HEALTH_META[entry.healthStatus] ?? JOURNAL_HEALTH_META.healthy;
+              return (
+                <View key={entry.id} style={j.entry}>
+                  <View style={j.row}>
+                    <Text style={j.date}>
+                      {formatDateVi(entry.entryDate)} • {typeMeta.emoji} {typeMeta.label}
+                    </Text>
+                    <Text style={[j.healthPill, { backgroundColor: healthMeta.bg, color: healthMeta.fg }]}>
+                      {healthMeta.label}
+                    </Text>
+                  </View>
+                  {entry.title ? <Text style={j.titleSmall}>{entry.title}</Text> : null}
+                  <Text style={j.entryNote}>{entry.note}</Text>
+
+                  {entry.photoIds.length > 0 ? (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={j.photoScroll}>
+                      {entry.photoIds.map((photoId) => (
+                        <Image
+                          key={photoId}
+                          source={{
+                            uri: `${apiBaseUrl}/api/v1/journals/${entry.id}/photos/${photoId}`,
+                            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+                          }}
+                          style={j.photoImage}
+                        />
+                      ))}
+                    </ScrollView>
+                  ) : null}
+
+                  <View style={j.entryActions}>
+                    <Pressable onPress={() => router.push({ pathname: '/journal/edit', params: { journalId: entry.id } } as never)}>
+                      <Text style={j.link}>Chỉnh sửa ghi nhận ›</Text>
+                    </Pressable>
+                    <Pressable onPress={() => confirmDelete(entry.id)}>
+                      <Text style={j.deleteLink}>Xóa</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              );
+            })
+          )}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
 }
 
-export function NewJournalScreen() { return <JournalForm/>; }
-export function EditJournalScreen() { return <JournalForm editing/>; }
+function JournalForm({
+  editing = false,
+  initialPlantId,
+  journalId,
+}: {
+  editing?: boolean;
+  initialPlantId?: string;
+  journalId?: string;
+}) {
+  const { accessToken } = useAuthSession();
+  const { ownedPlants } = usePlantData();
+  const { journals, createJournal, updateJournal, removePhoto } = useJournals();
+
+  const existing = editing && journalId ? journals.find((item) => item.id === journalId) : undefined;
+
+  const [plantId, setPlantId] = useState(existing?.plantId ?? initialPlantId ?? '');
+  const [plantQuery, setPlantQuery] = useState('');
+  const [title, setTitle] = useState(existing?.title ?? '');
+  const [note, setNote] = useState(existing?.note ?? '');
+  const [logType, setLogType] = useState<JournalLogType>(existing?.logType ?? 'growth');
+  const [healthStatus, setHealthStatus] = useState<JournalHealthStatus>(existing?.healthStatus ?? 'healthy');
+  const [entryDate, setEntryDate] = useState(() =>
+    existing ? formatDateVi(existing.entryDate) : formatDateVi(toLocalIsoDate()),
+  );
+  const [newPhotos, setNewPhotos] = useState<LocalPhotoDraft[]>([]);
+  const [existingPhotoIds, setExistingPhotoIds] = useState<string[]>(existing?.photoIds ?? []);
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    if (existing) {
+      setPlantId(existing.plantId);
+      setTitle(existing.title ?? '');
+      setNote(existing.note);
+      setLogType(existing.logType);
+      setHealthStatus(existing.healthStatus);
+      setEntryDate(formatDateVi(existing.entryDate));
+      setExistingPhotoIds(existing.photoIds);
+    }
+  }, [existing]);
+
+  const selectedPlant = ownedPlants.find((p) => p.id === plantId);
+  const matchingPlants = plantQuery.trim()
+    ? ownedPlants.filter((item) =>
+        `${item.name} ${item.scientificName} ${item.location}`
+          .toLocaleLowerCase()
+          .includes(plantQuery.trim().toLocaleLowerCase()),
+      )
+    : ownedPlants.slice(0, 20);
+
+  const totalPhotoCount = existingPhotoIds.length + newPhotos.length;
+
+  const pickPhoto = async () => {
+    if (totalPhotoCount >= MAX_PHOTOS) {
+      Alert.alert('Giới hạn ảnh', `Mỗi bài nhật ký chỉ đính kèm tối đa ${MAX_PHOTOS} ảnh.`);
+      return;
+    }
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Cần quyền truy cập ảnh', 'Cho phép GoPlant truy cập thư viện ảnh để đính kèm ảnh nhật ký.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.85,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    setNewPhotos((prev) => [...prev, { uri: asset.uri, mimeType: asset.mimeType, fileName: asset.fileName }]);
+  };
+
+  const handleRemoveExistingPhoto = async (photoId: string) => {
+    if (!existing) return;
+    try {
+      await removePhoto(existing.id, photoId);
+      setExistingPhotoIds((prev) => prev.filter((id) => id !== photoId));
+    } catch (err) {
+      Alert.alert('Lỗi', err instanceof Error ? err.message : 'Không thể xóa ảnh.');
+    }
+  };
+
+  const save = async () => {
+    setErrorMsg('');
+    if (!plantId || !note.trim()) {
+      setErrorMsg('Hãy chọn cây và nhập nội dung ghi chú để tiếp tục.');
+      return;
+    }
+    const isoDate = parseUserDate(entryDate);
+    if (!isoDate) {
+      setErrorMsg('Ngày ghi nhận không đúng định dạng (DD/MM/YYYY hoặc YYYY-MM-DD).');
+      return;
+    }
+    setSaving(true);
+    try {
+      if (editing && existing) {
+        await updateJournal(
+          existing.id,
+          { entryDate: isoDate, logType, healthStatus, title: title.trim() || null, note: note.trim() },
+          newPhotos,
+        );
+        Alert.alert('Đã cập nhật', 'Bài nhật ký đã được lưu thay đổi.', [
+          { text: 'OK', onPress: () => router.back() },
+        ]);
+      } else {
+        await createJournal(
+          plantId,
+          { entryDate: isoDate, logType, healthStatus, title: title.trim() || null, note: note.trim() },
+          newPhotos,
+        );
+        Alert.alert('Đã lưu ghi nhận', 'Nhật ký chăm sóc đã được thêm thành công.', [
+          { text: 'OK', onPress: () => router.back() },
+        ]);
+      }
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Không thể lưu ghi nhận. Vui lòng thử lại.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <SafeAreaView style={j.safe} edges={['top']}>
+      <Header title={editing ? 'Chỉnh sửa nhật ký' : 'Thêm ghi nhận mới'} />
+      <ScrollView contentContainerStyle={j.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <View style={j.tip}>
+          <Text style={j.sectionTitle}>{editing ? 'Cập nhật nhật ký cây' : 'Ghi nhận tình trạng cây'}</Text>
+          <Text style={j.body}>Lưu lại tình trạng và tiến triển kèm hình ảnh để tiện theo dõi.</Text>
+        </View>
+
+        <Text style={j.label}>
+          1. Chọn cây trong vườn của bạn <Text style={j.required}>*</Text>
+        </Text>
+        {editing && existing ? (
+          <View style={[j.plantCard, j.selected]}>
+            <View style={j.thumbSmall}><Text>♧</Text></View>
+            <View style={j.copy}>
+              <Text style={j.titleSmall}>{existing.plantName}</Text>
+              <Text style={j.body}>{existing.plantScientificName}</Text>
+            </View>
+          </View>
+        ) : ownedPlants.length ? (
+          <>
+            <TextInput
+              value={plantQuery}
+              onChangeText={setPlantQuery}
+              placeholder="Tìm theo tên cây hoặc tên khoa học"
+              placeholderTextColor={C.mutedText}
+              style={j.input}
+            />
+            {selectedPlant ? (
+              <View style={j.selectedBanner}>
+                <Text style={j.selectedBannerText}>✓ Đã chọn: {selectedPlant.name}</Text>
+                <Pressable onPress={() => { setPlantId(''); setPlantQuery(''); }}>
+                  <Text style={j.deleteLink}>Bỏ chọn</Text>
+                </Pressable>
+              </View>
+            ) : null}
+            {matchingPlants.slice(0, 20).map((item) => (
+              <Pressable
+                key={item.id}
+                onPress={() => { setPlantId(item.id); setPlantQuery(item.name); }}
+                style={[j.plantCard, plantId === item.id && j.selected]}>
+                <View style={j.thumbSmall}><Text>♧</Text></View>
+                <View style={j.copy}>
+                  <Text style={j.titleSmall}>{item.name}</Text>
+                  <Text style={j.body}>{item.scientificName}{item.location ? ` • ${item.location}` : ''}</Text>
+                </View>
+                <Text style={j.radio}>{plantId === item.id ? '●' : '○'}</Text>
+              </Pressable>
+            ))}
+            {plantQuery.trim() && matchingPlants.length === 0 ? (
+              <Text style={j.note}>Không tìm thấy cây phù hợp với nội dung tìm kiếm.</Text>
+            ) : null}
+          </>
+        ) : (
+          <View style={j.card}>
+            <Text style={j.body}>Bạn chưa có cây trong danh sách. Hãy thêm cây trước khi tạo nhật ký.</Text>
+            <Pressable onPress={() => router.push('/garden/add-plant' as never)}>
+              <Text style={j.link}>＋ Thêm cây của bạn</Text>
+            </Pressable>
+          </View>
+        )}
+
+        <Text style={j.label}>2. Loại ghi nhận</Text>
+        <View style={j.chips}>
+          {JOURNAL_LOG_TYPES.map((typeKey) => {
+            const meta = JOURNAL_LOG_TYPE_META[typeKey];
+            const active = logType === typeKey;
+            return (
+              <Pressable key={typeKey} onPress={() => setLogType(typeKey)} style={[j.chip, active && j.selected]}>
+                <Text style={[j.chipText, active && j.chipTextSelected]}>{meta.emoji} {meta.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Text style={j.label}>3. Tình trạng cây</Text>
+        <View style={j.chips}>
+          {JOURNAL_HEALTH_STATUSES.map((statusKey) => {
+            const meta = JOURNAL_HEALTH_META[statusKey];
+            const active = healthStatus === statusKey;
+            return (
+              <Pressable key={statusKey} onPress={() => setHealthStatus(statusKey)} style={[j.chip, active && j.selected]}>
+                <Text style={[j.chipText, active && j.chipTextSelected]}>{meta.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Text style={j.label}>4. Hình ảnh ({totalPhotoCount}/{MAX_PHOTOS})</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={j.photoScroll}>
+          {existing && existingPhotoIds.map((photoId) => (
+            <View key={photoId} style={j.photoPreviewWrap}>
+              <Image
+                source={{
+                  uri: `${apiBaseUrl}/api/v1/journals/${existing.id}/photos/${photoId}`,
+                  headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+                }}
+                style={j.photoPreview}
+              />
+              <Pressable onPress={() => void handleRemoveExistingPhoto(photoId)} style={j.photoRemoveBtn}>
+                <Text style={j.photoRemoveText}>✕</Text>
+              </Pressable>
+            </View>
+          ))}
+          {newPhotos.map((photo, index) => (
+            <View key={`${photo.uri}-${index}`} style={j.photoPreviewWrap}>
+              <Image source={{ uri: photo.uri }} style={j.photoPreview} />
+              <Pressable
+                onPress={() => setNewPhotos((prev) => prev.filter((_, i) => i !== index))}
+                style={j.photoRemoveBtn}>
+                <Text style={j.photoRemoveText}>✕</Text>
+              </Pressable>
+            </View>
+          ))}
+          {totalPhotoCount < MAX_PHOTOS ? (
+            <Pressable onPress={() => void pickPhoto()} style={j.addPhoto}>
+              <Text style={j.photoAdd}>＋</Text>
+              <Text style={j.body}>Thêm ảnh</Text>
+            </Pressable>
+          ) : null}
+        </ScrollView>
+
+        <Text style={j.label}>5. Tiêu đề ngắn (tùy chọn)</Text>
+        <TextInput
+          value={title}
+          onChangeText={setTitle}
+          placeholder="Ví dụ: Cây ra chồi non mới"
+          placeholderTextColor={C.mutedText}
+          style={j.input}
+        />
+
+        <Text style={j.label}>
+          6. Ghi chú <Text style={j.required}>*</Text>
+        </Text>
+        <TextInput
+          value={note}
+          onChangeText={setNote}
+          multiline
+          placeholder="Mô tả tình trạng lá, rễ, biện pháp chăm sóc..."
+          placeholderTextColor={C.mutedText}
+          style={[j.input, j.multiline, errorMsg && !note.trim() ? j.errorBorder : null]}
+        />
+
+        <Text style={j.label}>Ngày ghi nhận</Text>
+        <TextInput
+          value={entryDate}
+          onChangeText={setEntryDate}
+          placeholder="DD/MM/YYYY"
+          placeholderTextColor={C.mutedText}
+          style={j.input}
+        />
+
+        {errorMsg ? <Text style={j.errorText}>⚠️ {errorMsg}</Text> : null}
+
+        <Pressable disabled={saving} onPress={() => void save()} style={[j.submit, saving && j.btnDisabled]}>
+          <Text style={j.submitText}>
+            {saving ? 'Đang lưu...' : editing ? '✓ Lưu thay đổi' : '✓ Lưu ghi nhận'}
+          </Text>
+        </Pressable>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+export function NewJournalScreen({ initialPlantId }: { initialPlantId?: string }) {
+  return <JournalForm initialPlantId={initialPlantId} />;
+}
+
+export function EditJournalScreen({ journalId }: { journalId?: string }) {
+  return <JournalForm editing journalId={journalId} />;
+}
 
 const j = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: C.background }, header: { height: 52, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, back: { color: C.forest, fontSize: 29 }, headerTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 }, profile: { width: 28, height: 28, borderRadius: 14, backgroundColor: C.forest, color: C.surface, fontFamily: F.bold, textAlign: 'center', textAlignVertical: 'center' }, content: { padding: 13, gap: 9, paddingBottom: 24 }, plantCard: { padding: 9, borderRadius: 12, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 9 }, thumb: { width: 52, height: 52, borderRadius: 10, backgroundColor: '#E6F0E8', alignItems: 'center', justifyContent: 'center' }, emoji: { fontSize: 26 }, copy: { flex: 1, gap: 3 }, title: { color: C.forest, fontFamily: F.bold, fontSize: 15 }, body: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11, lineHeight: 17 }, tag: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 99, backgroundColor: '#DDF2E4', color: C.forest, fontFamily: F.semiBold, fontSize: 9 }, card: { padding: 11, borderRadius: 13, backgroundColor: C.surface, gap: 8 }, sectionTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 }, metrics: { flexDirection: 'row', gap: 6 }, metric: { flex: 1, padding: 8, borderRadius: 9, backgroundColor: C.softSurface }, metricValue: { color: C.forest, fontFamily: F.bold, fontSize: 13 }, row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, entry: { paddingTop: 9, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#DFE9E1', gap: 5 }, date: { color: C.primary, fontFamily: F.semiBold, fontSize: 9 }, titleSmall: { color: C.text, fontFamily: F.semiBold, fontSize: 12 }, photoRow: { flexDirection: 'row', gap: 8, marginVertical: 3 }, photo: { flex: 1, height: 90, borderRadius: 10, backgroundColor: '#E0EEE3', alignItems: 'center', justifyContent: 'center' }, link: { color: C.primary, fontFamily: F.semiBold, fontSize: 10 }, submit: { minHeight: 44, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, submitText: { color: C.surface, fontFamily: F.semiBold, fontSize: 12 }, note: { color: C.mutedText, fontFamily: F.regular, textAlign: 'center', fontSize: 9 }, tip: { padding: 12, borderRadius: 11, backgroundColor: C.softSurface, gap: 3 }, label: { marginTop: 3, color: C.text, fontFamily: F.semiBold, fontSize: 12 }, required: { color: C.terracotta }, thumbSmall: { width: 34, height: 34, borderRadius: 8, backgroundColor: C.softSurface, alignItems: 'center', justifyContent: 'center' }, selected: { borderWidth: 1, borderColor: C.primary, backgroundColor: '#E5F4E9' }, radio: { marginLeft: 'auto', color: C.primary }, chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, chip: { paddingHorizontal: 9, paddingVertical: 8, borderRadius: 9, backgroundColor: C.surface }, addPhoto: { flex: 1, height: 90, borderRadius: 10, borderWidth: 1, borderColor: '#D5E3D8', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface }, photoAdd: { color: C.primary, fontSize: 20 }, input: { minHeight: 42, paddingHorizontal: 10, borderRadius: 9, backgroundColor: C.surface, fontFamily: F.regular, fontSize: 11 }, multiline: { minHeight: 90, paddingTop: 10, textAlignVertical: 'top' }, errorBorder: { borderWidth: 1, borderColor: '#B42318' }, errorText: { color: '#B42318', fontFamily: F.regular, fontSize: 11 },
+  safe: { flex: 1, backgroundColor: C.background },
+  header: { height: 52, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#DDE8E0' },
+  back: { color: C.forest, fontSize: 29, width: 32 },
+  headerTitle: { flex: 1, color: C.forest, fontFamily: F.semiBold, fontSize: 15, textAlign: 'center' },
+  content: { padding: 13, gap: 10, paddingBottom: 28 },
+  plantCard: { padding: 10, borderRadius: 12, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 9 },
+  thumb: { width: 52, height: 52, borderRadius: 10, backgroundColor: '#E6F0E8', alignItems: 'center', justifyContent: 'center' },
+  emoji: { fontSize: 26 },
+  copy: { flex: 1, gap: 3 },
+  title: { color: C.forest, fontFamily: F.bold, fontSize: 15 },
+  body: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11, lineHeight: 17 },
+  tag: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 99, backgroundColor: '#DDF2E4', color: C.forest, fontFamily: F.semiBold, fontSize: 10 },
+  addInlineBtn: { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8, backgroundColor: C.primary },
+  addInlineText: { color: C.surface, fontFamily: F.semiBold, fontSize: 11 },
+  card: { padding: 12, borderRadius: 13, backgroundColor: C.surface, gap: 8 },
+  sectionTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 },
+  metrics: { flexDirection: 'row', gap: 6 },
+  metric: { flex: 1, padding: 8, borderRadius: 9, backgroundColor: C.softSurface },
+  metricValue: { color: C.forest, fontFamily: F.bold, fontSize: 13 },
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  emptyTimeline: { paddingVertical: 14, gap: 10, alignItems: 'center' },
+  entry: { paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#DFE9E1', gap: 6 },
+  date: { color: C.primary, fontFamily: F.semiBold, fontSize: 11 },
+  healthPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 99, fontFamily: F.semiBold, fontSize: 10 },
+  titleSmall: { color: C.text, fontFamily: F.semiBold, fontSize: 13 },
+  entryNote: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12, lineHeight: 18 },
+  photoScroll: { flexDirection: 'row', gap: 8, paddingVertical: 4 },
+  photoImage: { width: 112, height: 90, borderRadius: 10, backgroundColor: '#E0EEE3' },
+  entryActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
+  link: { color: C.primary, fontFamily: F.semiBold, fontSize: 11 },
+  deleteLink: { color: '#B42318', fontFamily: F.semiBold, fontSize: 11 },
+  submit: { minHeight: 46, paddingHorizontal: 16, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  submitText: { color: C.surface, fontFamily: F.semiBold, fontSize: 13 },
+  btnDisabled: { opacity: 0.55 },
+  note: { color: C.mutedText, fontFamily: F.regular, textAlign: 'center', fontSize: 11 },
+  tip: { padding: 12, borderRadius: 11, backgroundColor: C.softSurface, gap: 3 },
+  label: { marginTop: 3, color: C.text, fontFamily: F.semiBold, fontSize: 12 },
+  required: { color: C.terracotta },
+  thumbSmall: { width: 34, height: 34, borderRadius: 8, backgroundColor: C.softSurface, alignItems: 'center', justifyContent: 'center' },
+  selected: { borderWidth: 1.5, borderColor: C.primary, backgroundColor: '#E5F4E9' },
+  selectedBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 10, borderRadius: 10, backgroundColor: '#D5F2E1' },
+  selectedBannerText: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 },
+  radio: { marginLeft: 'auto', color: C.primary, fontSize: 16 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  chip: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 9, backgroundColor: C.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: '#DDE8E0' },
+  chipText: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12 },
+  chipTextSelected: { color: C.primary, fontFamily: F.semiBold },
+  photoPreviewWrap: { position: 'relative', width: 96, height: 90 },
+  photoPreview: { width: 96, height: 90, borderRadius: 10, backgroundColor: '#E0EEE3' },
+  photoRemoveBtn: { position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(0,0,0,0.65)', alignItems: 'center', justifyContent: 'center' },
+  photoRemoveText: { color: '#FFFFFF', fontSize: 11, fontFamily: F.bold },
+  addPhoto: { width: 96, height: 90, borderRadius: 10, borderWidth: 1, borderColor: '#D5E3D8', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface },
+  photoAdd: { color: C.primary, fontSize: 20 },
+  input: { minHeight: 44, paddingHorizontal: 12, borderRadius: 9, backgroundColor: C.surface, fontFamily: F.regular, fontSize: 13, color: C.text, borderWidth: StyleSheet.hairlineWidth, borderColor: '#DDE8E0' },
+  multiline: { minHeight: 96, paddingTop: 10, textAlignVertical: 'top' },
+  errorBorder: { borderWidth: 1, borderColor: '#B42318' },
+  errorText: { color: '#B42318', fontFamily: F.regular, fontSize: 12, textAlign: 'center' },
 });

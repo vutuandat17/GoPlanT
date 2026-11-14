@@ -14,6 +14,7 @@ import { AuthSessionProvider } from '@/features/auth/AuthSession';
 import { PlantDataProvider } from '@/features/plants/PlantDataStore';
 import { AppPreferencesProvider, useAppPreferences } from '@/features/preferences/AppPreferences';
 import { CareScheduleProvider } from '@/features/schedule/CareScheduleStore';
+import { JournalProvider } from '@/features/journal/JournalStore';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -43,7 +44,9 @@ function AppShell() {
     <AuthSessionProvider>
       <PlantDataProvider>
         <CareScheduleProvider>
-          <Stack screenOptions={{ headerShown: false, animation: 'none', contentStyle: { backgroundColor } }} />
+          <JournalProvider>
+            <Stack screenOptions={{ headerShown: false, animation: 'none', contentStyle: { backgroundColor } }} />
+          </JournalProvider>
         </CareScheduleProvider>
       </PlantDataProvider>
     </AuthSessionProvider>
