@@ -108,6 +108,26 @@ export default function HomeScreen() {
           </Pressable>
         ) : null}
 
+        {/* Banner chuyển hướng Lập lịch chăm sóc */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Mở màn hình Lập lịch chăm sóc"
+          onPress={() => navigate('/schedule')}
+          style={styles.scheduleBanner}>
+          <View style={styles.scheduleBannerLeft}>
+            <View style={styles.scheduleBannerIcon}>
+              <Text style={styles.scheduleBannerIconGlyph}>◷</Text>
+            </View>
+            <View style={styles.scheduleBannerCopy}>
+              <Text style={styles.scheduleBannerTitle}>Lập lịch chăm sóc cây trồng</Text>
+              <Text style={styles.scheduleBannerSub}>Tự động hóa chu kỳ tưới nước, bón phân & tỉa cành để cây luôn xanh tốt.</Text>
+            </View>
+          </View>
+          <View style={styles.scheduleBannerCta}>
+            <Text style={styles.scheduleBannerCtaText}>Tạo lịch ngay →</Text>
+          </View>
+        </Pressable>
+
         <View style={styles.searchBox}>
           <Text style={styles.searchIcon}>⌕</Text>
           <TextInput value={query} onChangeText={setQuery} onSubmitEditing={() => router.push({ pathname: '/search', params: { query } } as never)} placeholder="Tìm kiếm giống cây, sâu bệnh, kỹ thuật..." placeholderTextColor="#7B8580" style={styles.searchInput} returnKeyType="search" />
@@ -124,10 +144,10 @@ export default function HomeScreen() {
 
         <View style={styles.shortcuts}>
           {[
-            ['◷', 'Lập lịch', '#D9F2E3', '/schedule'],
             ['♧', 'Quản lý cây', '#E8EFEB', '/plants'],
             ['▦', 'Quản lý vườn', C.brightMint, '/gardens'],
             ['▤', 'Nhật ký chăm', C.peach, '/journal'],
+            ['♧', 'Sâu bệnh', '#FAD8D3', '/monitoring'],
           ].map(([icon, label, color, route]) => (
             <Pressable key={label} onPress={() => navigate(route)} style={styles.shortcut}>
               <View style={[styles.shortcutIcon, { backgroundColor: color }]}><Text style={styles.shortcutGlyph}>{icon}</Text></View>
@@ -135,26 +155,6 @@ export default function HomeScreen() {
             </Pressable>
           ))}
         </View>
-
-        {/* Banner chuyển hướng Lập lịch chăm sóc */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Mở màn hình Lập lịch chăm sóc"
-          onPress={() => navigate('/schedule')}
-          style={styles.scheduleBanner}>
-          <View style={styles.scheduleBannerLeft}>
-            <View style={styles.scheduleBannerIcon}>
-              <Text style={styles.scheduleBannerIconGlyph}>◷</Text>
-            </View>
-            <View style={styles.scheduleBannerCopy}>
-              <Text style={styles.scheduleBannerTitle}>Lập lịch chăm sóc</Text>
-              <Text style={styles.scheduleBannerSub}>Thiết lập chu kỳ tưới, bón phân và chăm cây định kỳ.</Text>
-            </View>
-          </View>
-          <View style={styles.scheduleBannerCta}>
-            <Text style={styles.scheduleBannerCtaText}>Mở ›</Text>
-          </View>
-        </Pressable>
 
         <SectionTitle title="Vườn của bạn" trailing={`${gardens.length} khu vực`} />
         {gardens.map((garden) => <Pressable key={garden.id} onPress={() => router.push({ pathname: '/garden-detail', params: { gardenId: garden.id } } as never)} style={styles.suggestionCard}><Text style={styles.plantEmoji}>⌂</Text><View style={styles.flexCopy}><Text style={styles.cardTitle}>{garden.name}</Text><Text style={styles.bodyText}>{garden.locationDetail || garden.locationType}</Text></View></Pressable>)}

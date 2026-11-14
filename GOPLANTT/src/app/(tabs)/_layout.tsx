@@ -11,7 +11,7 @@ const tabs = [
   { name: 'home', label: 'Trang chủ', icon: '⌂' },
   { name: 'gardens', label: 'Vườn của tôi', icon: '▦' },
   { name: 'plants', label: 'Cây trồng', icon: '♧' },
-  { name: 'schedule', label: 'Lịch chăm sóc', icon: '◷' },
+  { name: 'journal', label: 'Nhật ký của tôi', icon: '▤' },
   { name: 'monitoring', label: 'Theo dõi', icon: '☼' },
 ];
 
@@ -66,9 +66,9 @@ export default function MainTabsLayout() {
         <Tabs.Screen name="home" />
         <Tabs.Screen name="gardens" />
         <Tabs.Screen name="plants" />
-        <Tabs.Screen name="schedule" />
+        <Tabs.Screen name="journal" />
         <Tabs.Screen name="monitoring" />
-        <Tabs.Screen name="journal" options={{ href: null }} />
+        <Tabs.Screen name="schedule" options={{ href: null }} />
       </Tabs>
     </SafeAreaView>
   );
