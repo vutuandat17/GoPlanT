@@ -1,7 +1,12 @@
+import { Platform } from 'react-native';
 import { fetch as expoFetch } from 'expo/fetch';
 import { File } from 'expo-file-system';
 
-export const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '') ?? '';
+const rawApiBaseUrl = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '') ?? '';
+export const apiBaseUrl =
+  Platform.OS === 'web' && rawApiBaseUrl.includes('10.0.2.2')
+    ? rawApiBaseUrl.replace('10.0.2.2', 'localhost')
+    : rawApiBaseUrl;
 export const isApiConfigured = Boolean(apiBaseUrl);
 
 export class ApiError extends Error {
