@@ -48,6 +48,52 @@ public class AuthController {
     }
     @PostMapping("/login")
     public AuthService.LoginResult login(@Valid @RequestBody LoginRequest request) { return auth.login(request.email(), request.password()); }
+    @PostMapping("/refresh")
+    public AuthService.LoginResult refresh(@Valid @RequestBody RefreshRequest request) { return auth.refresh(request.refreshToken()); }
+    @PostMapping("/logout")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void logout(@RequestBody(required = false) RefreshRequest request) {
+        if (request != null) auth.logout(request.refreshToken());
+    }
+    @PostMapping("/change-password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void changePassword(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody ChangePasswordRequest request) {
+        auth.changePassword(java.util.UUID.fromString(jwt.getSubject()), request.currentPassword(), request.newPassword());
+    }
+    @PostMapping("/forgot-password")
+    public AuthService.ForgotPasswordResult forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        return auth.forgotPassword(request.email());
+    }
+    @GetMapping(value = "/reset-password", produces = MediaType.TEXT_HTML_VALUE)
+    @ResponseBody
+    public String resetPasswordForm(@RequestParam String token) {
+        if (!token.matches("^[A-Za-z0-9_-]{40,50}$")) {
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, "Liên kết đặt lại mật khẩu không hợp lệ.");
+        }
+        return "<!doctype html><html lang=\"vi\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Đặt lại mật khẩu GoPlant</title>"
+                + "<body style=\"font:16px system-ui;max-width:460px;margin:10vh auto;padding:24px;color:#173f30\"><h1>Đặt lại mật khẩu GoPlant</h1>"
+                + "<p>Nhập mật khẩu mới (tối thiểu 12 ký tự) cho tài khoản của bạn.</p>"
+                + "<form method=\"post\" action=\"/api/v1/auth/reset-password\" style=\"display:flex;flex-direction:column;gap:12px\">"
+                + "<input type=\"hidden\" name=\"token\" value=\"" + token + "\">"
+                + "<input type=\"password\" name=\"newPassword\" minlength=\"12\" maxlength=\"72\" required placeholder=\"Mật khẩu mới (12-72 ký tự)\" style=\"padding:12px;border:1px solid #c9ddd0;border-radius:8px;font-size:15px\">"
+                + "<button style=\"padding:12px 20px;background:#174f3b;color:white;border:0;border-radius:8px;font-size:16px\">Cập nhật mật khẩu</button></form></body></html>";
+    }
+    @PostMapping(value = "/reset-password", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void resetPasswordJson(@Valid @RequestBody ResetPasswordRequest request) {
+        auth.resetPassword(request.token(), request.newPassword());
+    }
+    @PostMapping(value = "/reset-password", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE, produces = MediaType.TEXT_HTML_VALUE)
+    @ResponseBody
+    public String resetPasswordFormSubmit(@RequestParam String token, @RequestParam String newPassword) {
+        if (newPassword == null || newPassword.length() < 12 || newPassword.length() > 72) {
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, "Mật khẩu mới cần có từ 12 đến 72 ký tự.");
+        }
+        auth.resetPassword(token, newPassword);
+        return "<!doctype html><html lang=\"vi\"><meta charset=\"utf-8\"><title>Đã đặt lại mật khẩu</title>"
+                + "<body style=\"font:16px system-ui;max-width:460px;margin:10vh auto;padding:24px;color:#173f30\"><h1>Đã cập nhật mật khẩu</h1>"
+                + "<p>Mật khẩu tài khoản GoPlant đã được đặt lại. Bạn có thể quay lại ứng dụng và đăng nhập bằng mật khẩu mới.</p></body></html>";
+    }
     @GetMapping("/me")
     public AuthService.UserView me(@AuthenticationPrincipal Jwt jwt) {
         return auth.getUser(java.util.UUID.fromString(jwt.getSubject()));
@@ -63,6 +109,10 @@ public class AuthController {
     public record RegisterRequest(@NotBlank @Size(max=120) String displayName, @NotBlank @Email @Size(max=320) String email, @NotBlank @Size(min=12, max=72) String password) {}
     public record VerifyRequest(@NotBlank String token) {}
     public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {}
+    public record RefreshRequest(@NotBlank String refreshToken) {}
+    public record ChangePasswordRequest(@NotBlank String currentPassword, @NotBlank @Size(min=12, max=72) String newPassword) {}
+    public record ForgotPasswordRequest(@NotBlank @Email String email) {}
+    public record ResetPasswordRequest(@NotBlank String token, @NotBlank @Size(min=12, max=72) String newPassword) {}
     public record ProfileUpdateRequest(@NotBlank @Size(max=120) String displayName) {}
     public record TimezoneUpdateRequest(@NotBlank @Size(max=64) String timezone) {}
 }

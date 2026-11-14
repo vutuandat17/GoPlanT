@@ -24,25 +24,41 @@ public class VerificationEmailSender {
     }
 
     public void sendVerification(String recipient, String token) {
+        String link = verificationBaseUrl + "/api/v1/auth/verify-email?token=" + token;
+        send(recipient,
+                "Xác minh email GoPlant",
+                "Xin chào,\n\nVui lòng mở liên kết sau để xác minh địa chỉ email của bạn:\n"
+                        + link + "\n\nLiên kết chỉ sử dụng được một lần và hết hạn sau 24 giờ.\n"
+                        + "Nếu bạn không tạo tài khoản GoPlant, hãy bỏ qua email này.");
+    }
+
+    public void sendPasswordReset(String recipient, String token) {
+        String link = verificationBaseUrl + "/api/v1/auth/reset-password?token=" + token;
+        send(recipient,
+                "Đặt lại mật khẩu GoPlant",
+                "Xin chào,\n\nBạn đã yêu cầu đặt lại mật khẩu cho tài khoản GoPlant.\n"
+                        + "Vui lòng mở liên kết sau để đặt mật khẩu mới:\n"
+                        + link + "\n\nHoặc nhập mã đặt lại mật khẩu trong ứng dụng: " + token
+                        + "\n\nLiên kết và mã này chỉ sử dụng được một lần và hết hạn sau 60 phút.\n"
+                        + "Nếu bạn không thực hiện yêu cầu này, hãy bỏ qua email này.");
+    }
+
+    private void send(String recipient, String subject, String body) {
         JavaMailSender mailSender = mailSenders.getIfAvailable();
         if (mailSender == null || verificationBaseUrl.isBlank()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Email verification is unavailable. Configure SMTP and GOPLANT_PUBLIC_API_URL.");
+                    "Dịch vụ email hiện chưa sẵn sàng. Cấu hình SMTP và GOPLANT_PUBLIC_API_URL.");
         }
-
-        String link = verificationBaseUrl + "/api/v1/auth/verify-email?token=" + token;
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(from);
         message.setTo(recipient);
-        message.setSubject("Xác minh email GoPlant");
-        message.setText("Xin chào,\n\nVui lòng mở liên kết sau để xác minh địa chỉ email của bạn:\n"
-                + link + "\n\nLiên kết chỉ sử dụng được một lần và hết hạn sau 24 giờ.\n"
-                + "Nếu bạn không tạo tài khoản GoPlant, hãy bỏ qua email này.");
+        message.setSubject(subject);
+        message.setText(body);
         try {
             mailSender.send(message);
         } catch (MailException exception) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Không thể gửi email xác minh lúc này. Vui lòng thử lại sau.", exception);
+                    "Không thể gửi email lúc này. Vui lòng thử lại sau.", exception);
         }
     }
 }

@@ -7,6 +7,7 @@ import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { BackButton } from '@/components/BackButton';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { useAppPreferences } from '@/features/preferences/AppPreferences';
+import { changePassword, forgotPassword } from '@/services/api';
 
 type AccountPage = 'overview' | 'profile' | 'credentials' | 'security' | 'notifications' | 'settings' | 'privacy';
 const paths: Record<Exclude<AccountPage, 'overview'>, string> = {
@@ -99,13 +100,83 @@ export function AccountProfileScreen() {
 }
 
 export function AccountCredentialsScreen() {
-  const { user } = useAuthSession();
+  const { user, accessToken, signOut } = useAuthSession();
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [pwError, setPwError] = useState('');
+  const [savingPw, setSavingPw] = useState(false);
+  const [sendingReset, setSendingReset] = useState(false);
+
+  const handleChangePassword = async () => {
+    setPwError('');
+    if (!accessToken) {
+      setPwError('Vui lòng đăng nhập lại để đổi mật khẩu.');
+      return;
+    }
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPwError('Vui lòng điền đầy đủ mật khẩu hiện tại, mật khẩu mới và xác nhận.');
+      return;
+    }
+    if (newPassword.length < 12 || newPassword.length > 72) {
+      setPwError('Mật khẩu mới cần có từ 12 đến 72 ký tự.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPwError('Mật khẩu mới và xác nhận chưa khớp.');
+      return;
+    }
+    setSavingPw(true);
+    try {
+      await changePassword(accessToken, { currentPassword, newPassword });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      Alert.alert(
+        'Đổi mật khẩu thành công',
+        'Mật khẩu đã được cập nhật và các phiên đăng nhập cũ đã được thu hồi. Vui lòng đăng nhập lại bằng mật khẩu mới.',
+        [{ text: 'Đăng nhập lại', onPress: () => { void signOut().then(() => router.replace('/auth/login')); } }],
+      );
+    } catch (err) {
+      setPwError(err instanceof Error ? err.message : 'Không thể đổi mật khẩu.');
+    } finally {
+      setSavingPw(false);
+    }
+  };
+
+  const handleSendResetLink = async () => {
+    if (!user?.email) {
+      Alert.alert('Thiếu email', 'Không tìm thấy email của tài khoản.');
+      return;
+    }
+    setSendingReset(true);
+    try {
+      const res = await forgotPassword(user.email);
+      Alert.alert('Đã gửi yêu cầu', res.resetToken ? `${res.message}\n\nMã đặt lại: ${res.resetToken}` : res.message);
+    } catch (err) {
+      Alert.alert('Không thể gửi', err instanceof Error ? err.message : 'Vui lòng thử lại sau.');
+    } finally {
+      setSendingReset(false);
+    }
+  };
+
   return <Page page="credentials">
     <Card style={s.banner}><Text style={s.bannerTitle}>Bảo mật khu vườn</Text><Text style={s.caption}>Thông tin đăng nhập của tài khoản GoPlant.</Text></Card>
     <Card><Label>Email đăng nhập</Label><Text style={s.value}>{user?.email ?? 'Chưa có email'}</Text><ActionButton label="Cập nhật email và xác minh" tone="soft" onPress={() => unavailable('Cập nhật và xác minh email')}/></Card>
     <Card><Field label="Tên đăng nhập" value={user?.email.split('@')[0] ?? '—'}/><Text style={s.caption}>Tên đăng nhập hiển thị dựa trên email tài khoản.</Text></Card>
-    <Card><SectionHeading>Thay đổi mật khẩu</SectionHeading><Field label="Mật khẩu hiện tại" value="" placeholder="Nhập mật khẩu hiện tại" secureTextEntry/><Field label="Mật khẩu mới" value="" placeholder="Tối thiểu 8 ký tự" secureTextEntry/><Field label="Xác nhận mật khẩu mới" value="" placeholder="Nhập lại mật khẩu mới" secureTextEntry/><ActionButton label="Cập nhật mật khẩu" onPress={() => unavailable('Đổi mật khẩu')}/></Card>
-    <Card style={s.infoCard}><Text style={s.menuTitle}>Khôi phục mật khẩu</Text><Text style={s.caption}>Liên kết khôi phục chưa được cấu hình trong ứng dụng frontend.</Text><ActionButton label="Gửi liên kết đặt lại mật khẩu" tone="soft" onPress={() => unavailable('Khôi phục mật khẩu')}/></Card>
+    <Card>
+      <SectionHeading>Thay đổi mật khẩu</SectionHeading>
+      <Field label="Mật khẩu hiện tại" value={currentPassword} onChangeText={(v) => { setCurrentPassword(v); setPwError(''); }} placeholder="Nhập mật khẩu hiện tại" secureTextEntry/>
+      <Field label="Mật khẩu mới" value={newPassword} onChangeText={(v) => { setNewPassword(v); setPwError(''); }} placeholder="Tối thiểu 12 ký tự" secureTextEntry/>
+      <Field label="Xác nhận mật khẩu mới" value={confirmPassword} onChangeText={(v) => { setConfirmPassword(v); setPwError(''); }} placeholder="Nhập lại mật khẩu mới" secureTextEntry/>
+      {pwError ? <Text style={s.error}>{pwError}</Text> : null}
+      <ActionButton label={savingPw ? 'Đang cập nhật…' : 'Cập nhật mật khẩu'} disabled={savingPw} onPress={() => void handleChangePassword()}/>
+    </Card>
+    <Card style={s.infoCard}>
+      <Text style={s.menuTitle}>Khôi phục mật khẩu</Text>
+      <Text style={s.caption}>Gửi liên kết đặt lại mật khẩu về email đăng nhập hiện tại của bạn.</Text>
+      <ActionButton label={sendingReset ? 'Đang gửi…' : 'Gửi liên kết đặt lại mật khẩu'} tone="soft" disabled={sendingReset} onPress={() => void handleSendResetLink()}/>
+    </Card>
     <Card><SectionHeading>Phương thức đăng nhập</SectionHeading><Text style={s.caption}>Email và mật khẩu</Text><Text style={s.caption}>Google Account và Apple ID chưa được bật.</Text></Card>
   </Page>;
 }

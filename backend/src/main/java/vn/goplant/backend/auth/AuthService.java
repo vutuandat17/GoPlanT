@@ -35,6 +35,7 @@ public class AuthService {
     private final JwtEncoder jwtEncoder;
     private final VerificationEmailSender verificationEmails;
     private final int tokenMinutes;
+    private final int refreshTokenDays;
     private final boolean exposeVerificationToken;
     private final CareScheduleService careSchedules;
     private final SecureRandom random = new SecureRandom();
@@ -42,6 +43,7 @@ public class AuthService {
     public AuthService(JdbcTemplate jdbc, PasswordEncoder passwords, JwtEncoder jwtEncoder,
                        VerificationEmailSender verificationEmails, CareScheduleService careSchedules,
                        @Value("${goplant.jwt.access-token-minutes:15}") int tokenMinutes,
+                       @Value("${goplant.jwt.refresh-token-days:30}") int refreshTokenDays,
                        @Value("${goplant.auth.expose-verification-token:false}") boolean exposeVerificationToken,
                        Environment environment) {
         if (exposeVerificationToken && Arrays.stream(environment.getActiveProfiles()).noneMatch("local"::equals)) {
@@ -53,6 +55,7 @@ public class AuthService {
         this.jwtEncoder = jwtEncoder;
         this.verificationEmails = verificationEmails;
         this.tokenMinutes = tokenMinutes;
+        this.refreshTokenDays = refreshTokenDays;
         this.exposeVerificationToken = exposeVerificationToken;
     }
 
@@ -92,6 +95,7 @@ public class AuthService {
         jdbc.update("UPDATE account_action_tokens SET consumed_at=now() WHERE id=?", row[0]);
     }
 
+    @Transactional
     public LoginResult login(String email, String password) {
         String normalized = normalizeEmail(email);
         var rows = jdbc.query("""
@@ -101,18 +105,169 @@ public class AuthService {
                 """, (rs, row) -> new Account(rs.getObject("id", UUID.class), rs.getString("display_name"),
                 rs.getString("password_hash"), rs.getString("status"), rs.getString("normalized_email"), rs.getString("timezone")), normalized);
         if (rows.isEmpty() || !passwords.matches(password, rows.getFirst().passwordHash())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Email hoặc mật khẩu không chính xác.");
         }
         Account account = rows.getFirst();
-        if (!"active".equals(account.status())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is not active");
-        var roles = jdbc.queryForList("SELECT r.code FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=?", String.class, account.id());
+        if (!"active".equals(account.status())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản chưa được kích hoạt hoặc đã bị khóa.");
+        String refreshToken = issueRefreshToken(account.id(), null);
+        return buildLoginResult(account.id(), account.email(), account.displayName(), account.timezone(), refreshToken);
+    }
+
+    @Transactional
+    public LoginResult refresh(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Thiếu refresh token.");
+        }
+        String hash = sha256(refreshToken.trim());
+        var rows = jdbc.query("""
+                SELECT rt.id, rt.user_id, rt.expires_at, rt.revoked_at,
+                       u.display_name, u.status, u.timezone, e.normalized_email
+                FROM refresh_tokens rt
+                JOIN users u ON u.id = rt.user_id
+                JOIN user_email_addresses e ON e.user_id = u.id AND e.address_type = 'primary'
+                WHERE rt.token_hash = ?
+                FOR UPDATE OF rt
+                """, (rs, row) -> new RefreshRow(
+                rs.getObject("id", UUID.class),
+                rs.getObject("user_id", UUID.class),
+                rs.getTimestamp("expires_at").toInstant(),
+                rs.getTimestamp("revoked_at") == null ? null : rs.getTimestamp("revoked_at").toInstant(),
+                rs.getString("display_name"),
+                rs.getString("status"),
+                rs.getString("timezone"),
+                rs.getString("normalized_email")), hash);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Phiên đăng nhập không hợp lệ.");
+        }
+        RefreshRow tokenRow = rows.getFirst();
+        if (tokenRow.revokedAt() != null) {
+            // Reuse of a rotated/revoked refresh token: revoke all active sessions for safety.
+            revokeAllRefreshTokens(tokenRow.userId());
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Phiên đăng nhập đã hết hiệu lực. Vui lòng đăng nhập lại.");
+        }
+        if (tokenRow.expiresAt().isBefore(Instant.now())) {
+            jdbc.update("UPDATE refresh_tokens SET revoked_at=now() WHERE id=?", tokenRow.id());
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+        }
+        if (!"active".equals(tokenRow.status())) {
+            revokeAllRefreshTokens(tokenRow.userId());
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản hiện không ở trạng thái hoạt động.");
+        }
+
+        UUID newTokenId = UUID.randomUUID();
+        String newRefreshToken = issueRefreshToken(tokenRow.userId(), newTokenId);
+        jdbc.update("UPDATE refresh_tokens SET revoked_at=now(), replaced_by_token_id=?, last_used_at=now() WHERE id=?",
+                newTokenId, tokenRow.id());
+        return buildLoginResult(tokenRow.userId(), tokenRow.email(), tokenRow.displayName(), tokenRow.timezone(), newRefreshToken);
+    }
+
+    @Transactional
+    public void logout(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) return;
+        jdbc.update("UPDATE refresh_tokens SET revoked_at=now() WHERE token_hash=? AND revoked_at IS NULL",
+                sha256(refreshToken.trim()));
+    }
+
+    @Transactional
+    public void changePassword(UUID userId, String currentPassword, String newPassword) {
+        var rows = jdbc.query("SELECT password_hash FROM users WHERE id=? AND status='active' FOR UPDATE",
+                (rs, row) -> rs.getString("password_hash"), userId);
+        if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy tài khoản.");
+        String existingHash = rows.getFirst();
+        if (!passwords.matches(currentPassword, existingHash)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mật khẩu hiện tại không chính xác.");
+        }
+        if (passwords.matches(newPassword, existingHash)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mật khẩu mới phải khác mật khẩu hiện tại.");
+        }
+        jdbc.update("UPDATE users SET password_hash=?, updated_at=now() WHERE id=?", passwords.encode(newPassword), userId);
+        revokeAllRefreshTokens(userId);
+    }
+
+    @Transactional
+    public ForgotPasswordResult forgotPassword(String email) {
+        String normalized = normalizeEmail(email);
+        var users = jdbc.query("""
+                SELECT u.id FROM users u
+                JOIN user_email_addresses e ON e.user_id = u.id AND e.address_type = 'primary'
+                WHERE e.normalized_email = ? AND u.status = 'active'
+                """, (rs, row) -> rs.getObject("id", UUID.class), normalized);
+        String exposedToken = null;
+        if (!users.isEmpty()) {
+            UUID userId = users.getFirst();
+            jdbc.update("""
+                    UPDATE account_action_tokens SET consumed_at=now()
+                    WHERE user_id=? AND purpose='PASSWORD_RESET' AND consumed_at IS NULL
+                    """, userId);
+            String token = generateSecureToken();
+            jdbc.update("""
+                    INSERT INTO account_action_tokens(user_id,purpose,token_hash,expires_at)
+                    VALUES (?,'PASSWORD_RESET',?,?)
+                    """, userId, sha256(token), Timestamp.from(Instant.now().plus(60, ChronoUnit.MINUTES)));
+            if (exposeVerificationToken) {
+                exposedToken = token;
+            } else {
+                verificationEmails.sendPasswordReset(normalized, token);
+            }
+        }
+        return new ForgotPasswordResult(
+                exposedToken,
+                exposeVerificationToken && exposedToken != null
+                        ? "Sử dụng mã đặt lại mật khẩu trả về (chỉ dành cho môi trường phát triển)."
+                        : "Nếu email đã được đăng ký và kích hoạt, hướng dẫn đặt lại mật khẩu đã được gửi tới hộp thư của bạn.");
+    }
+
+    @Transactional
+    public void resetPassword(String token, String newPassword) {
+        if (token == null || token.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Thiếu mã đặt lại mật khẩu.");
+        }
+        var matches = jdbc.query("""
+                SELECT t.id AS token_id, t.user_id
+                FROM account_action_tokens t
+                JOIN users u ON u.id = t.user_id
+                WHERE t.token_hash = ? AND t.purpose = 'PASSWORD_RESET'
+                  AND t.consumed_at IS NULL AND t.expires_at > now() AND u.status = 'active'
+                FOR UPDATE OF t, u
+                """, (rs, row) -> new UUID[]{rs.getObject("token_id", UUID.class), rs.getObject("user_id", UUID.class)},
+                sha256(token.trim()));
+        if (matches.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Liên kết hoặc mã đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.");
+        }
+        UUID tokenId = matches.getFirst()[0];
+        UUID userId = matches.getFirst()[1];
+        jdbc.update("UPDATE users SET password_hash=?, updated_at=now() WHERE id=?", passwords.encode(newPassword), userId);
+        jdbc.update("UPDATE account_action_tokens SET consumed_at=now() WHERE id=?", tokenId);
+        revokeAllRefreshTokens(userId);
+    }
+
+    private LoginResult buildLoginResult(UUID userId, String email, String displayName, String timezone, String refreshToken) {
+        var roles = jdbc.queryForList("SELECT r.code FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=?", String.class, userId);
         Instant now = Instant.now();
-        var claims = JwtClaimsSet.builder().issuer("goplant-api").subject(account.id().toString())
+        var claims = JwtClaimsSet.builder().issuer("goplant-api").subject(userId.toString())
                 .issuedAt(now).expiresAt(now.plus(tokenMinutes, ChronoUnit.MINUTES))
-                .claim("email", account.email()).claim("name", account.displayName()).claim("roles", roles).build();
+                .claim("email", email).claim("name", displayName).claim("roles", roles).build();
         var header = JwsHeader.with(org.springframework.security.oauth2.jose.jws.MacAlgorithm.HS256).build();
         String jwt = jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
-        return new LoginResult(jwt, "Bearer", tokenMinutes * 60, new UserView(account.id(), account.email(), account.displayName(), roles, account.timezone()));
+        return new LoginResult(jwt, refreshToken, "Bearer", tokenMinutes * 60, new UserView(userId, email, displayName, roles, timezone));
+    }
+
+    private String issueRefreshToken(UUID userId, UUID explicitId) {
+        UUID id = explicitId != null ? explicitId : UUID.randomUUID();
+        String raw = generateSecureToken();
+        jdbc.update("INSERT INTO refresh_tokens(id,user_id,token_hash,expires_at) VALUES (?,?,?,?)",
+                id, userId, sha256(raw), Timestamp.from(Instant.now().plus(refreshTokenDays, ChronoUnit.DAYS)));
+        return raw;
+    }
+
+    private void revokeAllRefreshTokens(UUID userId) {
+        jdbc.update("UPDATE refresh_tokens SET revoked_at=now() WHERE user_id=? AND revoked_at IS NULL", userId);
+    }
+
+    private String generateSecureToken() {
+        byte[] bytes = new byte[32];
+        random.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
     public UserView getUser(UUID userId) {
@@ -160,8 +315,10 @@ public class AuthService {
     }
 
     public record Registration(UUID id, String email, String verificationToken, String message) {}
+    public record ForgotPasswordResult(String resetToken, String message) {}
     public record UserView(UUID id, String email, String displayName, java.util.List<String> roles, String timezone) {}
-    public record LoginResult(String accessToken, String tokenType, int expiresIn, UserView user) {}
+    public record LoginResult(String accessToken, String refreshToken, String tokenType, int expiresIn, UserView user) {}
     private record UserIdentity(UUID id, String email, String displayName, String timezone) {}
     private record Account(UUID id, String displayName, String passwordHash, String status, String email, String timezone) {}
+    private record RefreshRow(UUID id, UUID userId, Instant expiresAt, Instant revokedAt, String displayName, String status, String timezone, String email) {}
 }

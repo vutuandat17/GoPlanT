@@ -2,6 +2,8 @@ import { Platform } from 'react-native';
 import { fetch as expoFetch } from 'expo/fetch';
 import { File } from 'expo-file-system';
 
+import { clearSessionTokens, readRefreshToken, saveAccessToken, saveRefreshToken } from './tokenStorage';
+
 const rawApiBaseUrl = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '') ?? '';
 export const apiBaseUrl =
   Platform.OS === 'web' && rawApiBaseUrl.includes('10.0.2.2')
@@ -20,24 +22,77 @@ type RequestOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   token?: string | null;
   body?: unknown;
+  skipAuthRefresh?: boolean;
 };
+
+type TokenRefreshedListener = (next: AuthResult | null) => void;
+let tokenRefreshedListener: TokenRefreshedListener | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
+
+export function setTokenRefreshedListener(listener: TokenRefreshedListener | null) {
+  tokenRefreshedListener = listener;
+}
+
+async function tryRefreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    try {
+      const storedRefresh = await readRefreshToken();
+      if (!storedRefresh || !apiBaseUrl) return null;
+      const response = await fetch(`${apiBaseUrl}/api/v1/auth/refresh`, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: storedRefresh }),
+      });
+      if (!response.ok) {
+        await clearSessionTokens();
+        tokenRefreshedListener?.(null);
+        return null;
+      }
+      const next = await response.json() as AuthResult;
+      await saveAccessToken(next.accessToken);
+      if (next.refreshToken) await saveRefreshToken(next.refreshToken);
+      tokenRefreshedListener?.(next);
+      return next.accessToken;
+    } catch {
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   if (!apiBaseUrl) throw new ApiError('Chưa cấu hình EXPO_PUBLIC_API_URL.');
 
-  let response: Response;
-  try {
-    response = await fetch(`${apiBaseUrl}${path}`, {
+  const performFetch = (token?: string | null) =>
+    fetch(`${apiBaseUrl}${path}`, {
       method: options.method ?? 'GET',
       headers: {
         Accept: 'application/json',
         ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
-        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
     });
+
+  let response: Response;
+  try {
+    response = await performFetch(options.token);
   } catch {
     throw new ApiError('Không kết nối được máy chủ. Kiểm tra backend và địa chỉ API.');
+  }
+
+  if (response.status === 401 && options.token && !options.skipAuthRefresh && !path.startsWith('/api/v1/auth/')) {
+    const newAccessToken = await tryRefreshAccessToken();
+    if (newAccessToken) {
+      try {
+        response = await performFetch(newAccessToken);
+      } catch {
+        throw new ApiError('Không kết nối được máy chủ. Kiểm tra backend và địa chỉ API.');
+      }
+    }
   }
 
   if (!response.ok) {
@@ -82,8 +137,47 @@ export async function uploadPlantPhoto(plantId: string, token: string, photo: { 
   }
 }
 
-export type ApiUser = { id: string; email: string; displayName: string; roles: string[] };
-export type AuthResult = { accessToken: string; tokenType: string; expiresIn: number; user: ApiUser };
+export type ApiUser = { id: string; email: string; displayName: string; roles: string[]; timezone?: string };
+export type AuthResult = { accessToken: string; refreshToken?: string; tokenType: string; expiresIn: number; user: ApiUser };
+export type ForgotPasswordResult = { resetToken?: string | null; message: string };
+
+export function refreshAuthSession(refreshToken: string) {
+  return apiRequest<AuthResult>('/api/v1/auth/refresh', {
+    method: 'POST',
+    body: { refreshToken },
+    skipAuthRefresh: true,
+  });
+}
+
+export function logoutAuthSession(refreshToken: string) {
+  return apiRequest<void>('/api/v1/auth/logout', {
+    method: 'POST',
+    body: { refreshToken },
+    skipAuthRefresh: true,
+  });
+}
+
+export function changePassword(token: string, body: { currentPassword: string; newPassword: string }) {
+  return apiRequest<void>('/api/v1/auth/change-password', {
+    method: 'POST',
+    token,
+    body,
+  });
+}
+
+export function forgotPassword(email: string) {
+  return apiRequest<ForgotPasswordResult>('/api/v1/auth/forgot-password', {
+    method: 'POST',
+    body: { email },
+  });
+}
+
+export function resetPassword(body: { token: string; newPassword: string }) {
+  return apiRequest<void>('/api/v1/auth/reset-password', {
+    method: 'POST',
+    body,
+  });
+}
 export type PlantCatalogItem = { id: string; commonName: string; scientificName: string; category: string };
 export type ApiGarden = {
   id: string; name: string; locationType: string; locationDetail: string | null; description: string | null;
