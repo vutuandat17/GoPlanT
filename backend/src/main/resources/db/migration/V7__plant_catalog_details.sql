@@ -12,10 +12,10 @@ ALTER TABLE plant_catalog
     ADD COLUMN morphology text;
 
 UPDATE plant_catalog SET
-    origin = COALESCE(origin, v.origin),
-    morphology = COALESCE(morphology, v.morphology),
-    overview = COALESCE(overview, v.overview),
-    toxicity_warning = COALESCE(toxicity_warning, v.toxicity_warning),
+    origin = COALESCE(plant_catalog.origin, v.origin),
+    morphology = COALESCE(plant_catalog.morphology, v.morphology),
+    overview = COALESCE(plant_catalog.overview, v.overview),
+    toxicity_warning = COALESCE(plant_catalog.toxicity_warning, v.toxicity_warning),
     updated_at = now()
 FROM (VALUES
     ('Monstera deliciosa',
