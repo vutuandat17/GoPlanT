@@ -178,7 +178,48 @@ export function resetPassword(body: { token: string; newPassword: string }) {
     body,
   });
 }
-export type PlantCatalogItem = { id: string; commonName: string; scientificName: string; category: string };
+export type PageResponse<T> = {
+  items: T[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+};
+
+export type PlantCatalogItem = {
+  id: string;
+  commonName: string;
+  scientificName: string;
+  category: string;
+  difficulty?: string | null;
+  lightRequirement?: string | null;
+  waterFrequencyDays?: number | null;
+  temperatureRange?: string | null;
+  toxicityWarning?: string | null;
+  overview?: string | null;
+  origin?: string | null;
+  morphology?: string | null;
+};
+
+export function fetchCatalogPlants(params?: { page?: number; size?: number; q?: string; category?: string }) {
+  const search = new URLSearchParams();
+  if (params?.page !== undefined) search.set('page', String(params.page));
+  if (params?.size !== undefined) search.set('size', String(params.size));
+  if (params?.q?.trim()) search.set('q', params.q.trim());
+  if (params?.category?.trim()) search.set('category', params.category.trim());
+  const qs = search.toString();
+  return apiRequest<PageResponse<PlantCatalogItem>>(`/api/v1/catalog/plants${qs ? `?${qs}` : ''}`);
+}
+
+export function fetchOwnedPlants(token: string, params?: { page?: number; size?: number; q?: string; gardenId?: string }) {
+  const search = new URLSearchParams();
+  if (params?.page !== undefined) search.set('page', String(params.page));
+  if (params?.size !== undefined) search.set('size', String(params.size));
+  if (params?.q?.trim()) search.set('q', params.q.trim());
+  if (params?.gardenId?.trim()) search.set('gardenId', params.gardenId.trim());
+  const qs = search.toString();
+  return apiRequest<PageResponse<ApiOwnedPlant>>(`/api/v1/plants${qs ? `?${qs}` : ''}`, { token });
+}
 export type ApiGarden = {
   id: string; name: string; locationType: string; locationDetail: string | null; description: string | null;
   createdAt: string; updatedAt: string;

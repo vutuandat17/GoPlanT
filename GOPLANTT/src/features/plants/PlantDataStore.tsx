@@ -1,8 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { useAuthSession } from '@/features/auth/AuthSession';
-import { apiRequest, isApiConfigured, uploadPlantPhoto, type ApiGarden, type ApiOwnedPlant, type PlantCatalogItem } from '@/services/api';
-import { speciesDetails } from '@/features/plants/speciesDetails';
+import { apiRequest, fetchCatalogPlants, fetchOwnedPlants, isApiConfigured, uploadPlantPhoto, type ApiGarden, type ApiOwnedPlant, type PlantCatalogItem } from '@/services/api';
 
 export type PlantProfile = {
   id: string;
@@ -75,7 +74,22 @@ type PlantDataContextValue = {
 const PlantDataContext = createContext<PlantDataContextValue | null>(null);
 
 function mapCatalog(plant: PlantCatalogItem): PlantProfile {
-  return { id: plant.id, name: plant.commonName, scientificName: plant.scientificName, category: plant.category, ...speciesDetails(plant.scientificName) };
+  const waterText = plant.waterFrequencyDays ? `Mỗi ${plant.waterFrequencyDays} ngày` : undefined;
+  return {
+    id: plant.id,
+    name: plant.commonName,
+    scientificName: plant.scientificName,
+    category: plant.category,
+    difficulty: plant.difficulty ?? undefined,
+    light: plant.lightRequirement ?? undefined,
+    water: waterText,
+    wateringFrequency: waterText,
+    temperature: plant.temperatureRange ?? undefined,
+    origin: plant.origin ?? undefined,
+    overview: plant.overview ?? undefined,
+    morphology: plant.morphology ?? undefined,
+    usageAndCaution: plant.toxicityWarning ?? undefined,
+  };
 }
 
 function mapOwnedPlant(plant: ApiOwnedPlant, catalog: PlantProfile[]): OwnedPlant {
@@ -123,16 +137,16 @@ export function PlantDataProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     setApiError('');
     try {
-      const [catalogRows, gardenRows, plantRows, favoriteRows] = await Promise.all([
-        apiRequest<PlantCatalogItem[]>('/api/v1/catalog/plants'),
+      const [catalogPage, gardenRows, plantPage, favoriteRows] = await Promise.all([
+        fetchCatalogPlants({ page: 0, size: 100 }),
         accessToken ? apiRequest<ApiGarden[]>('/api/v1/gardens', { token: accessToken }) : Promise.resolve([] as ApiGarden[]),
-        accessToken ? apiRequest<ApiOwnedPlant[]>('/api/v1/plants', { token: accessToken }) : Promise.resolve([] as ApiOwnedPlant[]),
+        accessToken ? fetchOwnedPlants(accessToken, { page: 0, size: 100 }) : Promise.resolve({ items: [] as ApiOwnedPlant[], page: 0, size: 100, totalElements: 0, totalPages: 0 }),
         accessToken ? apiRequest<PlantCatalogItem[]>('/api/v1/favorites', { token: accessToken }) : Promise.resolve([] as PlantCatalogItem[]),
       ]);
-      const mappedCatalog = catalogRows.map(mapCatalog);
+      const mappedCatalog = catalogPage.items.map(mapCatalog);
       setCatalog(mappedCatalog);
       setGardens(gardenRows.map(mapGarden));
-      setOwnedPlants(plantRows.map((plant) => mapOwnedPlant(plant, mappedCatalog)));
+      setOwnedPlants(plantPage.items.map((plant) => mapOwnedPlant(plant, mappedCatalog)));
       setFavorites(favoriteRows.map((plant) => plant.id));
     } catch (error) {
       setApiError(error instanceof Error ? error.message : 'Không tải được dữ liệu từ backend.');

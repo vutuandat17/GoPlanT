@@ -8,8 +8,35 @@ import { useAuthSession } from '@/features/auth/AuthSession';
 import { usePlantData } from '@/features/plants/PlantDataStore';
 import { apiRequest, type PlantCatalogItem } from '@/services/api';
 
-type FormField = 'commonName' | 'scientificName' | 'category' | 'sourceTitle' | 'sourceUrl';
-const emptyForm: Record<FormField, string> = { commonName: '', scientificName: '', category: '', sourceTitle: '', sourceUrl: '' };
+type FormField =
+  | 'commonName'
+  | 'scientificName'
+  | 'category'
+  | 'sourceTitle'
+  | 'sourceUrl'
+  | 'difficulty'
+  | 'lightRequirement'
+  | 'waterFrequencyDays'
+  | 'temperatureRange'
+  | 'origin'
+  | 'overview'
+  | 'morphology'
+  | 'toxicityWarning';
+const emptyForm: Record<FormField, string> = {
+  commonName: '',
+  scientificName: '',
+  category: '',
+  sourceTitle: '',
+  sourceUrl: '',
+  difficulty: '',
+  lightRequirement: '',
+  waterFrequencyDays: '',
+  temperatureRange: '',
+  origin: '',
+  overview: '',
+  morphology: '',
+  toxicityWarning: '',
+};
 
 export default function AdminPlantCatalogScreen() {
   const { user, accessToken } = useAuthSession();
@@ -32,13 +59,30 @@ export default function AdminPlantCatalogScreen() {
       return;
     }
 
+    const parsedWaterDays = form.waterFrequencyDays.trim() ? Number(form.waterFrequencyDays.trim()) : null;
+    if (parsedWaterDays !== null && (!Number.isInteger(parsedWaterDays) || parsedWaterDays < 1 || parsedWaterDays > 365)) {
+      Alert.alert('Số liệu không hợp lệ', 'Chu kỳ tưới nước (ngày) phải là số nguyên từ 1 đến 365.');
+      return;
+    }
+
     setSaving(true);
     try {
       await apiRequest<PlantCatalogItem>('/api/v1/admin/catalog/plants', {
         method: 'POST', token: accessToken,
         body: {
-          commonName: form.commonName.trim(), scientificName: form.scientificName.trim(), category: form.category.trim(),
-          sourceTitle: form.sourceTitle.trim() || null, sourceUrl: form.sourceUrl.trim() || null,
+          commonName: form.commonName.trim(),
+          scientificName: form.scientificName.trim(),
+          category: form.category.trim(),
+          sourceTitle: form.sourceTitle.trim() || null,
+          sourceUrl: form.sourceUrl.trim() || null,
+          difficulty: form.difficulty.trim() || null,
+          lightRequirement: form.lightRequirement.trim() || null,
+          waterFrequencyDays: parsedWaterDays,
+          temperatureRange: form.temperatureRange.trim() || null,
+          origin: form.origin.trim() || null,
+          overview: form.overview.trim() || null,
+          morphology: form.morphology.trim() || null,
+          toxicityWarning: form.toxicityWarning.trim() || null,
         },
       });
       await refresh();
@@ -63,6 +107,14 @@ export default function AdminPlantCatalogScreen() {
       <Field label="Nhóm cây *" placeholder="Cây nội thất, Cây hoa, Rau ăn lá…" value={form.category} onChangeText={(value) => set('category', value)}/>
       <Field label="Tên nguồn tham khảo" placeholder="Ví dụ: Kew Plants of the World Online" value={form.sourceTitle} onChangeText={(value) => set('sourceTitle', value)}/>
       <Field label="Đường dẫn nguồn" placeholder="https://…" value={form.sourceUrl} onChangeText={(value) => set('sourceUrl', value)} autoCapitalize="none" keyboardType="url"/>
+      <Field label="Độ khó chăm sóc" placeholder="Ví dụ: Dễ / Trung bình" value={form.difficulty} onChangeText={(value) => set('difficulty', value)}/>
+      <Field label="Nhu cầu ánh sáng" placeholder="Ví dụ: Ánh sáng gián tiếp" value={form.lightRequirement} onChangeText={(value) => set('lightRequirement', value)}/>
+      <Field label="Chu kỳ tưới nước (ngày)" placeholder="Ví dụ: 3" value={form.waterFrequencyDays} onChangeText={(value) => set('waterFrequencyDays', value)} keyboardType="number-pad"/>
+      <Field label="Khoảng nhiệt độ phù hợp" placeholder="Ví dụ: 18–28°C" value={form.temperatureRange} onChangeText={(value) => set('temperatureRange', value)}/>
+      <Field label="Nguồn gốc" placeholder="Ví dụ: Trung Mỹ và Nam Mỹ" value={form.origin} onChangeText={(value) => set('origin', value)}/>
+      <Field label="Tổng quan" placeholder="Mô tả tổng quan về loài cây" value={form.overview} onChangeText={(value) => set('overview', value)} multiline/>
+      <Field label="Đặc điểm hình thái" placeholder="Mô tả lá, thân, rễ, hoa…" value={form.morphology} onChangeText={(value) => set('morphology', value)} multiline/>
+      <Field label="Lưu ý & Độc tính" placeholder="Cảnh báo thú cưng/trẻ nhỏ hoặc công dụng" value={form.toxicityWarning} onChangeText={(value) => set('toxicityWarning', value)} multiline/>
       <Pressable accessibilityRole="button" disabled={saving} onPress={() => void createPlant()} style={[s.button, saving && s.disabled]}>
         <Text style={s.buttonText}>{saving ? 'Đang lưu…' : 'Thêm và xuất bản cây'}</Text>
       </Pressable>
