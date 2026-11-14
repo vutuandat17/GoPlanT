@@ -1,6 +1,7 @@
 package vn.goplant.backend.gardens;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -20,16 +21,20 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.annotation.Transactional;
+import vn.goplant.backend.care.CareScheduleService;
+import vn.goplant.backend.config.PageResponse;
 
 @RestController
 @RequestMapping("/api/v1")
 public class GardenController {
     private final JdbcTemplate jdbc;
-    public GardenController(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    private final CareScheduleService care;
+    public GardenController(JdbcTemplate jdbc, CareScheduleService care) { this.jdbc = jdbc; this.care = care; }
 
     @GetMapping("/gardens")
     public List<Garden> gardens(@AuthenticationPrincipal Jwt jwt) {
@@ -61,17 +66,49 @@ public class GardenController {
     }
 
     @GetMapping("/plants")
-    public List<OwnedPlant> plants(@AuthenticationPrincipal Jwt jwt) {
-        return jdbc.query("""
+    public PageResponse<OwnedPlant> plants(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) UUID gardenId) {
+        int safePage = PageResponse.normalizePage(page);
+        int safeSize = PageResponse.normalizeSize(size);
+        StringBuilder where = new StringBuilder(" WHERE p.owner_user_id=? AND p.archived_at IS NULL");
+        List<Object> params = new ArrayList<>();
+        params.add(owner(jwt));
+        if (gardenId != null) {
+            where.append(" AND p.garden_id=?");
+            params.add(gardenId);
+        }
+        if (q != null && !q.isBlank()) {
+            String pattern = "%" + q.trim().toLowerCase() + "%";
+            where.append(" AND (LOWER(p.display_name) LIKE ? OR LOWER(c.common_name) LIKE ? OR LOWER(c.scientific_name) LIKE ?)");
+            params.add(pattern);
+            params.add(pattern);
+            params.add(pattern);
+        }
+        Long total = jdbc.queryForObject(
+                "SELECT count(*) FROM user_plants p JOIN plant_catalog c ON c.id=p.plant_catalog_id" + where,
+                Long.class,
+                params.toArray());
+        long totalElements = total == null ? 0L : total;
+
+        List<Object> queryParams = new ArrayList<>(params);
+        queryParams.add(safeSize);
+        queryParams.add((long) safePage * safeSize);
+        List<OwnedPlant> items = jdbc.query("""
                 SELECT p.id,p.plant_catalog_id,p.garden_id,p.display_name,p.specific_location,p.planted_on,p.note,p.added_at,
                        c.common_name,c.scientific_name,ph.updated_at AS photo_updated_at
                 FROM user_plants p JOIN plant_catalog c ON c.id=p.plant_catalog_id
                 LEFT JOIN user_plant_photos ph ON ph.user_plant_id=p.id
-                WHERE p.owner_user_id=? AND p.archived_at IS NULL ORDER BY p.created_at DESC
-                """, (rs, row) -> new OwnedPlant(rs.getObject("id", UUID.class), rs.getObject("plant_catalog_id", UUID.class),
-                rs.getObject("garden_id", UUID.class), rs.getString("display_name"), rs.getString("common_name"), rs.getString("scientific_name"),
-                rs.getString("specific_location"), rs.getObject("planted_on", java.time.LocalDate.class), rs.getString("note"), rs.getTimestamp("added_at").toInstant(),
-                rs.getTimestamp("photo_updated_at") == null ? null : rs.getTimestamp("photo_updated_at").toInstant()), owner(jwt));
+                """ + where + " ORDER BY p.created_at DESC LIMIT ? OFFSET ?",
+                (rs, row) -> new OwnedPlant(rs.getObject("id", UUID.class), rs.getObject("plant_catalog_id", UUID.class),
+                        rs.getObject("garden_id", UUID.class), rs.getString("display_name"), rs.getString("common_name"), rs.getString("scientific_name"),
+                        rs.getString("specific_location"), rs.getObject("planted_on", java.time.LocalDate.class), rs.getString("note"), rs.getTimestamp("added_at").toInstant(),
+                        rs.getTimestamp("photo_updated_at") == null ? null : rs.getTimestamp("photo_updated_at").toInstant()),
+                queryParams.toArray());
+        return PageResponse.of(items, safePage, safeSize, totalElements);
     }
 
     @PostMapping("/plants")
@@ -100,9 +137,11 @@ public class GardenController {
 
     @DeleteMapping("/plants/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Transactional
     public void removePlant(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
         int changed = jdbc.update("UPDATE user_plants SET archived_at=now(),updated_at=now() WHERE id=? AND owner_user_id=? AND archived_at IS NULL", id, owner(jwt));
         if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        care.deactivateForPlant(owner(jwt), id);
     }
 
     @PutMapping("/plants/{id}")

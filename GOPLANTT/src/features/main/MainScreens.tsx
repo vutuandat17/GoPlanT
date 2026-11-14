@@ -9,6 +9,8 @@ import { PlantArtwork } from '@/features/plants/PlantArtwork';
 import { apiBaseUrl } from '@/services/api';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { matchesPlantFilters } from '@/features/plants/plantFilters';
+import { JOURNAL_HEALTH_META, JOURNAL_LOG_TYPE_META, useJournals } from '@/features/journal/JournalStore';
+import { formatDateVi } from '@/features/schedule/CareScheduleStore';
 
 type PageKind = 'gardens' | 'plants' | 'journal' | 'schedule' | 'monitoring';
 
@@ -35,6 +37,7 @@ function EmptyCard({ icon, title, description, action, onPress }: { icon: string
 
 function EmptyPage({ kind }: { kind: PageKind }) {
   const { apiError, catalog, gardens, ownedPlants, favorites, isLoading, removePlant, filterStates, setFilterState } = usePlantData();
+  const { journals } = useJournals();
   const { accessToken } = useAuthSession();
   const [plantQuery, setPlantQuery] = useState('');
   const pageFilters = filterStates[kind] ?? {};
@@ -75,17 +78,72 @@ function EmptyPage({ kind }: { kind: PageKind }) {
       {isLoading ? <Text style={s.helperNote}>Đang tải dữ liệu…</Text> : null}
     </>;
   }
-  if (kind === 'journal') return <>
-    <View style={s.managementActions}><Action label="Lọc cây trong nhật ký" muted onPress={() => openFilter('journal')} /></View>
-    <Section title="Cây của bạn" hint={`${ownedPlants.filter((plant) => matchesPlantFilters({ ...plant, id: plant.catalogId }, pageFilters)).length} cây phù hợp`}>
-      {ownedPlants.filter((plant) => matchesPlantFilters({ ...plant, id: plant.catalogId }, pageFilters)).map((plant) => <View key={plant.id} style={s.rowCard}><PlantArtwork style={s.plantImage} category={plant.category} /><View style={s.cardCopy}><Text style={s.cardTitle}>{plant.name}</Text><Text style={s.body}>{plant.location || 'Chưa có vị trí cụ thể'}</Text></View></View>)}
-    </Section>
-    <View style={s.metrics}>{[['0', 'Ghi nhận'], ['0', 'Cây có nhật ký'], ['0', 'Khu vườn'], ['—', 'Cập nhật gần nhất']].map(([value, label]) => <View key={label} style={s.metric}><Text style={s.metricValue}>{value}</Text><Text style={s.body}>{label}</Text></View>)}</View>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.pills}>{['Tất cả vườn', 'Nhật ký từng cây'].map((x, i) => <Tag key={x} tone={i === 0 ? 'mint' : 'plain'}>{x}</Tag>)}</ScrollView>
-    <Section title="Nhật ký khu vườn"><EmptyCard icon="▤" title="Chưa có nhật ký khu vườn" description="Nhật ký chưa có dữ liệu." /></Section>
-    <Section title="Nhật ký từng cây"><EmptyCard icon="♧" title="Chưa có nhật ký cây trồng" description="Nhật ký chưa có dữ liệu." /></Section>
-    <View style={s.recommend}><Text style={s.cardTitle}>Mẹo ghi nhật ký</Text><Text style={s.body}>Ghi lại việc chăm sóc thường xuyên để dễ theo dõi thay đổi theo thời gian.</Text></View>
-  </>;
+  if (kind === 'journal') {
+    const journalPlants = new Set(journals.map((item) => item.plantId)).size;
+    const latestEntryDate = journals[0] ? formatDateVi(journals[0].entryDate) : '—';
+    const matchingJournalPlants = ownedPlants.filter((plant) => matchesPlantFilters({ ...plant, id: plant.catalogId }, pageFilters));
+    return <>
+      <View style={s.managementActions}>
+        <Action label="＋ Thêm ghi nhận" onPress={() => router.push('/journal/new' as never)} />
+        <Action label="Lọc cây" muted onPress={() => openFilter('journal')} />
+      </View>
+      <View style={s.metrics}>
+        {[
+          [String(journals.length), 'Ghi nhận'],
+          [String(journalPlants), 'Cây có nhật ký'],
+          [String(gardens.length), 'Khu vườn'],
+          [latestEntryDate, 'Cập nhật gần nhất'],
+        ].map(([value, label]) => (
+          <View key={label} style={s.metric}>
+            <Text style={s.metricValue}>{value}</Text>
+            <Text style={s.body}>{label}</Text>
+          </View>
+        ))}
+      </View>
+      <Section title="Cây của bạn" hint={`${matchingJournalPlants.length} cây phù hợp`}>
+        {matchingJournalPlants.length === 0 ? (
+          <EmptyCard icon="♧" title="Chưa có cây nào" description="Thêm cây vào vườn để bắt đầu ghi nhật ký phát triển." action="Thêm cây" onPress={() => router.push('/garden/add-plant' as never)} />
+        ) : (
+          matchingJournalPlants.map((plant) => {
+            const count = journals.filter((item) => item.plantId === plant.id).length;
+            return (
+              <Pressable key={plant.id} onPress={() => router.push({ pathname: '/journal/detail', params: { plantId: plant.id } } as never)} style={s.rowCard}>
+                <PlantArtwork style={s.plantImage} category={plant.category} accessToken={accessToken} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null} />
+                <View style={s.cardCopy}>
+                  <Text style={s.cardTitle}>{plant.name}</Text>
+                  <Text style={s.body}>{count > 0 ? `${count} ghi nhận` : (plant.location || 'Chưa có ghi nhận')}</Text>
+                </View>
+                <Action label="Xem" muted onPress={() => router.push({ pathname: '/journal/detail', params: { plantId: plant.id } } as never)} />
+              </Pressable>
+            );
+          })
+        )}
+      </Section>
+      <Section title="Nhật ký gần đây" hint={`${journals.length} bài`}>
+        {journals.length === 0 ? (
+          <EmptyCard icon="▤" title="Chưa có nhật ký cây trồng" description="Hãy tạo ghi nhận đầu tiên để theo dõi sự phát triển của cây." action="Thêm ghi nhận" onPress={() => router.push('/journal/new' as never)} />
+        ) : (
+          journals.slice(0, 10).map((entry) => {
+            const typeMeta = JOURNAL_LOG_TYPE_META[entry.logType] ?? JOURNAL_LOG_TYPE_META.other;
+            const healthMeta = JOURNAL_HEALTH_META[entry.healthStatus] ?? JOURNAL_HEALTH_META.healthy;
+            return (
+              <Pressable key={entry.id} onPress={() => router.push({ pathname: '/journal/detail', params: { plantId: entry.plantId } } as never)} style={s.card}>
+                <View style={s.rowTop}>
+                  <Tag tone="mint">{typeMeta.emoji} {typeMeta.label}</Tag>
+                  <Tag tone={entry.healthStatus === 'healthy' ? 'mint' : 'peach'}>{healthMeta.label}</Tag>
+                  <Text style={s.hint}>{formatDateVi(entry.entryDate)}</Text>
+                </View>
+                <Text style={s.cardTitle}>{entry.plantName}{entry.title ? ` · ${entry.title}` : ''}</Text>
+                <Text numberOfLines={2} style={s.body}>{entry.note}</Text>
+                {entry.photoIds.length > 0 ? <Text style={s.hint}>📷 {entry.photoIds.length} ảnh đính kèm</Text> : null}
+              </Pressable>
+            );
+          })
+        )}
+      </Section>
+      <View style={s.recommend}><Text style={s.cardTitle}>Mẹo ghi nhật ký</Text><Text style={s.body}>Ghi lại việc chăm sóc thường xuyên để dễ theo dõi thay đổi theo thời gian.</Text></View>
+    </>;
+  }
   if (kind === 'monitoring') return <>
     <View style={s.managementActions}><Action label="Lọc cây theo dõi" muted onPress={() => openFilter('monitoring')} /></View>
     <Section title="Cây trong phạm vi theo dõi" hint={`${ownedPlants.filter((plant) => matchesPlantFilters({ ...plant, id: plant.catalogId }, pageFilters)).length} cây phù hợp`}>

@@ -9,6 +9,7 @@ import { usePlantData } from '@/features/plants/PlantDataStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
 import { apiBaseUrl } from '@/services/api';
 import { matchesPlantFilters } from '@/features/plants/plantFilters';
+import { CARE_TASK_META, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 
 const categories = ['Tất cả', 'Cây ăn quả', 'Cây rau lá', 'Hoa cảnh', 'Cây mọng nước', 'Cây gia vị'];
 
@@ -24,8 +25,14 @@ function SectionTitle({ title, trailing }: { title: string; trailing?: string })
 export default function HomeScreen() {
   const { user, accessToken } = useAuthSession();
   const { catalog, gardens, ownedPlants, isLoading, apiError, filterStates } = usePlantData();
+  const { todayTasks, todaySummary, completeTask } = useCareSchedules();
   const [category, setCategory] = useState(categories[0]);
   const [query, setQuery] = useState('');
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+
+  const pendingTodayTasks = todayTasks.filter((t) => t.status === 'pending');
+  const nextTask = pendingTodayTasks[0];
+  const nextTaskMeta = nextTask ? (CARE_TASK_META[nextTask.taskType] ?? CARE_TASK_META.other) : null;
 
   const navigate = (route: string) => router.push(route as never);
   const discoveries = catalog.filter((plant) => {
@@ -59,6 +66,68 @@ export default function HomeScreen() {
           <Text style={styles.lightPill}>Chưa có dữ liệu</Text>
         </View>
 
+        {nextTask && nextTaskMeta ? (
+          <Pressable
+            onPress={() => navigate('/schedule')}
+            style={todaySummary.overdue > 0 ? styles.reminderCard : styles.scheduleCard}>
+            <View style={styles.scheduleIcon}>
+              <Text style={styles.white}>{nextTaskMeta.emoji}</Text>
+            </View>
+            <View style={styles.flexCopy}>
+              <Text style={todaySummary.overdue > 0 ? styles.reminderText : styles.scheduleTitle} numberOfLines={1}>
+                {todaySummary.overdue > 0
+                  ? `${todaySummary.overdue} việc quá hạn · ${nextTaskMeta.label}`
+                  : `Hôm nay (${pendingTodayTasks.length} việc): ${nextTaskMeta.label}`}
+              </Text>
+              <Text style={styles.scheduleDescription} numberOfLines={1}>
+                🌱 {nextTask.plantName} · Nhấn để xem toàn bộ lịch chăm sóc
+              </Text>
+            </View>
+            <Pressable
+              disabled={completingTaskId === nextTask.id}
+              onPress={async (e) => {
+                e.stopPropagation?.();
+                setCompletingTaskId(nextTask.id);
+                try {
+                  await completeTask(nextTask.id);
+                } finally {
+                  setCompletingTaskId(null);
+                }
+              }}
+              style={todaySummary.overdue > 0 ? styles.reminderButton : styles.scheduleButton}>
+              <Text style={styles.white}>{completingTaskId === nextTask.id ? '...' : '✓ Xong'}</Text>
+            </Pressable>
+          </Pressable>
+        ) : todaySummary.total > 0 ? (
+          <Pressable onPress={() => navigate('/schedule')} style={styles.scheduleCard}>
+            <View style={styles.scheduleIcon}><Text style={styles.white}>✓</Text></View>
+            <View style={styles.flexCopy}>
+              <Text style={styles.scheduleTitle}>Đã hoàn thành hết việc hôm nay!</Text>
+              <Text style={styles.scheduleDescription}>Tuyệt vời! Tất cả {todaySummary.total} lượt chăm sóc hôm nay đã xong.</Text>
+            </View>
+          </Pressable>
+        ) : null}
+
+        {/* Banner chuyển hướng Lập lịch chăm sóc */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Mở màn hình Lập lịch chăm sóc"
+          onPress={() => navigate('/schedule')}
+          style={styles.scheduleBanner}>
+          <View style={styles.scheduleBannerLeft}>
+            <View style={styles.scheduleBannerIcon}>
+              <Text style={styles.scheduleBannerIconGlyph}>◷</Text>
+            </View>
+            <View style={styles.scheduleBannerCopy}>
+              <Text style={styles.scheduleBannerTitle}>Lập lịch chăm sóc cây trồng</Text>
+              <Text style={styles.scheduleBannerSub}>Tự động hóa chu kỳ tưới nước, bón phân & tỉa cành để cây luôn xanh tốt.</Text>
+            </View>
+          </View>
+          <View style={styles.scheduleBannerCta}>
+            <Text style={styles.scheduleBannerCtaText}>Tạo lịch ngay →</Text>
+          </View>
+        </Pressable>
+
         <View style={styles.searchBox}>
           <Text style={styles.searchIcon}>⌕</Text>
           <TextInput value={query} onChangeText={setQuery} onSubmitEditing={() => router.push({ pathname: '/search', params: { query } } as never)} placeholder="Tìm kiếm giống cây, sâu bệnh, kỹ thuật..." placeholderTextColor="#7B8580" style={styles.searchInput} returnKeyType="search" />
@@ -75,12 +144,12 @@ export default function HomeScreen() {
 
         <View style={styles.shortcuts}>
           {[
-            ['♧', 'Quản lý cây', '#E8EFEB'],
-            ['▦', 'Quản lý vườn', C.brightMint],
-            ['▤', 'Nhật ký chăm', C.peach],
-            ['♧', 'Sâu bệnh', '#FAD8D3'],
-          ].map(([icon, label, color]) => (
-            <Pressable key={label} onPress={() => label === 'Quản lý cây' ? navigate('/plants') : label === 'Quản lý vườn' ? navigate('/gardens') : label === 'Nhật ký chăm' ? navigate('/journal') : navigate('/monitoring')} style={styles.shortcut}>
+            ['♧', 'Quản lý cây', '#E8EFEB', '/plants'],
+            ['▦', 'Quản lý vườn', C.brightMint, '/gardens'],
+            ['▤', 'Nhật ký chăm', C.peach, '/journal'],
+            ['♧', 'Sâu bệnh', '#FAD8D3', '/monitoring'],
+          ].map(([icon, label, color, route]) => (
+            <Pressable key={label} onPress={() => navigate(route)} style={styles.shortcut}>
               <View style={[styles.shortcutIcon, { backgroundColor: color }]}><Text style={styles.shortcutGlyph}>{icon}</Text></View>
               <Text style={styles.shortcutLabel}>{label}</Text>
             </Pressable>
@@ -188,4 +257,14 @@ const styles = StyleSheet.create({
   wishButtonText: { color: C.surface, fontFamily: F.semiBold, fontSize: 11 },
   morePlants: { minHeight: 42, borderRadius: 12, backgroundColor: C.softSurface, alignItems: 'center', justifyContent: 'center' },
   morePlantsText: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 },
+  // Schedule banner
+  scheduleBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14, borderRadius: 14, backgroundColor: '#D9F2E3', borderWidth: 1, borderColor: '#BCE6CD' },
+  scheduleBannerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10 },
+  scheduleBannerIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  scheduleBannerIconGlyph: { color: '#FFFFFF', fontSize: 22, lineHeight: 26 },
+  scheduleBannerCopy: { flex: 1, gap: 2 },
+  scheduleBannerTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14, lineHeight: 20 },
+  scheduleBannerSub: { color: '#3B6752', fontFamily: F.regular, fontSize: 11, lineHeight: 16 },
+  scheduleBannerCta: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: C.primary, marginLeft: 8 },
+  scheduleBannerCtaText: { color: '#FFFFFF', fontFamily: F.semiBold, fontSize: 12 },
 });

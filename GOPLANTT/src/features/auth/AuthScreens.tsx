@@ -5,7 +5,7 @@ import { SafeAreaView } from '@/components/app-primitives';
 import type { SvgProps } from 'react-native-svg';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
-import { apiRequest, ApiError, isApiConfigured, type ApiUser, type AuthResult } from '@/services/api';
+import { apiRequest, ApiError, forgotPassword, isApiConfigured, resetPassword, type ApiUser, type AuthResult } from '@/services/api';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import RegisterPot from '@/assets/images/figma/auth/signup/signup-23ac7.svg';
 import RegisterLeaf from '@/assets/images/figma/auth/signup/signup-30c2d.svg';
@@ -255,6 +255,55 @@ export function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showResetPanel, setShowResetPanel] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetToken, setResetToken] = useState('');
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetStatus, setResetStatus] = useState('');
+  const [resetBusy, setResetBusy] = useState(false);
+
+  const handleSendReset = async () => {
+    const email = (resetEmail || account).trim();
+    if (!email) {
+      setResetStatus('Vui lòng nhập email để nhận mã đặt lại mật khẩu.');
+      return;
+    }
+    setResetBusy(true);
+    setResetStatus('');
+    try {
+      const res = await forgotPassword(email);
+      if (res.resetToken) setResetToken(res.resetToken);
+      setResetStatus(res.message);
+    } catch (err) {
+      setResetStatus(err instanceof Error ? err.message : 'Không thể gửi yêu cầu đặt lại mật khẩu.');
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
+  const handleConfirmReset = async () => {
+    if (!resetToken.trim()) {
+      setResetStatus('Nhập mã đặt lại mật khẩu.');
+      return;
+    }
+    if (resetNewPassword.length < 12 || resetNewPassword.length > 72) {
+      setResetStatus('Mật khẩu mới cần có từ 12 đến 72 ký tự.');
+      return;
+    }
+    setResetBusy(true);
+    setResetStatus('');
+    try {
+      await resetPassword({ token: resetToken.trim(), newPassword: resetNewPassword });
+      setShowResetPanel(false);
+      setResetToken('');
+      setResetNewPassword('');
+      Alert.alert('Đặt lại mật khẩu thành công', 'Bạn có thể đăng nhập bằng mật khẩu mới.');
+    } catch (err) {
+      setResetStatus(err instanceof Error ? err.message : 'Không thể đặt lại mật khẩu.');
+    } finally {
+      setResetBusy(false);
+    }
+  };
 
   const submit = async () => {
     if (!account.trim() || !password) {
@@ -271,7 +320,7 @@ export function LoginScreen() {
         });
         const user: ApiUser = result.user;
         setPassword('');
-        await signIn({ id: user.id, email: user.email, name: user.displayName, role: user.roles.includes('admin') ? 'admin' : 'user' }, result.accessToken);
+        await signIn({ id: user.id, email: user.email, name: user.displayName, role: user.roles.includes('admin') ? 'admin' : 'user' }, result.accessToken, result.refreshToken);
         router.replace('/home');
         return;
       }
@@ -318,7 +367,52 @@ export function LoginScreen() {
               <Pressable onPress={() => setShowPassword((value) => !value)} style={styles.loginEye}><LoginEye width={18} height={13} /></Pressable>
             </View>
           </View>
-          <Pressable onPress={() => InlineUnavailable('Khôi phục mật khẩu chưa được kết nối dịch vụ xác thực.')} style={styles.forgotButton}><Text style={styles.forgotText}>Quên mật khẩu?</Text></Pressable>
+          <Pressable
+            onPress={() => {
+              setShowResetPanel((v) => !v);
+              if (!resetEmail && account.trim()) setResetEmail(account.trim());
+              setResetStatus('');
+            }}
+            style={styles.forgotButton}>
+            <Text style={styles.forgotText}>{showResetPanel ? 'Đóng khôi phục mật khẩu' : 'Quên mật khẩu?'}</Text>
+          </Pressable>
+          {showResetPanel ? (
+            <View style={styles.resetCard}>
+              <Text style={styles.resetTitle}>Khôi phục mật khẩu</Text>
+              <TextInput
+                value={resetEmail}
+                onChangeText={setResetEmail}
+                placeholder="Email tài khoản"
+                placeholderTextColor={C.mutedText}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                style={styles.resetInput}
+              />
+              <Pressable disabled={resetBusy} onPress={() => void handleSendReset()} style={styles.resetSecondaryBtn}>
+                <Text style={styles.resetSecondaryText}>{resetBusy ? 'Đang gửi...' : 'Gửi mã / liên kết qua email'}</Text>
+              </Pressable>
+              <TextInput
+                value={resetToken}
+                onChangeText={setResetToken}
+                placeholder="Mã đặt lại mật khẩu (từ email)"
+                placeholderTextColor={C.mutedText}
+                autoCapitalize="none"
+                style={styles.resetInput}
+              />
+              <TextInput
+                value={resetNewPassword}
+                onChangeText={setResetNewPassword}
+                placeholder="Mật khẩu mới (12–72 ký tự)"
+                placeholderTextColor={C.mutedText}
+                secureTextEntry
+                style={styles.resetInput}
+              />
+              {resetStatus ? <Text style={styles.resetStatus}>{resetStatus}</Text> : null}
+              <Pressable disabled={resetBusy} onPress={() => void handleConfirmReset()} style={styles.resetPrimaryBtn}>
+                <Text style={styles.resetPrimaryText}>Xác nhận đặt lại mật khẩu</Text>
+              </Pressable>
+            </View>
+          ) : null}
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
           <Pressable disabled={isSubmitting} onPress={submit} style={({ pressed }) => [styles.loginSubmit, pressed && styles.pressed, isSubmitting && styles.loginSubmitDisabled]}><Text style={styles.loginSubmitLabel}>{isSubmitting ? 'Đang đăng nhập…' : 'Đăng nhập'}</Text><View style={styles.loginSubmitIcon}><ProfileIcon width={15} height={15} /></View></Pressable>
           <View style={styles.successHint}><InfoIcon width={14} height={14} /><Text style={styles.helperText}>Đăng nhập bằng tài khoản GoPlant của bạn.</Text></View>
@@ -412,6 +506,14 @@ const styles = StyleSheet.create({
   loginEye: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   forgotButton: { alignSelf: 'flex-end', paddingVertical: 2 },
   forgotText: { color: C.primary, fontFamily: F.semiBold, fontSize: 12, lineHeight: 16 },
+  resetCard: { padding: 12, borderRadius: 12, backgroundColor: C.softSurface, borderWidth: 1, borderColor: '#D0E2D6', gap: 8 },
+  resetTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 13 },
+  resetInput: { minHeight: 42, paddingHorizontal: 12, borderRadius: 9, backgroundColor: C.surface, borderWidth: 1, borderColor: '#DDE7DF', color: C.text, fontFamily: F.regular, fontSize: 13 },
+  resetSecondaryBtn: { minHeight: 38, borderRadius: 9, backgroundColor: '#E3F0E7', alignItems: 'center', justifyContent: 'center' },
+  resetSecondaryText: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 },
+  resetPrimaryBtn: { minHeight: 42, borderRadius: 9, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  resetPrimaryText: { color: C.surface, fontFamily: F.semiBold, fontSize: 13 },
+  resetStatus: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11, lineHeight: 16 },
   loginSubmit: { height: 48, borderRadius: 8, backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', elevation: 2 },
   loginSubmitDisabled: { opacity: 0.65 },
   loginSubmitLabel: { color: C.surface, fontFamily: F.semiBold, fontSize: 14, lineHeight: 20 },

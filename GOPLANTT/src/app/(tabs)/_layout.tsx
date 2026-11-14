@@ -11,7 +11,7 @@ const tabs = [
   { name: 'home', label: 'Trang chủ', icon: '⌂' },
   { name: 'gardens', label: 'Vườn của tôi', icon: '▦' },
   { name: 'plants', label: 'Cây trồng', icon: '♧' },
-  { name: 'journal', label: 'Nhật ký', icon: '▤' },
+  { name: 'journal', label: 'Nhật ký của tôi', icon: '▤' },
   { name: 'monitoring', label: 'Theo dõi', icon: '☼' },
 ];
 
