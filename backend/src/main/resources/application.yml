@@ -1,6 +1,8 @@
 spring:
   application:
     name: goplant-backend
+  config:
+    import: optional:file:.env[.properties]
   jackson:
     default-property-inclusion: non_null
   servlet:
@@ -39,3 +41,8 @@ goplant:
   email:
     from: ${GOPLANT_EMAIL_FROM:no-reply@goplant.local}
     verification-base-url: ${GOPLANT_PUBLIC_API_URL:}
+  weather:
+    api-key: ${OPENWEATHER_API_KEY:}
+    base-url: ${OPENWEATHER_BASE_URL:https://api.openweathermap.org}
+    cache-minutes: ${GOPLANT_WEATHER_CACHE_MINUTES:30}
+    min-refresh-seconds: ${GOPLANT_WEATHER_MIN_REFRESH_SECONDS:120}

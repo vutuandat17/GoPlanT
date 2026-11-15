@@ -221,9 +221,92 @@ export function fetchOwnedPlants(token: string, params?: { page?: number; size?:
   return apiRequest<PageResponse<ApiOwnedPlant>>(`/api/v1/plants${qs ? `?${qs}` : ''}`, { token });
 }
 export type ApiGarden = {
-  id: string; name: string; locationType: string; locationDetail: string | null; description: string | null;
-  createdAt: string; updatedAt: string;
+  id: string;
+  name: string;
+  locationType: string;
+  locationDetail: string | null;
+  description: string | null;
+  provinceCode?: string | null;
+  provinceName?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  locationSource?: 'province' | 'gps' | null;
+  createdAt: string;
+  updatedAt: string;
 };
+
+export type ApiGardenRequest = {
+  name: string;
+  locationType: string;
+  locationDetail?: string | null;
+  description?: string | null;
+  locationSource?: 'province' | 'gps' | null;
+  provinceCode?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+};
+
+export type ApiProvince = {
+  code: string;
+  name: string;
+  center: string;
+  latitude: number;
+  longitude: number;
+};
+
+export type PlantTemperatureAlert = {
+  plantId: string;
+  displayName: string;
+  temperatureRange: string;
+  minC: number;
+  maxC: number;
+  level: 'too_cold' | 'too_hot';
+};
+
+export type ApiGardenWeather = {
+  gardenId: string;
+  status: 'OK' | 'NO_LOCATION' | 'NOT_CONFIGURED' | 'UNAVAILABLE';
+  stale: boolean;
+  outdoor: boolean;
+  locationSource: 'province' | 'gps' | null;
+  provinceCode: string | null;
+  provinceName: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  locationName: string | null;
+  temperatureC: number | null;
+  feelsLikeC: number | null;
+  tempMinC: number | null;
+  tempMaxC: number | null;
+  humidityPct: number | null;
+  pressureHpa: number | null;
+  windSpeedMs: number | null;
+  cloudsPct: number | null;
+  conditionCode: number | null;
+  conditionMain: string | null;
+  conditionDescription: string | null;
+  iconCode: string | null;
+  observedAt: string | null;
+  fetchedAt: string | null;
+  plantAlerts: PlantTemperatureAlert[];
+};
+
+export function updateGarden(gardenId: string, token: string, body: ApiGardenRequest) {
+  return apiRequest<ApiGarden>(`/api/v1/gardens/${gardenId}`, {
+    method: 'PUT',
+    token,
+    body,
+  });
+}
+
+export function fetchWeatherProvinces() {
+  return apiRequest<ApiProvince[]>('/api/v1/weather/provinces');
+}
+
+export function fetchGardenWeather(gardenId: string, token: string, refresh = false) {
+  const qs = refresh ? '?refresh=true' : '';
+  return apiRequest<ApiGardenWeather>(`/api/v1/gardens/${gardenId}/weather${qs}`, { token });
+}
 export type ApiOwnedPlant = {
   id: string; catalogId: string; gardenId: string | null; displayName: string; commonName: string;
   scientificName: string; specificLocation: string | null; plantedOn: string | null; note: string | null; addedAt: string; photoUpdatedAt: string | null;

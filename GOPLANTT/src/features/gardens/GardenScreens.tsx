@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import * as Location from 'expo-location';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from '@/components/app-primitives';
@@ -8,7 +9,7 @@ import { AccountButton } from '@/features/auth/AccountButton';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
 import { usePlantData } from '@/features/plants/PlantDataStore';
-import { ApiError, apiBaseUrl } from '@/services/api';
+import { ApiError, apiBaseUrl, fetchGardenWeather, fetchWeatherProvinces, type ApiGardenWeather, type ApiProvince } from '@/services/api';
 
 function GardenHeader({ title }: { title: string }) {
   return <View style={g.header}><Pressable onPress={() => router.back()} style={g.back}><Text style={g.backText}>‹</Text></Pressable><Text style={g.headerTitle}>{title}</Text><AccountButton size={29} /></View>;
@@ -24,11 +25,98 @@ export function GardenDetailScreen() {
   const { accessToken } = useAuthSession();
   const garden = gardens.find((item) => item.id === gardenId);
   const plants = ownedPlants.filter((plant) => plant.gardenId === gardenId);
+  const [weather, setWeather] = useState<ApiGardenWeather | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [weatherError, setWeatherError] = useState('');
+
+  const loadWeather = useCallback(async (forceRefresh = false) => {
+    if (!gardenId || !accessToken) return;
+    setWeatherLoading(true);
+    setWeatherError('');
+    try {
+      const data = await fetchGardenWeather(gardenId, accessToken, forceRefresh);
+      setWeather(data);
+    } catch (error) {
+      setWeatherError(error instanceof ApiError ? error.message : 'Không tải được dữ liệu thời tiết.');
+    } finally {
+      setWeatherLoading(false);
+    }
+  }, [gardenId, accessToken]);
+
+  useEffect(() => {
+    void loadWeather(false);
+  }, [loadWeather]);
+
+  const locationSummary = garden?.provinceName
+    ? garden.provinceName
+    : garden?.latitude != null && garden?.longitude != null
+      ? `GPS (${garden.latitude.toFixed(3)}, ${garden.longitude.toFixed(3)})`
+      : null;
+
   return <SafeAreaView style={g.safe} edges={['top']}><GardenHeader title="Chi tiết khu vườn"/><ScrollView contentContainerStyle={g.content}>
     {!garden ? <View style={g.card}><Text style={g.sectionTitle}>Không tìm thấy khu vườn</Text><Text style={g.body}>Danh sách có thể đã thay đổi hoặc khu vườn đã bị xóa.</Text><ActionButton label="Về danh sách vườn" onPress={() => router.replace('/gardens' as never)}/></View> : <>
       <View style={g.hero}><Text style={g.heroPlant}>♧</Text><Text style={g.heroLabel}>{garden.locationType.toLocaleUpperCase()}</Text></View>
-      <Text style={g.title}>{garden.name}</Text><Text style={g.body}>⌖  {garden.locationDetail || 'Chưa có vị trí cụ thể'}</Text>
+      <Text style={g.title}>{garden.name}</Text>
+      <Text style={g.body}>⌖  {garden.locationDetail || 'Chưa có vị trí cụ thể'}{locationSummary ? ` • ${locationSummary}` : ''}</Text>
       <View style={g.card}><Text style={g.sectionTitle}>Tổng quan khu vườn</Text><Text style={g.body}>{garden.description || 'Chưa có mô tả.'}</Text><Text style={g.body}>{plants.length} cây đang trồng</Text></View>
+      <View style={g.card}>
+        <View style={g.row}>
+          <Text style={g.sectionTitle}>Thời tiết & Môi trường</Text>
+          {garden.locationSource ? (
+            <Pressable accessibilityRole="button" disabled={weatherLoading} onPress={() => void loadWeather(true)}>
+              <Text style={g.link}>{weatherLoading ? 'Đang cập nhật…' : '↻ Làm mới'}</Text>
+            </Pressable>
+          ) : (
+            <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/garden/create', params: { editGardenId: garden.id } } as never)}>
+              <Text style={g.link}>＋ Thiết lập vị trí</Text>
+            </Pressable>
+          )}
+        </View>
+        {weatherError ? <Text style={g.error}>{weatherError}</Text> : null}
+        {!weather && weatherLoading ? <Text style={g.body}>Đang lấy dữ liệu thời tiết…</Text> : null}
+        {weather?.status === 'NO_LOCATION' ? (
+          <Text style={g.body}>Khu vườn chưa có tỉnh/thành hoặc tọa độ GPS. Hãy thiết lập vị trí để xem nhiệt độ và độ ẩm ngoài trời.</Text>
+        ) : weather?.status === 'NOT_CONFIGURED' && weather.temperatureC == null ? (
+          <Text style={g.body}>Máy chủ chưa cấu hình khóa OpenWeatherMap.</Text>
+        ) : weather?.status === 'UNAVAILABLE' && weather.temperatureC == null ? (
+          <Text style={g.body}>Không thể kết nối OpenWeatherMap lúc này. Vui lòng thử lại sau.</Text>
+        ) : weather && weather.temperatureC != null ? (
+          <>
+            <View style={g.weatherTop}>
+              <Text style={g.weatherTemp}>{Math.round(weather.temperatureC)}°C</Text>
+              <View style={g.plantCopy}>
+                <Text style={g.plantName}>{weather.conditionDescription || weather.conditionMain || 'Thời tiết hiện tại'}</Text>
+                <Text style={g.body}>
+                  {weather.provinceName || weather.locationName || 'Khu vực vườn'}
+                  {weather.feelsLikeC != null ? ` • Cảm giác ${Math.round(weather.feelsLikeC)}°C` : ''}
+                </Text>
+              </View>
+            </View>
+            <View style={g.metrics}>
+              <View style={g.metric}><Text style={g.metricValue}>{weather.humidityPct != null ? `${weather.humidityPct}%` : '—'}</Text><Text style={g.body}>Độ ẩm</Text></View>
+              <View style={g.metric}><Text style={g.metricValue}>{weather.windSpeedMs != null ? `${weather.windSpeedMs} m/s` : '—'}</Text><Text style={g.body}>Gió</Text></View>
+              <View style={g.metric}><Text style={g.metricValue}>{weather.cloudsPct != null ? `${weather.cloudsPct}%` : '—'}</Text><Text style={g.body}>Mây che</Text></View>
+            </View>
+            {!weather.outdoor ? <Text style={g.note}>Đây là nhiệt độ ngoài trời tham khảo; khu vườn trong nhà/nhà kính có thể chênh lệch.</Text> : null}
+            {weather.stale ? <Text style={g.note}>Đang hiển thị dữ liệu lưu gần nhất do chưa làm mới được từ OpenWeatherMap.</Text> : null}
+            {weather.plantAlerts.length > 0 ? (
+              <View style={g.alertBox}>
+                <Text style={g.alertTitle}>Cảnh báo ngưỡng nhiệt độ ({weather.plantAlerts.length} cây)</Text>
+                {weather.plantAlerts.map((alert) => (
+                  <Text key={alert.plantId} style={g.alertText}>
+                    • {alert.displayName}: {alert.level === 'too_hot' ? 'Đang nóng hơn' : 'Đang lạnh hơn'} ngưỡng khuyến nghị ({alert.temperatureRange})
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+          </>
+        ) : null}
+        {garden.locationSource ? (
+          <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/garden/create', params: { editGardenId: garden.id } } as never)}>
+            <Text style={g.link}>Đổi vị trí khu vườn</Text>
+          </Pressable>
+        ) : null}
+      </View>
       <View style={g.row}><Text style={g.sectionTitle}>Cây đang trồng ({plants.length})</Text><Pressable onPress={() => router.push({ pathname: '/garden/add-plant', params: { gardenId: garden.id } } as never)}><Text style={g.link}>＋ Thêm cây</Text></Pressable></View>
       {plants.map((plant) => <View key={plant.id} style={g.plantCard}><PlantArtwork category={catalog.find((item) => item.id === plant.catalogId)?.category ?? 'Cây trồng'} accessToken={accessToken} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{plant.name}</Text><Text style={g.body}>{plant.scientificName} • {plant.location || 'Chưa có vị trí cụ thể'}</Text></View><Pressable accessibilityRole="button" accessibilityLabel={`Xem chi tiết ${plant.name}`} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id } } as never)}><Text style={g.link}>›</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel={`Xóa ${plant.name} khỏi vườn`} onPress={() => Alert.alert('Xóa cây', `Xóa hồ sơ “${plant.name}” khỏi tài khoản?`, [{ text: 'Hủy', style: 'cancel' }, { text: 'Xóa cây', style: 'destructive', onPress: () => void removePlant(plant.id).catch((error) => Alert.alert('Không thể xóa cây', error instanceof Error ? error.message : 'Vui lòng thử lại.')) }])}><Text style={g.deleteLink}>Xóa</Text></Pressable></View>)}
       {plants.length === 0 ? <Text style={g.note}>Khu vườn chưa có cây.</Text> : null}
@@ -39,29 +127,54 @@ export function GardenDetailScreen() {
 }
 
 function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
-  const params = useLocalSearchParams<{ editId?: string; plantId?: string; gardenId?: string }>();
-  const { catalog, gardens, ownedPlants, addGarden, addPlant: createOwnedPlant, updatePlant, refresh } = usePlantData();
+  const params = useLocalSearchParams<{ editId?: string; plantId?: string; gardenId?: string; editGardenId?: string }>();
+  const { catalog, gardens, ownedPlants, addGarden, updateGarden, addPlant: createOwnedPlant, updatePlant, refresh } = usePlantData();
   const editId = params.editId;
+  const editGardenId = params.editGardenId;
+  const editingGarden = !addPlant && editGardenId ? gardens.find((item) => item.id === editGardenId) : undefined;
   const editingPlant = editId ? ownedPlants.find((item) => item.id === editId) : undefined;
   const initialCatalogId = params.plantId ?? editingPlant?.catalogId ?? '';
   const initialCatalogPlant = catalog.find((plant) => plant.id === initialCatalogId);
-  const [name, setName] = useState(editingPlant?.name ?? initialCatalogPlant?.name ?? '');
-  const [place, setPlace] = useState(editingPlant?.location ?? '');
+  const [name, setName] = useState(editingPlant?.name ?? editingGarden?.name ?? initialCatalogPlant?.name ?? '');
+  const [place, setPlace] = useState(editingPlant?.location ?? editingGarden?.locationDetail ?? '');
   const [error, setError] = useState(false);
   const [requestError, setRequestError] = useState('');
   const [selected, setSelected] = useState(addPlant ? initialCatalogId : '');
-  const [gardenType, setGardenType] = useState('balcony');
+  const [gardenType, setGardenType] = useState(editingGarden?.locationType ?? 'balcony');
   const [gardenId, setGardenId] = useState(editingPlant?.gardenId ?? params.gardenId ?? '');
-  const [description, setDescription] = useState('');
+  const [description, setDescription] = useState(editingGarden?.description ?? '');
   const [plantedAt, setPlantedAt] = useState(editingPlant?.plantedAt ?? '');
   const [note, setNote] = useState(editingPlant?.note ?? '');
   const [plantQuery, setPlantQuery] = useState('');
-  const title = editId ? 'Chỉnh sửa hồ sơ cây' : addPlant ? 'Thêm cây trồng' : 'Tạo khu vườn mới';
+  const [locationMode, setLocationMode] = useState<'none' | 'province' | 'gps'>(editingGarden?.locationSource ?? 'none');
+  const [provinces, setProvinces] = useState<ApiProvince[]>([]);
+  const [provinceCode, setProvinceCode] = useState(editingGarden?.provinceCode ?? '');
+  const [provinceQuery, setProvinceQuery] = useState('');
+  const [gpsCoords, setGpsCoords] = useState<{ latitude: number; longitude: number } | null>(
+    editingGarden?.locationSource === 'gps' && editingGarden.latitude != null && editingGarden.longitude != null
+      ? { latitude: editingGarden.latitude, longitude: editingGarden.longitude }
+      : null,
+  );
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState('');
+  const title = editId ? 'Chỉnh sửa hồ sơ cây' : editGardenId ? 'Cập nhật khu vườn' : addPlant ? 'Thêm cây trồng' : 'Tạo khu vườn mới';
   const selectedProfile = catalog.find((plant) => plant.id === selected);
   const matchingCatalog = plantQuery.trim()
     ? catalog.filter((plant) => `${plant.name} ${plant.scientificName}`.toLocaleLowerCase().includes(plantQuery.trim().toLocaleLowerCase()))
     : [];
   const filteredCatalog = matchingCatalog.slice(0, 20);
+  const filteredProvinces = provinceQuery.trim()
+    ? provinces.filter((item) => item.name.toLocaleLowerCase().includes(provinceQuery.trim().toLocaleLowerCase()) || item.center.toLocaleLowerCase().includes(provinceQuery.trim().toLocaleLowerCase()))
+    : provinces;
+
+  useEffect(() => {
+    if (addPlant) return;
+    let active = true;
+    void fetchWeatherProvinces().then((rows) => {
+      if (active) setProvinces(rows);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [addPlant]);
 
   useEffect(() => {
     if (initialCatalogPlant && (!name || name === initialCatalogPlant.name)) setName(initialCatalogPlant.name);
@@ -76,10 +189,54 @@ function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
       setGardenId(editingPlant.gardenId ?? '');
     }
   }, [editingPlant]);
+  useEffect(() => {
+    if (editingGarden) {
+      setName(editingGarden.name);
+      setPlace(editingGarden.locationDetail);
+      setGardenType(editingGarden.locationType);
+      setDescription(editingGarden.description);
+      setLocationMode(editingGarden.locationSource ?? 'none');
+      setProvinceCode(editingGarden.provinceCode ?? '');
+      setGpsCoords(editingGarden.locationSource === 'gps' && editingGarden.latitude != null && editingGarden.longitude != null
+        ? { latitude: editingGarden.latitude, longitude: editingGarden.longitude }
+        : null);
+    }
+  }, [editingGarden]);
+
+  const pickCurrentGps = async () => {
+    setLocationError('');
+    setLocating(true);
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') {
+        setLocationError('Ứng dụng chưa được cấp quyền vị trí. Bạn vẫn có thể chọn Tỉnh/Thành phố.');
+        return;
+      }
+      let pos = await Location.getLastKnownPositionAsync({ maxAge: 300000 });
+      if (!pos) {
+        pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      }
+      setGpsCoords({
+        latitude: Math.round(pos.coords.latitude * 1000) / 1000,
+        longitude: Math.round(pos.coords.longitude * 1000) / 1000,
+      });
+    } catch {
+      setLocationError('Không thể lấy tọa độ GPS. Kiểm tra dịch vụ vị trí hoặc chọn Tỉnh/Thành phố.');
+    } finally {
+      setLocating(false);
+    }
+  };
 
   const submit = async () => {
     setRequestError('');
-    const invalid = (addPlant ? !selectedProfile || !name.trim() : !name.trim()) || Boolean(editId && !editingPlant);
+    const missingLocation = !addPlant && (
+      (locationMode === 'province' && !provinceCode)
+      || (locationMode === 'gps' && !gpsCoords)
+    );
+    const invalid = (addPlant ? !selectedProfile || !name.trim() : !name.trim())
+      || Boolean(editId && !editingPlant)
+      || Boolean(editGardenId && !editingGarden)
+      || missingLocation;
     setError(invalid);
     if (invalid) return;
     try {
@@ -100,7 +257,22 @@ function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
         else router.replace('/plants' as never);
         return;
       }
-      await addGarden({ name: name.trim(), locationType: gardenType, locationDetail: place.trim(), description: description.trim() });
+      const gardenPayload = {
+        name: name.trim(),
+        locationType: gardenType,
+        locationDetail: place.trim(),
+        description: description.trim(),
+        locationSource: locationMode === 'none' ? null : locationMode,
+        provinceCode: locationMode === 'province' ? provinceCode : null,
+        latitude: locationMode === 'gps' ? gpsCoords?.latitude ?? null : null,
+        longitude: locationMode === 'gps' ? gpsCoords?.longitude ?? null : null,
+      };
+      if (editGardenId) {
+        await updateGarden(editGardenId, gardenPayload);
+        router.replace({ pathname: '/garden-detail', params: { gardenId: editGardenId } } as never);
+        return;
+      }
+      await addGarden(gardenPayload);
       await refresh();
       router.replace('/gardens' as never);
     } catch (submitError) {
@@ -108,8 +280,39 @@ function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
     }
   };
   return <SafeAreaView style={g.safe} edges={['top']}><GardenHeader title={title}/><ScrollView contentContainerStyle={g.content}>
-    <View style={g.tip}><Text style={g.sectionTitle}>{editId ? 'Cập nhật nơi trồng và thông tin cây' : addPlant ? 'Thêm cây vào khu vườn' : 'Thiết lập không gian xanh'}</Text><Text style={g.body}>{editId ? 'Cây đã chọn được giữ nguyên. Cập nhật khu vườn, vị trí hoặc ghi chú bên dưới.' : addPlant ? 'Tìm một loại cây trong thư viện, sau đó chọn vườn và vị trí trồng.' : 'Tạo khu vườn để quản lý cây và lịch chăm sóc.'}</Text></View>
-    {!addPlant ? <><Text style={g.label}>Tên khu vườn <Text style={g.required}>*</Text></Text><TextInput value={name} onChangeText={setName} placeholder="Ví dụ: Ban công tầng 3" style={[g.input, error && !name.trim() && g.inputError]}/><Text style={g.label}>Vị trí / khu vực</Text><TextInput value={place} onChangeText={setPlace} placeholder="Ban công, sân thượng..." style={g.input}/><Text style={g.label}>Loại không gian</Text><View style={g.choices}>{[['balcony', 'Ban công'], ['rooftop', 'Sân thượng'], ['garden', 'Sân vườn'], ['indoor', 'Trong nhà'], ['greenhouse', 'Nhà kính'], ['other', 'Khác']].map(([value, label]) => <Pressable key={value} onPress={() => setGardenType(value)} style={[g.choice, gardenType === value && g.choiceActive]}><Text style={g.body}>{label}</Text></Pressable>)}</View><Text style={g.label}>Mô tả (không bắt buộc)</Text><TextInput value={description} onChangeText={setDescription} placeholder="Thêm ghi chú cho khu vườn..." style={[g.input, g.multiline]} multiline/></> : <>
+    <View style={g.tip}><Text style={g.sectionTitle}>{editId ? 'Cập nhật nơi trồng và thông tin cây' : editGardenId ? 'Cập nhật khu vườn & vị trí' : addPlant ? 'Thêm cây vào khu vườn' : 'Thiết lập không gian xanh'}</Text><Text style={g.body}>{editId ? 'Cây đã chọn được giữ nguyên. Cập nhật khu vườn, vị trí hoặc ghi chú bên dưới.' : addPlant ? 'Tìm một loại cây trong thư viện, sau đó chọn vườn và vị trí trồng.' : 'Tạo khu vườn để quản lý cây, lịch chăm sóc và theo dõi thời tiết ngoài trời.'}</Text></View>
+    {!addPlant ? <><Text style={g.label}>Tên khu vườn <Text style={g.required}>*</Text></Text><TextInput value={name} onChangeText={setName} placeholder="Ví dụ: Ban công tầng 3" style={[g.input, error && !name.trim() && g.inputError]}/><Text style={g.label}>Vị trí / khu vực</Text><TextInput value={place} onChangeText={setPlace} placeholder="Ban công, sân thượng..." style={g.input}/><Text style={g.label}>Loại không gian</Text><View style={g.choices}>{[['balcony', 'Ban công'], ['rooftop', 'Sân thượng'], ['garden', 'Sân vườn'], ['indoor', 'Trong nhà'], ['greenhouse', 'Nhà kính'], ['other', 'Khác']].map(([value, label]) => <Pressable key={value} onPress={() => setGardenType(value)} style={[g.choice, gardenType === value && g.choiceActive]}><Text style={g.body}>{label}</Text></Pressable>)}</View>
+    <Text style={g.label}>Vị trí thời tiết (OpenWeatherMap)</Text>
+    <View style={g.choices}>
+      {[['none', 'Chưa chọn'], ['province', 'Chọn Tỉnh/Thành'], ['gps', 'Dùng GPS hiện tại']].map(([mode, label]) => (
+        <Pressable key={mode} onPress={() => { setLocationMode(mode as 'none' | 'province' | 'gps'); setLocationError(''); }} style={[g.choice, locationMode === mode && g.choiceActive]}>
+          <Text style={g.body}>{label}</Text>
+        </Pressable>
+      ))}
+    </View>
+    {locationMode === 'province' ? (
+      <View style={g.card}>
+        <TextInput value={provinceQuery} onChangeText={setProvinceQuery} placeholder="Tìm tỉnh/thành phố..." style={g.input}/>
+        <View style={g.choices}>
+          {filteredProvinces.slice(0, 18).map((item) => (
+            <Pressable key={item.code} onPress={() => setProvinceCode(item.code)} style={[g.choice, provinceCode === item.code && g.choiceActive]}>
+              <Text style={g.body}>{item.name}</Text>
+            </Pressable>
+          ))}
+        </View>
+        {provinceCode ? <Text style={g.note}>Đã chọn: {provinces.find((p) => p.code === provinceCode)?.name ?? provinceCode}</Text> : null}
+        {error && !provinceCode ? <Text style={g.error}>Vui lòng chọn một tỉnh/thành phố.</Text> : null}
+      </View>
+    ) : null}
+    {locationMode === 'gps' ? (
+      <View style={g.card}>
+        <ActionButton secondary label={locating ? 'Đang lấy tọa độ GPS…' : gpsCoords ? 'Cập nhật lại tọa độ GPS' : 'Lấy tọa độ hiện tại'} onPress={() => { if (!locating) void pickCurrentGps(); }}/>
+        {gpsCoords ? <Text style={g.note}>Tọa độ đã lưu (làm tròn ~110m): {gpsCoords.latitude.toFixed(3)}, {gpsCoords.longitude.toFixed(3)}</Text> : null}
+        {locationError ? <Text style={g.error}>{locationError}</Text> : null}
+        {error && !gpsCoords ? <Text style={g.error}>Hãy nhấn lấy tọa độ GPS hoặc chuyển sang chọn Tỉnh/Thành.</Text> : null}
+      </View>
+    ) : null}
+    <Text style={g.label}>Mô tả (không bắt buộc)</Text><TextInput value={description} onChangeText={setDescription} placeholder="Thêm ghi chú cho khu vườn..." style={[g.input, g.multiline]} multiline/></> : <>
       {!editId ? <>
         <Text style={g.label}>1. Chọn loại cây</Text>
         {selectedProfile ? <View style={[g.plantCard, g.selectedPlant]}><PlantArtwork category={selectedProfile.category} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{selectedProfile.name}</Text><Text style={g.body}>{selectedProfile.scientificName} • {selectedProfile.category}</Text></View><Text style={g.link}>Đã chọn</Text></View> : null}
@@ -124,7 +327,7 @@ function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
       </>}
     {error ? <Text style={g.error}>{editId && !editingPlant ? 'Không tìm thấy hồ sơ cây trong phiên hiện tại.' : 'Vui lòng nhập đầy đủ thông tin bắt buộc.'}</Text> : null}
     {requestError ? <Text style={g.error}>{requestError}</Text> : null}
-    <ActionButton label={editId ? 'Lưu thay đổi' : addPlant ? 'Thêm cây vào danh sách' : 'Tạo khu vườn'} onPress={() => void submit()}/><Text style={g.note}>{addPlant ? 'Cây và ghi chú sẽ được lưu vào tài khoản của bạn.' : 'Vườn sẽ được lưu vào tài khoản của bạn.'}</Text>
+    <ActionButton label={editId || editGardenId ? 'Lưu thay đổi' : addPlant ? 'Thêm cây vào danh sách' : 'Tạo khu vườn'} onPress={() => void submit()}/><Text style={g.note}>{addPlant ? 'Cây và ghi chú sẽ được lưu vào tài khoản của bạn.' : 'Vườn sẽ được lưu vào tài khoản của bạn.'}</Text>
   </ScrollView></SafeAreaView>;
 }
 
@@ -135,4 +338,9 @@ const g = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.background }, header: { height: 52, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, back: { width: 34 }, backText: { color: C.forest, fontSize: 29 }, headerTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 }, profile: { width: 29, height: 29, borderRadius: 15, overflow: 'hidden', backgroundColor: C.forest, color: C.surface, textAlign: 'center', textAlignVertical: 'center', fontFamily: F.bold }, deleteLink: { color: '#A12D24', fontFamily: F.semiBold, fontSize: 10 },
   content: { padding: 13, gap: 9, paddingBottom: 24 }, hero: { height: 180, borderRadius: 15, backgroundColor: '#DCEDE0', alignItems: 'center', justifyContent: 'center' }, heroPlant: { color: '#508664', fontSize: 64 }, heroLabel: { color: C.forest, fontFamily: F.bold, fontSize: 10, letterSpacing: 1 }, title: { color: C.forest, fontFamily: F.bold, fontSize: 19 }, body: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11, lineHeight: 17 }, metrics: { flexDirection: 'row', gap: 7 }, metric: { flex: 1, padding: 9, borderRadius: 11, backgroundColor: C.surface }, metricValue: { color: C.forest, fontFamily: F.bold, fontSize: 15 }, card: { padding: 11, borderRadius: 14, backgroundColor: C.surface, gap: 8 }, sectionTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 }, row: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'space-between' }, link: { color: C.primary, fontFamily: F.semiBold, fontSize: 11 }, icon: { color: C.forest, fontSize: 16 }, time: { color: C.primary, fontFamily: F.semiBold, fontSize: 10 }, plantCard: { minHeight: 66, padding: 8, borderRadius: 12, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 9 }, selectedPlant: { borderWidth: 1, borderColor: C.primary, backgroundColor: '#E5F4E9' }, plantImage: { width: 46, height: 46, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: C.softSurface }, plantEmoji: { fontSize: 22 }, plantCopy: { flex: 1 }, plantName: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 }, action: { minHeight: 44, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, actionText: { color: C.surface, fontFamily: F.semiBold, fontSize: 12 }, actionSecondary: { backgroundColor: C.softSurface }, actionTextSecondary: { color: C.forest }, note: { color: C.mutedText, fontFamily: F.regular, fontSize: 9, textAlign: 'center' },
   tip: { padding: 12, borderRadius: 12, backgroundColor: C.softSurface, gap: 4 }, label: { color: C.text, fontFamily: F.semiBold, fontSize: 12, marginTop: 4 }, required: { color: C.terracotta }, input: { minHeight: 44, paddingHorizontal: 12, borderRadius: 9, backgroundColor: C.surface, color: C.text, fontFamily: F.regular, fontSize: 12 }, inputError: { borderWidth: 1, borderColor: '#C62828' }, multiline: { height: 80, textAlignVertical: 'top', paddingTop: 10 }, choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, choice: { paddingHorizontal: 10, paddingVertical: 9, borderRadius: 9, backgroundColor: C.surface }, choiceActive: { borderWidth: 1, borderColor: C.primary, backgroundColor: '#E0F2E6' }, heroSmall: { height: 100, borderRadius: 12, backgroundColor: '#E0EEE3', alignItems: 'center', justifyContent: 'center' }, error: { color: '#B42318', fontFamily: F.regular, fontSize: 11 },
+  weatherTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  weatherTemp: { color: C.forest, fontFamily: F.bold, fontSize: 28 },
+  alertBox: { padding: 10, borderRadius: 10, backgroundColor: C.peach, gap: 4 },
+  alertTitle: { color: C.terracotta, fontFamily: F.bold, fontSize: 11 },
+  alertText: { color: C.terracotta, fontFamily: F.regular, fontSize: 11, lineHeight: 16 },
 });

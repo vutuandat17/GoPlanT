@@ -39,6 +39,12 @@
         {
           "photosPermission": "Cho phép GoPlant truy cập ảnh để cập nhật ảnh cây trồng."
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Cho phép GoPlant lấy vị trí hiện tại để cập nhật thời tiết cho khu vườn của bạn."
+        }
       ]
     ],
     "experiments": {

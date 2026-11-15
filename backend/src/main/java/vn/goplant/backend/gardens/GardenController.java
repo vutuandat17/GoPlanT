@@ -6,12 +6,15 @@ import java.util.List;
 import java.util.UUID;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -28,6 +31,7 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.annotation.Transactional;
 import vn.goplant.backend.care.CareScheduleService;
 import vn.goplant.backend.config.PageResponse;
+import vn.goplant.backend.weather.VietnamProvinces;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -36,21 +40,55 @@ public class GardenController {
     private final CareScheduleService care;
     public GardenController(JdbcTemplate jdbc, CareScheduleService care) { this.jdbc = jdbc; this.care = care; }
 
+    private static final String GARDEN_COLUMNS =
+            "id,name,location_type,location_detail,description,province_code,latitude,longitude,location_source,created_at,updated_at";
+
+    private static final RowMapper<Garden> GARDEN_MAPPER = (rs, row) -> {
+        String provinceCode = rs.getString("province_code");
+        Object latitude = rs.getObject("latitude");
+        Object longitude = rs.getObject("longitude");
+        return new Garden(rs.getObject("id", UUID.class), rs.getString("name"), rs.getString("location_type"),
+                rs.getString("location_detail"), rs.getString("description"), provinceCode,
+                VietnamProvinces.find(provinceCode).map(VietnamProvinces.Province::name).orElse(null),
+                latitude instanceof Number n ? n.doubleValue() : null,
+                longitude instanceof Number n ? n.doubleValue() : null,
+                rs.getString("location_source"),
+                rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant());
+    };
+
     @GetMapping("/gardens")
     public List<Garden> gardens(@AuthenticationPrincipal Jwt jwt) {
         UUID owner = owner(jwt);
-        return jdbc.query("SELECT id,name,location_type,location_detail,description,created_at,updated_at FROM gardens WHERE owner_user_id=? ORDER BY created_at DESC",
-                (rs, row) -> new Garden(rs.getObject("id", UUID.class), rs.getString("name"), rs.getString("location_type"), rs.getString("location_detail"), rs.getString("description"), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()), owner);
+        return jdbc.query("SELECT " + GARDEN_COLUMNS + " FROM gardens WHERE owner_user_id=? ORDER BY created_at DESC", GARDEN_MAPPER, owner);
     }
 
     @PostMapping("/gardens")
     @ResponseStatus(HttpStatus.CREATED)
     public Garden createGarden(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody GardenRequest request) {
         UUID id = UUID.randomUUID(); UUID owner = owner(jwt);
-        jdbc.update("INSERT INTO gardens(id,owner_user_id,name,location_type,location_detail,description) VALUES (?,?,?,?,?,?)",
-                id, owner, request.name().trim(), request.locationType(), blankToNull(request.locationDetail()), blankToNull(request.description()));
-        return jdbc.queryForObject("SELECT id,name,location_type,location_detail,description,created_at,updated_at FROM gardens WHERE id=?",
-                (rs, row) -> new Garden(rs.getObject("id", UUID.class), rs.getString("name"), rs.getString("location_type"), rs.getString("location_detail"), rs.getString("description"), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()), id);
+        GardenLocation location = GardenLocation.resolve(request);
+        jdbc.update("""
+                INSERT INTO gardens(id,owner_user_id,name,location_type,location_detail,description,province_code,latitude,longitude,location_source)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                id, owner, request.name().trim(), request.locationType(), blankToNull(request.locationDetail()), blankToNull(request.description()),
+                location.provinceCode(), location.latitude(), location.longitude(), location.source());
+        return jdbc.queryForObject("SELECT " + GARDEN_COLUMNS + " FROM gardens WHERE id=?", GARDEN_MAPPER, id);
+    }
+
+    @PutMapping("/gardens/{id}")
+    public Garden updateGarden(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id, @Valid @RequestBody GardenRequest request) {
+        UUID owner = owner(jwt);
+        GardenLocation location = GardenLocation.resolve(request);
+        int changed = jdbc.update("""
+                UPDATE gardens SET name=?,location_type=?,location_detail=?,description=?,province_code=?,latitude=?,longitude=?,
+                    location_source=?,updated_at=now()
+                WHERE id=? AND owner_user_id=?
+                """,
+                request.name().trim(), request.locationType(), blankToNull(request.locationDetail()), blankToNull(request.description()),
+                location.provinceCode(), location.latitude(), location.longitude(), location.source(), id, owner);
+        if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        return jdbc.queryForObject("SELECT " + GARDEN_COLUMNS + " FROM gardens WHERE id=? AND owner_user_id=?", GARDEN_MAPPER, id, owner);
     }
 
     @DeleteMapping("/gardens/{id}")
@@ -168,10 +206,48 @@ public class GardenController {
     private UUID owner(Jwt jwt) { return UUID.fromString(jwt.getSubject()); }
     private String blankToNull(String value) { return value == null || value.isBlank() ? null : value.trim(); }
 
-    public record Garden(UUID id, String name, String locationType, String locationDetail, String description, Instant createdAt, Instant updatedAt) {}
+    public record Garden(UUID id, String name, String locationType, String locationDetail, String description,
+                         String provinceCode, String provinceName, Double latitude, Double longitude, String locationSource,
+                         Instant createdAt, Instant updatedAt) {}
     public record GardenRequest(@NotBlank @Size(max=160) String name,
                                 @NotNull @Pattern(regexp="balcony|rooftop|garden|indoor|greenhouse|other") String locationType,
-                                @Size(max=240) String locationDetail, String description) {}
+                                @Size(max=240) String locationDetail, String description,
+                                @Pattern(regexp="province|gps") String locationSource,
+                                @Size(max=40) String provinceCode,
+                                @DecimalMin("-90") @DecimalMax("90") Double latitude,
+                                @DecimalMin("-180") @DecimalMax("180") Double longitude) {}
+
+    /** Location stored on a garden; coordinates are what the weather lookup uses. */
+    record GardenLocation(String source, String provinceCode, Double latitude, Double longitude) {
+        static final GardenLocation NONE = new GardenLocation(null, null, null, null);
+
+        static GardenLocation resolve(GardenRequest request) {
+            String source = request.locationSource();
+            String provinceCode = request.provinceCode() == null || request.provinceCode().isBlank() ? null : request.provinceCode().trim();
+            if (source == null) {
+                if (provinceCode != null) source = "province";
+                else if (request.latitude() != null || request.longitude() != null) source = "gps";
+                else return NONE;
+            }
+            if (provinceCode != null && VietnamProvinces.find(provinceCode).isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tỉnh/thành phố không hợp lệ.");
+            }
+            if ("province".equals(source)) {
+                if (provinceCode == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Hãy chọn tỉnh/thành phố cho khu vườn.");
+                VietnamProvinces.Province province = VietnamProvinces.find(provinceCode).orElseThrow();
+                return new GardenLocation("province", provinceCode, province.latitude(), province.longitude());
+            }
+            if (request.latitude() == null || request.longitude() == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Thiếu tọa độ GPS của khu vườn.");
+            }
+            // ~110 m precision is enough for weather and avoids storing an exact home position.
+            return new GardenLocation("gps", provinceCode, round3(request.latitude()), round3(request.longitude()));
+        }
+
+        private static double round3(double value) {
+            return Math.round(value * 1000d) / 1000d;
+        }
+    }
     public record OwnedPlant(UUID id, UUID catalogId, UUID gardenId, String displayName, String commonName, String scientificName,
                              String specificLocation, java.time.LocalDate plantedOn, String note, Instant addedAt, Instant photoUpdatedAt) {}
     public record OwnedPlantRequest(@NotNull UUID catalogId, UUID gardenId, @NotBlank @Size(max=200) String displayName,

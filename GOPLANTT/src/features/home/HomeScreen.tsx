@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
 import { router } from 'expo-router';
 
@@ -7,7 +7,7 @@ import { useAuthSession } from '@/features/auth/AuthSession';
 import { TabScreenTransition } from '@/components/tab-screen-transition';
 import { usePlantData } from '@/features/plants/PlantDataStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
-import { apiBaseUrl } from '@/services/api';
+import { apiBaseUrl, fetchGardenWeather, type ApiGardenWeather } from '@/services/api';
 import { matchesPlantFilters } from '@/features/plants/plantFilters';
 import { CARE_TASK_META, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 
@@ -29,6 +29,40 @@ export default function HomeScreen() {
   const [category, setCategory] = useState(categories[0]);
   const [query, setQuery] = useState('');
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const locatedGardens = gardens.filter((g) => Boolean(g.locationSource) || (g.latitude != null && g.longitude != null));
+  const [selectedWeatherGardenId, setSelectedWeatherGardenId] = useState<string | null>(null);
+  const weatherGarden = locatedGardens.find((g) => g.id === selectedWeatherGardenId) ?? locatedGardens[0] ?? null;
+  const [weather, setWeather] = useState<ApiGardenWeather | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+
+  useEffect(() => {
+    if (!accessToken || !weatherGarden) {
+      setWeather(null);
+      return;
+    }
+    let active = true;
+    setWeatherLoading(true);
+    void fetchGardenWeather(weatherGarden.id, accessToken)
+      .then((data) => {
+        if (active) setWeather(data);
+      })
+      .catch(() => {
+        if (active) setWeather(null);
+      })
+      .finally(() => {
+        if (active) setWeatherLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [accessToken, weatherGarden?.id]);
+
+  const cycleWeatherGarden = () => {
+    if (locatedGardens.length <= 1 || !weatherGarden) return;
+    const idx = locatedGardens.findIndex((g) => g.id === weatherGarden.id);
+    const next = locatedGardens[(idx + 1) % locatedGardens.length];
+    setSelectedWeatherGardenId(next.id);
+  };
 
   const pendingTodayTasks = todayTasks.filter((t) => t.status === 'pending');
   const nextTask = pendingTodayTasks[0];
@@ -57,14 +91,60 @@ export default function HomeScreen() {
           <View style={styles.sunBadge}><Text style={styles.sun}>☼</Text></View>
         </View>
 
-        <View style={styles.weatherCard}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            if (weatherGarden) {
+              router.push({ pathname: '/garden-detail', params: { gardenId: weatherGarden.id } } as never);
+            } else if (gardens.length > 0) {
+              router.push({ pathname: '/garden/create', params: { editGardenId: gardens[0].id } } as never);
+            } else {
+              navigate(accessToken ? '/garden/create' : '/auth/login');
+            }
+          }}
+          style={styles.weatherCard}>
           <View style={[styles.roundIcon, { backgroundColor: '#E1F3E8' }]}><Text>☼</Text></View>
           <View style={styles.flexCopy}>
-            <Text style={styles.cardTitle}>Thông tin thời tiết</Text>
-            <Text style={styles.bodyText}>Chưa có dữ liệu thời tiết cho khu vườn.</Text>
+            <Text style={styles.cardTitle} numberOfLines={1}>
+              {weatherGarden ? `Thời tiết · ${weatherGarden.name}` : 'Thông tin thời tiết'}
+            </Text>
+            <Text style={styles.bodyText} numberOfLines={2}>
+              {weatherGarden
+                ? weatherLoading && !weather
+                  ? 'Đang cập nhật thời tiết...'
+                  : weather && weather.temperatureC != null
+                    ? `${weather.conditionDescription || weather.conditionMain || 'Ngoài trời'}${weather.humidityPct != null ? ` · Độ ẩm ${weather.humidityPct}%` : ''}${weather.plantAlerts.length > 0 ? ` · ⚠ ${weather.plantAlerts.length} cây cần chú ý` : ''}`
+                    : 'Chưa lấy được dữ liệu thời tiết.'
+                : gardens.length > 0
+                  ? 'Chưa thiết lập vị trí cho khu vườn.'
+                  : 'Tạo khu vườn kèm vị trí để xem thời tiết.'}
+            </Text>
           </View>
-          <Text style={styles.lightPill}>Chưa có dữ liệu</Text>
-        </View>
+          <View style={styles.weatherActions}>
+            <Text style={styles.lightPill}>
+              {weatherGarden && weather?.temperatureC != null
+                ? `${Math.round(weather.temperatureC)}°C`
+                : gardens.length > 0 && !weatherGarden
+                  ? 'Thiết lập'
+                  : !weatherGarden
+                    ? 'Tạo vườn'
+                    : weatherLoading
+                      ? '...'
+                      : 'Xem'}
+            </Text>
+            {locatedGardens.length > 1 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Đổi khu vườn xem thời tiết"
+                onPress={(e) => {
+                  e.stopPropagation?.();
+                  cycleWeatherGarden();
+                }}>
+                <Text style={styles.switchGardenText}>Đổi vườn ↻</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </Pressable>
 
         {nextTask && nextTaskMeta ? (
           <Pressable
@@ -197,6 +277,8 @@ const styles = StyleSheet.create({
   secondary: { color: C.secondaryText, fontFamily: F.regular },
   bodyText: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12, lineHeight: 18 },
   lightPill: { overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 99, backgroundColor: C.surface, color: C.forest, fontFamily: F.semiBold, fontSize: 12 },
+  weatherActions: { alignItems: 'flex-end', gap: 4 },
+  switchGardenText: { color: C.primary, fontFamily: F.semiBold, fontSize: 10 },
   reminderCard: { minHeight: 76, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: '#F9E6D4', flexDirection: 'row', alignItems: 'center', gap: 8 },
   reminderText: { color: '#8B3D13', fontFamily: F.regular, fontSize: 12, lineHeight: 17 },
   reminderButton: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 99, backgroundColor: '#A94F1B' },
