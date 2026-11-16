@@ -66,21 +66,32 @@ async function tryRefreshAccessToken(): Promise<string | null> {
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   if (!apiBaseUrl) throw new ApiError('Chưa cấu hình EXPO_PUBLIC_API_URL.');
 
-  const performFetch = (token?: string | null) =>
-    fetch(`${apiBaseUrl}${path}`, {
-      method: options.method ?? 'GET',
-      headers: {
-        Accept: 'application/json',
-        ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
-    });
+  const performFetch = async (token?: string | null) => {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 15000) : null;
+    try {
+      return await fetch(`${apiBaseUrl}${path}`, {
+        method: options.method ?? 'GET',
+        headers: {
+          Accept: 'application/json',
+          ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+        ...(controller ? { signal: controller.signal } : {}),
+      });
+    } finally {
+      if (timeoutId !== null) clearTimeout(timeoutId);
+    }
+  };
 
   let response: Response;
   try {
     response = await performFetch(options.token);
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new ApiError('Kết nối máy chủ quá thời gian (15 giây). Kiểm tra backend và địa chỉ API.');
+    }
     throw new ApiError('Không kết nối được máy chủ. Kiểm tra backend và địa chỉ API.');
   }
 
@@ -89,7 +100,10 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     if (newAccessToken) {
       try {
         response = await performFetch(newAccessToken);
-      } catch {
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw new ApiError('Kết nối máy chủ quá thời gian (15 giây). Kiểm tra backend và địa chỉ API.');
+        }
         throw new ApiError('Không kết nối được máy chủ. Kiểm tra backend và địa chỉ API.');
       }
     }
@@ -176,6 +190,13 @@ export function resetPassword(body: { token: string; newPassword: string }) {
   return apiRequest<void>('/api/v1/auth/reset-password', {
     method: 'POST',
     body,
+  });
+}
+
+export function resendVerificationEmail(email: string) {
+  return apiRequest<{ message: string; verificationToken?: string }>('/api/v1/auth/resend-verification', {
+    method: 'POST',
+    body: { email },
   });
 }
 export type PageResponse<T> = {

@@ -38,6 +38,7 @@ goplant:
     allowed-origins: ${GOPLANT_CORS_ALLOWED_ORIGINS:http://localhost:8081,http://localhost:19006}
   auth:
     expose-verification-token: ${GOPLANT_AUTH_EXPOSE_VERIFICATION_TOKEN:false}
+    require-email-verification: ${GOPLANT_AUTH_REQUIRE_EMAIL_VERIFICATION:false}
   email:
     from: ${GOPLANT_EMAIL_FROM:no-reply@goplant.local}
     verification-base-url: ${GOPLANT_PUBLIC_API_URL:}

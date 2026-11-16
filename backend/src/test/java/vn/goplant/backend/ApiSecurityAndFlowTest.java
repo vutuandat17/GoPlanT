@@ -21,6 +21,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -46,6 +47,9 @@ class ApiSecurityAndFlowTest {
 
     @Autowired
     private JwtEncoder jwtEncoder;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     @MockitoBean
     private JdbcTemplate jdbc;
@@ -119,8 +123,8 @@ class ApiSecurityAndFlowTest {
                                 """))
                 .andExpect(status().isBadRequest());
 
-        when(jdbc.queryForObject(contains("SELECT count(*) FROM user_email_addresses"), eq(Integer.class), anyString()))
-                .thenReturn(0);
+        when(jdbc.query(contains("FROM users u"), any(RowMapper.class), anyString()))
+                .thenReturn(List.of());
 
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -130,7 +134,191 @@ class ApiSecurityAndFlowTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.email").value("an@goplant.test"))
                 .andExpect(jsonPath("$.id").isNotEmpty())
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andExpect(jsonPath("$.verificationRequired").value(false));
+    }
+
+    @Test
+    void registerReturnsConflictWithVietnameseMessageForDuplicateEmail() throws Exception {
+        when(jdbc.query(contains("SELECT u.status FROM users u"), any(RowMapper.class), eq("active@goplant.test")))
+                .thenReturn(List.of("active"));
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"displayName":"Nguyen An","email":"active@goplant.test","password":"password123456"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value("Email này đã được đăng ký."));
+
+        when(jdbc.query(contains("SELECT u.status FROM users u"), any(RowMapper.class), eq("pending@goplant.test")))
+                .thenReturn(List.of("pending_verification"));
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"displayName":"Nguyen An","email":"pending@goplant.test","password":"password123456"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value("Email này đã được đăng ký nhưng chưa xác minh. Vui lòng kiểm tra hộp thư hoặc yêu cầu gửi lại email xác minh."));
+    }
+
+    @Test
+    void verifyEmailActivatesPendingAccountAndRejectsInvalidToken() throws Exception {
+        UUID tokenId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID emailId = UUID.randomUUID();
+
+        when(jdbc.query(contains("FROM account_action_tokens t"), any(RowMapper.class), anyString()))
+                .thenReturn(List.of())
+                .thenReturn(List.<Object[]>of(new Object[]{tokenId, userId, emailId}));
+
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"token":"invalid-or-expired-token"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"token":"valid-verification-token-sample"}
+                                """))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void resendVerificationIssuesNewTokenAndEnforcesCooldown() throws Exception {
+        UUID userId = UUID.randomUUID();
+
+        when(jdbc.query(contains("SELECT u.id, u.status FROM users u"), any(RowMapper.class), eq("pending@goplant.test")))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("id", UUID.class)).thenReturn(userId);
+                    when(rs.getString("status")).thenReturn("pending_verification");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+
+        when(jdbc.query(contains("SELECT created_at FROM account_action_tokens"), any(RowMapper.class), eq(userId)))
+                .thenReturn(List.of(java.time.Instant.now().minusSeconds(120)))
+                .thenReturn(List.of(java.time.Instant.now().minusSeconds(10)));
+
+        mockMvc.perform(post("/api/v1/auth/resend-verification")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"pending@goplant.test"}
+                                """))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").isNotEmpty());
+
+        mockMvc.perform(post("/api/v1/auth/resend-verification")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"pending@goplant.test"}
+                                """))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void loginSucceedsWithValidCredentialsAndLocksAfterTooManyFailures() throws Exception {
+        UUID userId = UUID.randomUUID();
+        String encodedPassword = passwordEncoder.encode("correct-password-12");
+
+        when(jdbc.query(contains("SELECT u.id,u.display_name,u.password_hash,u.status"), any(RowMapper.class), eq("login@goplant.test")))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("id", UUID.class)).thenReturn(userId);
+                    when(rs.getString("display_name")).thenReturn("Nguyen An");
+                    when(rs.getString("password_hash")).thenReturn(encodedPassword);
+                    when(rs.getString("status")).thenReturn("active");
+                    when(rs.getString("normalized_email")).thenReturn("login@goplant.test");
+                    when(rs.getString("timezone")).thenReturn("Asia/Ho_Chi_Minh");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+        when(jdbc.query(contains("SELECT r.code FROM roles r JOIN user_roles"), any(RowMapper.class), eq(userId)))
+                .thenReturn(List.of("user"));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"login@goplant.test","password":"correct-password-12"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andExpect(jsonPath("$.user.email").value("login@goplant.test"));
+
+        for (int i = 0; i < 5; i++) {
+            mockMvc.perform(post("/api/v1/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"email":"login@goplant.test","password":"wrong-password-12"}
+                                    """))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"login@goplant.test","password":"correct-password-12"}
+                                """))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void refreshRotatesValidTokenAndRejectsRevokedToken() throws Exception {
+        UUID tokenId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        when(jdbc.query(contains("FROM refresh_tokens rt"), any(RowMapper.class), anyString()))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("id", UUID.class)).thenReturn(tokenId);
+                    when(rs.getObject("user_id", UUID.class)).thenReturn(userId);
+                    when(rs.getTimestamp("expires_at")).thenReturn(java.sql.Timestamp.from(Instant.now().plusSeconds(3600)));
+                    when(rs.getTimestamp("revoked_at")).thenReturn(null);
+                    when(rs.getString("display_name")).thenReturn("Nguyen An");
+                    when(rs.getString("status")).thenReturn("active");
+                    when(rs.getString("timezone")).thenReturn("Asia/Ho_Chi_Minh");
+                    when(rs.getString("normalized_email")).thenReturn("refresh@goplant.test");
+                    return List.of(mapper.mapRow(rs, 0));
+                })
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("id", UUID.class)).thenReturn(tokenId);
+                    when(rs.getObject("user_id", UUID.class)).thenReturn(userId);
+                    when(rs.getTimestamp("expires_at")).thenReturn(java.sql.Timestamp.from(Instant.now().plusSeconds(3600)));
+                    when(rs.getTimestamp("revoked_at")).thenReturn(java.sql.Timestamp.from(Instant.now().minusSeconds(60)));
+                    when(rs.getString("display_name")).thenReturn("Nguyen An");
+                    when(rs.getString("status")).thenReturn("active");
+                    when(rs.getString("timezone")).thenReturn("Asia/Ho_Chi_Minh");
+                    when(rs.getString("normalized_email")).thenReturn("refresh@goplant.test");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+        when(jdbc.query(contains("SELECT r.code FROM roles r JOIN user_roles"), any(RowMapper.class), eq(userId)))
+                .thenReturn(List.of("user"));
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"refreshToken":"valid-refresh-token-value"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andExpect(jsonPath("$.user.email").value("refresh@goplant.test"));
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"refreshToken":"revoked-refresh-token-value"}
+                                """))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

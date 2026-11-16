@@ -34,6 +34,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/health", "/actuator/health", "/actuator/health/**",
                                 "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**",
                                 "/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/verify-email",
+                                "/api/v1/auth/resend-verification",
                                 "/api/v1/auth/refresh", "/api/v1/auth/logout",
                                 "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/catalog/plants/**", "/api/v1/weather/provinces").permitAll()
