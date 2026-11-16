@@ -129,7 +129,7 @@ export function ScheduleListScreen() {
 
   return (
     <SafeAreaView style={sc.safe} edges={['top']}>
-      <Header title="Lập lịch chăm sóc" showCreate />
+      <Header title="Lập lịch chăm sóc" />
       <ScrollView style={sc.scroll} contentContainerStyle={sc.scrollContent} showsVerticalScrollIndicator={false}>
         {/* ── Banner giới thiệu ── */}
         <View style={sc.introBanner}>

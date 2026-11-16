@@ -25,7 +25,7 @@ function SectionTitle({ title, trailing }: { title: string; trailing?: string })
 export default function HomeScreen() {
   const { user, accessToken } = useAuthSession();
   const { catalog, gardens, ownedPlants, isLoading, apiError, filterStates } = usePlantData();
-  const { todayTasks, todaySummary, completeTask } = useCareSchedules();
+  const { schedules, todayTasks, todaySummary, completeTask } = useCareSchedules();
   const [category, setCategory] = useState(categories[0]);
   const [query, setQuery] = useState('');
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
@@ -208,6 +208,29 @@ export default function HomeScreen() {
           </View>
         </Pressable>
 
+        {schedules.length > 0 ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Quản lý lịch chăm sóc của bạn"
+            onPress={() => navigate('/schedule')}
+            style={styles.myScheduleBanner}>
+            <View style={styles.scheduleBannerLeft}>
+              <View style={styles.myScheduleBannerIcon}>
+                <Text style={styles.myScheduleBannerIconGlyph}>✓</Text>
+              </View>
+              <View style={styles.scheduleBannerCopy}>
+                <Text style={styles.scheduleBannerTitle}>Lịch chăm sóc của bạn</Text>
+                <Text style={styles.scheduleBannerSub}>
+                  Đang theo dõi {schedules.length} lịch chăm sóc định kỳ (nhắc nhở tưới nước, bón phân, tỉa cành đúng hạn).
+                </Text>
+              </View>
+            </View>
+            <View style={styles.myScheduleBannerCta}>
+              <Text style={styles.myScheduleBannerCtaText}>Quản lý lịch</Text>
+            </View>
+          </Pressable>
+        ) : null}
+
         <View style={styles.searchBox}>
           <Text style={styles.searchIcon}>⌕</Text>
           <TextInput value={query} onChangeText={setQuery} onSubmitEditing={() => router.push({ pathname: '/search', params: { query } } as never)} placeholder="Tìm kiếm giống cây, sâu bệnh, kỹ thuật..." placeholderTextColor="#7B8580" style={styles.searchInput} returnKeyType="search" />
@@ -226,7 +249,7 @@ export default function HomeScreen() {
           {[
             ['♧', 'Quản lý cây', '#E8EFEB', '/plants'],
             ['▦', 'Quản lý vườn', C.brightMint, '/gardens'],
-            ['▤', 'Nhật ký chăm', C.peach, '/journal'],
+            ['▤', 'Nhật ký', C.peach, '/journal'],
             ['♧', 'Sâu bệnh', '#FAD8D3', '/monitoring'],
           ].map(([icon, label, color, route]) => (
             <Pressable key={label} onPress={() => navigate(route)} style={styles.shortcut}>
@@ -349,4 +372,9 @@ const styles = StyleSheet.create({
   scheduleBannerSub: { color: '#3B6752', fontFamily: F.regular, fontSize: 11, lineHeight: 16 },
   scheduleBannerCta: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: C.primary, marginLeft: 8 },
   scheduleBannerCtaText: { color: '#FFFFFF', fontFamily: F.semiBold, fontSize: 12 },
+  myScheduleBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14, borderRadius: 14, backgroundColor: C.surface, borderWidth: 1, borderColor: '#CBE3D3' },
+  myScheduleBannerIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#E1F3E8', alignItems: 'center', justifyContent: 'center' },
+  myScheduleBannerIconGlyph: { color: C.forest, fontFamily: F.bold, fontSize: 20, lineHeight: 24 },
+  myScheduleBannerCta: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: C.softSurface, borderWidth: 1, borderColor: '#CBE3D3', marginLeft: 8 },
+  myScheduleBannerCtaText: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 },
 });
