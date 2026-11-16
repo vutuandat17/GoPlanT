@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as Location from 'expo-location';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -111,16 +111,11 @@ export function GardenDetailScreen() {
             ) : null}
           </>
         ) : null}
-        {garden.locationSource ? (
-          <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/garden/create', params: { editGardenId: garden.id } } as never)}>
-            <Text style={g.link}>Đổi vị trí khu vườn</Text>
-          </Pressable>
-        ) : null}
       </View>
       <View style={g.row}><Text style={g.sectionTitle}>Cây đang trồng ({plants.length})</Text><Pressable onPress={() => router.push({ pathname: '/garden/add-plant', params: { gardenId: garden.id } } as never)}><Text style={g.link}>＋ Thêm cây</Text></Pressable></View>
       {plants.map((plant) => <View key={plant.id} style={g.plantCard}><PlantArtwork category={catalog.find((item) => item.id === plant.catalogId)?.category ?? 'Cây trồng'} accessToken={accessToken} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{plant.name}</Text><Text style={g.body}>{plant.scientificName} • {plant.location || 'Chưa có vị trí cụ thể'}</Text></View><Pressable accessibilityRole="button" accessibilityLabel={`Xem chi tiết ${plant.name}`} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id } } as never)}><Text style={g.link}>›</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel={`Xóa ${plant.name} khỏi vườn`} onPress={() => Alert.alert('Xóa cây', `Xóa hồ sơ “${plant.name}” khỏi tài khoản?`, [{ text: 'Hủy', style: 'cancel' }, { text: 'Xóa cây', style: 'destructive', onPress: () => void removePlant(plant.id).catch((error) => Alert.alert('Không thể xóa cây', error instanceof Error ? error.message : 'Vui lòng thử lại.')) }])}><Text style={g.deleteLink}>Xóa</Text></Pressable></View>)}
       {plants.length === 0 ? <Text style={g.note}>Khu vườn chưa có cây.</Text> : null}
-      <ActionButton label="Thêm cây vào khu vườn" onPress={() => router.push('/garden/add-plant' as never)}/>
+      <ActionButton label="Chỉnh sửa thông tin vườn" onPress={() => router.push({ pathname: '/garden/create', params: { editGardenId: garden.id } } as never)}/>
       <ActionButton secondary label="Xóa khu vườn" onPress={() => Alert.alert('Xóa khu vườn', 'Cây trong vườn sẽ được giữ lại và chuyển sang trạng thái chưa phân vườn.', [{ text: 'Hủy', style: 'cancel' }, { text: 'Xóa vườn', style: 'destructive', onPress: () => void removeGarden(garden.id).then(() => router.replace('/gardens' as never)).catch((error) => Alert.alert('Không thể xóa vườn', error instanceof Error ? error.message : 'Vui lòng thử lại.')) }])}/>
     </>}
   </ScrollView></SafeAreaView>;
@@ -157,6 +152,16 @@ function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
   );
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState('');
+  const [suggestionsExpanded, setSuggestionsExpanded] = useState(true);
+  const suggestedCatalog = useMemo(() => {
+    if (!addPlant || editId || catalog.length === 0) return [];
+    const copy = [...catalog];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy.slice(0, 5);
+  }, [addPlant, editId, catalog]);
   const title = editId ? 'Chỉnh sửa hồ sơ cây' : editGardenId ? 'Cập nhật khu vườn' : addPlant ? 'Thêm cây trồng' : 'Tạo khu vườn mới';
   const selectedProfile = catalog.find((plant) => plant.id === selected);
   const matchingCatalog = plantQuery.trim()
@@ -325,6 +330,48 @@ function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
       </> : selectedProfile ? <View style={g.plantCard}><PlantArtwork category={selectedProfile.category} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{selectedProfile.name}</Text><Text style={g.body}>{selectedProfile.scientificName}</Text></View></View> : <Text style={g.note}>Không tìm thấy loại cây của hồ sơ này.</Text>}
       {selectedProfile ? <><Text style={g.label}>Tên hiển thị <Text style={g.required}>*</Text></Text><TextInput value={name} onChangeText={setName} placeholder="Tên cây trong hồ sơ của bạn" style={[g.input, error && !name.trim() && g.inputError]}/><Text style={g.label}>2. Chọn vườn nhận cây</Text><Text style={g.body}>{gardenId ? `Cây sẽ được thêm vào ${gardens.find((garden) => garden.id === gardenId)?.name ?? 'vườn đã chọn'}. Bạn có thể đổi vườn bên dưới.` : 'Chọn nơi trồng hoặc để cây ở trạng thái chưa phân vườn.'}</Text><View style={g.choices}><Pressable onPress={() => setGardenId('')} style={[g.choice, !gardenId && g.choiceActive]}><Text style={g.body}>Chưa phân vườn</Text></Pressable>{gardens.map((garden) => <Pressable key={garden.id} onPress={() => setGardenId(garden.id)} style={[g.choice, gardenId === garden.id && g.choiceActive]}><Text style={g.body}>{garden.name}</Text></Pressable>)}</View>{gardens.length === 0 ? <Text style={g.note}>Bạn chưa tạo vườn. Có thể tiếp tục và phân vườn sau.</Text> : null}<Text style={g.label}>Vị trí cụ thể trong vườn (không bắt buộc)</Text><TextInput value={place} onChangeText={setPlace} placeholder="Ví dụ: Kệ cạnh cửa sổ" style={g.input}/><Text style={g.label}>Ngày trồng / bắt đầu chăm sóc (không bắt buộc)</Text><TextInput value={plantedAt} onChangeText={setPlantedAt} placeholder="dd/mm/yyyy" style={g.input}/><Text style={g.label}>Ghi chú (không bắt buộc)</Text><TextInput value={note} onChangeText={setNote} placeholder="Ghi chú về cây" style={[g.input, g.multiline]} multiline/></> : null}
       </>}
+    {addPlant && !editId && suggestedCatalog.length > 0 ? (
+      <View style={g.suggestSection}>
+        <View style={g.row}>
+          <Text style={g.sectionTitle}>Danh sách cây gợi ý</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={suggestionsExpanded ? 'Thu gọn danh sách cây gợi ý' : 'Mở rộng danh sách cây gợi ý'}
+            onPress={() => setSuggestionsExpanded((prev) => !prev)}
+            style={g.toggleBtn}>
+            <Text style={g.toggleBtnText}>{suggestionsExpanded ? 'Thu gọn ▲' : 'Mở rộng ▼'}</Text>
+          </Pressable>
+        </View>
+        {suggestionsExpanded ? (
+          <View style={g.suggestList}>
+            {suggestedCatalog.map((plant) => {
+              const isSelected = selected === plant.id;
+              return (
+                <View key={plant.id} style={[g.plantCard, isSelected && g.choiceActive]}>
+                  <PlantArtwork category={plant.category} style={g.plantImage} />
+                  <View style={g.plantCopy}>
+                    <Text style={g.plantName}>{plant.name}</Text>
+                    <Text style={g.body}>{plant.scientificName} • {plant.category}</Text>
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Chọn cây ${plant.name}`}
+                    onPress={() => {
+                      setSelected(plant.id);
+                      if (!name.trim() || catalog.some((item) => item.name === name)) setName(plant.name);
+                    }}
+                    style={[g.pickBtn, isSelected && g.pickBtnActive]}>
+                    <Text style={[g.pickBtnText, isSelected && g.pickBtnTextActive]}>
+                      {isSelected ? '✓ Đã chọn' : 'Chọn'}
+                    </Text>
+                  </Pressable>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
+      </View>
+    ) : null}
     {error ? <Text style={g.error}>{editId && !editingPlant ? 'Không tìm thấy hồ sơ cây trong phiên hiện tại.' : 'Vui lòng nhập đầy đủ thông tin bắt buộc.'}</Text> : null}
     {requestError ? <Text style={g.error}>{requestError}</Text> : null}
     <ActionButton label={editId || editGardenId ? 'Lưu thay đổi' : addPlant ? 'Thêm cây vào danh sách' : 'Tạo khu vườn'} onPress={() => void submit()}/><Text style={g.note}>{addPlant ? 'Cây và ghi chú sẽ được lưu vào tài khoản của bạn.' : 'Vườn sẽ được lưu vào tài khoản của bạn.'}</Text>
@@ -343,4 +390,12 @@ const g = StyleSheet.create({
   alertBox: { padding: 10, borderRadius: 10, backgroundColor: C.peach, gap: 4 },
   alertTitle: { color: C.terracotta, fontFamily: F.bold, fontSize: 11 },
   alertText: { color: C.terracotta, fontFamily: F.regular, fontSize: 11, lineHeight: 16 },
+  suggestSection: { gap: 8, marginTop: 4 },
+  toggleBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99, backgroundColor: C.softSurface, borderWidth: 1, borderColor: '#CBE3D3' },
+  toggleBtnText: { color: C.forest, fontFamily: F.semiBold, fontSize: 11 },
+  suggestList: { gap: 8 },
+  pickBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, backgroundColor: C.softSurface, borderWidth: 1, borderColor: '#CBE3D3' },
+  pickBtnActive: { backgroundColor: C.primary, borderColor: C.primary },
+  pickBtnText: { color: C.forest, fontFamily: F.semiBold, fontSize: 11 },
+  pickBtnTextActive: { color: C.surface },
 });
