@@ -7,6 +7,8 @@ import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { BackButton } from '@/components/BackButton';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { useAppPreferences } from '@/features/preferences/AppPreferences';
+import { ensureCareNotificationPermissions } from '@/features/schedule/localNotifications';
+import { useCareSchedules } from '@/features/schedule/CareScheduleStore';
 import { changePassword, forgotPassword } from '@/services/api';
 
 type AccountPage = 'overview' | 'profile' | 'credentials' | 'security' | 'notifications' | 'settings' | 'privacy';
@@ -193,14 +195,31 @@ export function AccountSecurityScreen() {
 }
 
 export function AccountNotificationsScreen() {
-  const [care, setCare] = useState(true); const [plantAlerts, setPlantAlerts] = useState(true); const [updates, setUpdates] = useState(true);
+  const { careNotificationsEnabled, setCareNotificationsEnabled } = useAppPreferences();
+  const { refresh } = useCareSchedules();
+  const [plantAlerts, setPlantAlerts] = useState(true);
+  const [updates, setUpdates] = useState(true);
+
+  const handleToggleCare = async (next: boolean) => {
+    if (next) {
+      const granted = await ensureCareNotificationPermissions();
+      if (!granted) {
+        Alert.alert(
+          'Chưa có quyền thông báo',
+          'Hãy cấp quyền thông báo cho GoPlant trong phần Cài đặt của thiết bị (Android/iOS) để nhận nhắc lịch chăm sóc.',
+        );
+      }
+    }
+    setCareNotificationsEnabled(next);
+  };
+
   return <Page page="notifications">
-    <Card style={s.banner}><Text style={s.bannerTitle}>Tùy chỉnh thông báo</Text><Text style={s.caption}>Thiết lập hiển thị tại thiết bị này; chưa có lịch chăm sóc hay cảnh báo máy chủ.</Text></Card>
-    <Card><ToggleRow title="Nhắc lịch chăm sóc" description="Tưới nước, bón phân và công việc đã tạo trong ứng dụng." value={care} onValueChange={setCare}/><View style={s.divider}/><Text style={s.caption}>Khung giờ ưu tiên có thể cấu hình khi chức năng lịch được kết nối.</Text></Card>
-    <Card><ToggleRow title="Cảnh báo tình trạng cây" description="Thông báo khi có dữ liệu theo dõi cần chú ý." value={plantAlerts} onValueChange={setPlantAlerts}/><View style={s.divider}/><Text style={s.caption}>Cảnh báo tự động chưa hoạt động vì chưa có dữ liệu cảm biến.</Text></Card>
+    <Card style={s.banner}><Text style={s.bannerTitle}>Tùy chỉnh thông báo</Text><Text style={s.caption}>Nhắc nhở cục bộ trên thiết bị được đồng bộ tự động cho các công việc trong 7 ngày tới.</Text></Card>
+    <Card><ToggleRow title="Nhắc lịch chăm sóc" description="Tưới nước, bón phân và công việc đã tạo trong ứng dụng." value={careNotificationsEnabled} onValueChange={(v) => void handleToggleCare(v)}/><View style={s.divider}/><Text style={s.caption}>Khung giờ nhắc tuân theo giờ bạn đã chọn trên từng lịch chăm sóc.</Text></Card>
+    <Card><ToggleRow title="Cảnh báo tình trạng cây" description="Thông báo khi có dữ liệu theo dõi cần chú ý." value={plantAlerts} onValueChange={setPlantAlerts}/><View style={s.divider}/><Text style={s.caption}>Cảnh báo nhiệt độ và sức khỏe được hiển thị trong tab Theo dõi & Chi tiết vườn.</Text></Card>
     <Card><ToggleRow title="Thông báo cập nhật ứng dụng" description="Thông tin về phiên bản và nội dung mới." value={updates} onValueChange={setUpdates}/></Card>
     <Card style={s.infoCard}><Text style={s.caption}>Quyền thông báo của Android được quản lý trong phần Cài đặt hệ thống.</Text></Card>
-    <ActionButton label="Lưu cài đặt thông báo" onPress={() => Alert.alert('Không thể lưu', 'Cài đặt thông báo chưa được hỗ trợ trên máy chủ.')}/>
+    <ActionButton label="Đồng bộ & Lưu cài đặt" onPress={() => { void refresh(); Alert.alert('Đã lưu cài đặt', careNotificationsEnabled ? 'Đã bật và đồng bộ nhắc lịch chăm sóc trên thiết bị này.' : 'Đã tắt nhắc lịch chăm sóc trên thiết bị này.'); }}/>
   </Page>;
 }
 

@@ -13,7 +13,7 @@ import { JOURNAL_HEALTH_META, JOURNAL_LOG_TYPE_META, useJournals } from '@/featu
 import { MonitoringDashboard } from '@/features/monitoring/MonitoringDashboard';
 import { formatDateVi } from '@/features/schedule/CareScheduleStore';
 
-type PageKind = 'gardens' | 'plants' | 'journal' | 'schedule' | 'monitoring';
+type PageKind = 'gardens' | 'plants' | 'journal' | 'monitoring';
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return <View style={s.section}><View style={s.sectionHeading}><Text style={s.sectionTitle}>{title}</Text>{hint ? <Text style={s.hint}>{hint}</Text> : null}</View>{children}</View>;
@@ -145,25 +145,13 @@ function EmptyPage({ kind }: { kind: PageKind }) {
       <View style={s.recommend}><Text style={s.cardTitle}>Mẹo ghi nhật ký</Text><Text style={s.body}>Ghi lại việc chăm sóc thường xuyên để dễ theo dõi thay đổi theo thời gian.</Text></View>
     </>;
   }
-  if (kind === 'monitoring') {
-    return (
-      <MonitoringDashboard
-        filteredGardens={filteredGardens}
-        pageFilters={pageFilters}
-        onOpenFilter={() => openFilter('monitoring')}
-      />
-    );
-  }
-  return <>
-    <View style={s.managementActions}><Action label="Lọc khu vườn chăm sóc" muted onPress={() => openFilter('schedule')} /></View>
-    <Section title="Khu vườn của bạn" hint={`${filteredGardens.length} / ${gardens.length} khu vực`}>
-      {filteredGardens.length === 0 ? <EmptyCard icon="⌂" title={gardens.length ? 'Không có vườn khớp bộ lọc' : 'Chưa có khu vườn'} description="Khu vườn đã tạo sẽ xuất hiện tại đây để bạn mở và quản lý cây." action={gardens.length ? undefined : '＋  Tạo khu vườn'} onPress={gardens.length ? undefined : () => router.push('/garden/create' as never)} /> : filteredGardens.map((garden) => <View key={garden.id} style={s.rowCard}><View style={s.emptyIcon}><Text style={s.emptyGlyph}>⌂</Text></View><View style={s.cardCopy}><Text style={s.cardTitle}>{garden.name}</Text><Text style={s.body}>{ownedPlants.filter((plant) => plant.gardenId === garden.id).length} cây • {garden.locationDetail || garden.locationType}</Text></View><Action label="Mở" muted onPress={() => router.push({ pathname: '/garden-detail', params: { gardenId: garden.id } } as never)} /></View>)}
-    </Section>
-    <View style={s.scheduleBanner}><Text style={s.bannerIcon}>◷</Text><View style={s.cardCopy}><Text style={s.cardTitle}>Lịch chăm sóc của bạn</Text><Text style={s.body}>Theo dõi các công việc chăm cây sắp tới.</Text></View></View>
-    <View style={s.metrics}><View style={s.metric}><Text style={s.metricValue}>0%</Text><Text style={s.body}>Tiến độ hoàn thành</Text></View><View style={s.metric}><Text style={s.metricValue}>0</Text><Text style={s.body}>Lịch đang hoạt động</Text></View></View>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.pills}>{['Tất cả', 'Hôm nay', 'Tuần này'].map((x, i) => <Tag key={x} tone={i === 0 ? 'mint' : 'plain'}>{x}</Tag>)}</ScrollView>
-    <Section title="Lịch chăm sóc"><EmptyCard icon="◷" title="Chưa có lịch chăm sóc" description="Chưa có lịch chăm sóc được lưu." /></Section>
-  </>;
+  return (
+    <MonitoringDashboard
+      filteredGardens={filteredGardens}
+      pageFilters={pageFilters}
+      onOpenFilter={() => openFilter('monitoring')}
+    />
+  );
 }
 
 function PageContent({ kind }: { kind: PageKind }) {
@@ -171,7 +159,6 @@ function PageContent({ kind }: { kind: PageKind }) {
     gardens: { title: 'Trang Chủ', subtitle: 'Vườn của tôi', intro: 'Bắt đầu tạo khu vườn đầu tiên của bạn' },
     plants: { title: 'Cây Trồng', subtitle: 'Quản lý cây trồng', intro: 'Tổng số 0 cây • 0 khu vườn' },
     journal: { title: 'Nhật ký', subtitle: 'Nhật ký phát triển', intro: 'Chưa có ghi nhận nào' },
-    schedule: { title: 'Lịch Chăm Sóc', subtitle: 'Lập lịch chăm sóc', intro: 'Chưa có lịch chăm sóc nào' },
     monitoring: { title: 'Theo dõi & Ghi nhận', subtitle: 'Tổng quan sức khỏe vườn', intro: 'Chưa có cây hoặc khu vườn để theo dõi' },
   };
   const { subtitle, intro } = config[kind];
@@ -186,7 +173,6 @@ function PageContent({ kind }: { kind: PageKind }) {
 export function GardensScreen() { return <PageContent kind="gardens" />; }
 export function PlantsScreen() { return <PageContent kind="plants" />; }
 export function JournalScreen() { return <PageContent kind="journal" />; }
-export function ScheduleScreen() { return <PageContent kind="schedule" />; }
 export function MonitoringScreen() { return <PageContent kind="monitoring" />; }
 
 const s = StyleSheet.create({

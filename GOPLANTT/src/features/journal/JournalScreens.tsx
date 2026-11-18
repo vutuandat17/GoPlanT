@@ -207,10 +207,14 @@ export function JournalDetailScreen({ plantId }: { plantId?: string }) {
 function JournalForm({
   editing = false,
   initialPlantId,
+  careTaskId,
+  initialLogType,
   journalId,
 }: {
   editing?: boolean;
   initialPlantId?: string;
+  careTaskId?: string;
+  initialLogType?: JournalLogType;
   journalId?: string;
 }) {
   const { accessToken } = useAuthSession();
@@ -223,7 +227,7 @@ function JournalForm({
   const [plantQuery, setPlantQuery] = useState('');
   const [title, setTitle] = useState(existing?.title ?? '');
   const [note, setNote] = useState(existing?.note ?? '');
-  const [logType, setLogType] = useState<JournalLogType>(existing?.logType ?? 'growth');
+  const [logType, setLogType] = useState<JournalLogType>(existing?.logType ?? initialLogType ?? 'growth');
   const [healthStatus, setHealthStatus] = useState<JournalHealthStatus>(existing?.healthStatus ?? 'healthy');
   const [entryDate, setEntryDate] = useState(() =>
     existing ? formatDateVi(existing.entryDate) : formatDateVi(toLocalIsoDate()),
@@ -310,7 +314,14 @@ function JournalForm({
       } else {
         await createJournal(
           plantId,
-          { entryDate: isoDate, logType, healthStatus, title: title.trim() || null, note: note.trim() },
+          {
+            careTaskId: careTaskId || null,
+            entryDate: isoDate,
+            logType,
+            healthStatus,
+            title: title.trim() || null,
+            note: note.trim(),
+          },
           newPhotos,
         );
         Alert.alert('Đã lưu ghi nhận', 'Nhật ký chăm sóc đã được thêm thành công.', [
@@ -489,8 +500,16 @@ function JournalForm({
   );
 }
 
-export function NewJournalScreen({ initialPlantId }: { initialPlantId?: string }) {
-  return <JournalForm initialPlantId={initialPlantId} />;
+export function NewJournalScreen({
+  initialPlantId,
+  careTaskId,
+  initialLogType,
+}: {
+  initialPlantId?: string;
+  careTaskId?: string;
+  initialLogType?: JournalLogType;
+}) {
+  return <JournalForm initialPlantId={initialPlantId} careTaskId={careTaskId} initialLogType={initialLogType} />;
 }
 
 export function EditJournalScreen({ journalId }: { journalId?: string }) {

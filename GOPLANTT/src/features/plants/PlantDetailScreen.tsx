@@ -9,6 +9,7 @@ import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { usePlantData } from '@/features/plants/PlantDataStore';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
+import { CARE_TASK_META, formatScheduleRepeat, formatTimeShort, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 import { apiBaseUrl } from '@/services/api';
 
 const missing = 'Chưa có dữ liệu';
@@ -20,9 +21,11 @@ function InfoRow({ label, value }: { label: string; value?: string }) {
 export default function PlantDetailScreen() {
   const { name, ownedId } = useLocalSearchParams<{ name?: string; ownedId?: string }>();
   const { catalog, ownedPlants, favorites, toggleFavorite, updatePlantPhoto } = usePlantData();
+  const { schedules } = useCareSchedules();
   const { accessToken } = useAuthSession();
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const owned = ownedPlants.find((item) => item.id === ownedId);
+  const plantSchedules = owned ? schedules.filter((s) => s.plantId === owned.id && s.active) : [];
   const plant = (owned && catalog.find((item) => item.id === owned.catalogId))
     ?? catalog.find((item) => item.name === name || item.scientificName === name)
     ?? { id: 'unknown-plant', name: name ?? 'Cây trồng', scientificName: missing, category: missing };
@@ -112,6 +115,37 @@ export default function PlantDetailScreen() {
         <Text style={d.note}>Các điều kiện chưa có nguồn dữ liệu được để trống về giá trị; đây không phải khuyến nghị chăm sóc.</Text>
       </View>
 
+      {owned ? (
+        <View style={d.card}>
+          <View style={d.scheduleHeader}>
+            <Text style={d.sectionTitle}>Lịch chăm sóc ({plantSchedules.length})</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push({ pathname: '/schedule/create', params: { plantId: owned.id } } as never)}>
+              <Text style={d.scheduleCreateLink}>＋ Lên lịch chăm sóc</Text>
+            </Pressable>
+          </View>
+          {plantSchedules.length === 0 ? (
+            <Text style={d.infoLabel}>Cây chưa có lịch chăm sóc định kỳ.</Text>
+          ) : (
+            plantSchedules.map((sch) => {
+              const meta = CARE_TASK_META[sch.taskType] ?? CARE_TASK_META.other;
+              return (
+                <Pressable
+                  key={sch.id}
+                  onPress={() => router.push({ pathname: '/schedule/detail', params: { scheduleId: sch.id } } as never)}
+                  style={d.scheduleRow}>
+                  <Text style={d.infoValue}>
+                    {meta.emoji} {sch.title || meta.label} · {formatScheduleRepeat(sch)} ({formatTimeShort(sch.timeOfDay)})
+                  </Text>
+                  <Text style={d.scheduleCreateLink}>Chi tiết ›</Text>
+                </Pressable>
+              );
+            })
+          )}
+        </View>
+      ) : null}
+
       <View style={d.actions}>
         {!owned ? <Pressable onPress={() => router.push({ pathname: '/garden/add-plant', params: { plantId: plant.id } } as never)} style={d.primaryButton}><Text style={d.primaryText}>＋  Thêm cây vào cây của tôi</Text></Pressable> : <Pressable onPress={() => router.push({ pathname: '/garden/add-plant', params: { editId: owned.id } } as never)} style={d.primaryButton}><Text style={d.primaryText}>Chỉnh sửa hồ sơ cây</Text></Pressable>}
       </View>
@@ -125,4 +159,7 @@ const d = StyleSheet.create({
   sourceLink: { color: C.primary, fontFamily: F.semiBold, fontSize: 10, paddingVertical: 8 },
   content: { padding: 13, gap: 10, paddingBottom: 24 }, hero: { height: 174, borderRadius: 16, backgroundColor: '#D9EBDD', alignItems: 'center', justifyContent: 'center', gap: 5, overflow: 'hidden' }, heroArtwork: { width: '100%', height: 148 }, heroBadge: { color: C.forest, fontFamily: F.bold, fontSize: 9, letterSpacing: 0.8 }, titleRow: { flexDirection: 'row', alignItems: 'flex-start' }, copy: { flex: 1 }, title: { color: C.forest, fontFamily: F.bold, fontSize: 21 }, latin: { color: C.mutedText, fontFamily: F.regular, fontStyle: 'italic', fontSize: 12 }, tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 7 }, tag: { paddingHorizontal: 8, paddingVertical: 5, borderRadius: 99, backgroundColor: '#DDF2E4', color: C.forest, fontFamily: F.semiBold, fontSize: 10 },
   card: { padding: 12, borderRadius: 14, backgroundColor: C.surface, gap: 3 }, sectionTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14, marginBottom: 3 }, infoRow: { paddingVertical: 7, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#E2EAE3', gap: 2 }, infoLabel: { color: C.secondaryText, fontFamily: F.regular, fontSize: 10 }, infoValue: { color: C.text, fontFamily: F.semiBold, fontSize: 11, lineHeight: 17 }, note: { color: C.mutedText, fontFamily: F.regular, fontSize: 9, lineHeight: 14 }, photoButton: { minHeight: 42, marginTop: 8, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, photoButtonText: { color: C.surface, fontFamily: F.semiBold, fontSize: 11 }, photoButtonDisabled: { opacity: 0.6 }, actions: { gap: 8 }, primaryButton: { minHeight: 44, paddingHorizontal: 10, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, primaryText: { color: C.surface, fontFamily: F.semiBold, fontSize: 12 },
+  scheduleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  scheduleCreateLink: { color: C.primary, fontFamily: F.semiBold, fontSize: 11 },
+  scheduleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E2EAE3' },
 });

@@ -9,6 +9,7 @@ import { AccountButton } from '@/features/auth/AccountButton';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
 import { usePlantData } from '@/features/plants/PlantDataStore';
+import { useCareSchedules } from '@/features/schedule/CareScheduleStore';
 import { ApiError, apiBaseUrl, fetchGardenWeather, fetchWeatherProvinces, type ApiGardenWeather, type ApiProvince } from '@/services/api';
 
 function GardenHeader({ title }: { title: string }) {
@@ -22,9 +23,12 @@ function ActionButton({ label, secondary = false, onPress }: { label: string; se
 export function GardenDetailScreen() {
   const { gardenId } = useLocalSearchParams<{ gardenId?: string }>();
   const { gardens, ownedPlants, catalog, removePlant, removeGarden } = usePlantData();
+  const { todayTasks } = useCareSchedules();
   const { accessToken } = useAuthSession();
   const garden = gardens.find((item) => item.id === gardenId);
   const plants = ownedPlants.filter((plant) => plant.gardenId === gardenId);
+  const gardenPlantIds = new Set(plants.map((p) => p.id));
+  const pendingTodayCount = todayTasks.filter((t) => t.status === 'pending' && gardenPlantIds.has(t.plantId)).length;
   const [weather, setWeather] = useState<ApiGardenWeather | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState('');
@@ -58,7 +62,7 @@ export function GardenDetailScreen() {
       <View style={g.hero}><Text style={g.heroPlant}>♧</Text><Text style={g.heroLabel}>{garden.locationType.toLocaleUpperCase()}</Text></View>
       <Text style={g.title}>{garden.name}</Text>
       <Text style={g.body}>⌖  {garden.locationDetail || 'Chưa có vị trí cụ thể'}{locationSummary ? ` • ${locationSummary}` : ''}</Text>
-      <View style={g.card}><Text style={g.sectionTitle}>Tổng quan khu vườn</Text><Text style={g.body}>{garden.description || 'Chưa có mô tả.'}</Text><Text style={g.body}>{plants.length} cây đang trồng</Text></View>
+      <View style={g.card}><Text style={g.sectionTitle}>Tổng quan khu vườn</Text><Text style={g.body}>{garden.description || 'Chưa có mô tả.'}</Text><Text style={g.body}>{plants.length} cây đang trồng</Text><Pressable onPress={() => router.push('/schedule' as never)}><Text style={g.link}>{pendingTodayCount > 0 ? `◷ ${pendingTodayCount} việc chăm sóc cần làm hôm nay ›` : '◷ Xem lịch chăm sóc ›'}</Text></Pressable></View>
       <View style={g.card}>
         <View style={g.row}>
           <Text style={g.sectionTitle}>Thời tiết & Môi trường</Text>

@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { useAuthSession } from '@/features/auth/AuthSession';
+import { useAppPreferences } from '@/features/preferences/AppPreferences';
+import { syncCareTaskNotifications } from '@/features/schedule/localNotifications';
 import {
   completeCareTask,
   createCareSchedule,
@@ -11,6 +13,7 @@ import {
   isApiConfigured,
   skipCareTask,
   toLocalIsoDate,
+  updateCareSchedule,
   type ApiCalendarTasksView,
   type ApiCareDaySummary,
   type ApiCareSchedule,
@@ -74,6 +77,13 @@ export function formatTimeShort(timeOfDay: string | null | undefined): string {
   return timeOfDay.slice(0, 5);
 }
 
+export function formatDueTimeLocal(dueAt: string | null | undefined): string {
+  if (!dueAt) return '08:00';
+  const parsed = new Date(dueAt);
+  if (Number.isNaN(parsed.getTime())) return formatTimeShort(dueAt.slice(11, 16));
+  return `${String(parsed.getHours()).padStart(2, '0')}:${String(parsed.getMinutes()).padStart(2, '0')}`;
+}
+
 export function formatDateVi(isoDate: string | null | undefined): string {
   if (!isoDate) return '';
   const parts = isoDate.split('-');
@@ -91,6 +101,7 @@ type CareScheduleContextValue = {
   error: string;
   refresh: () => Promise<void>;
   createSchedule: (plantId: string, body: ApiCareScheduleRequest) => Promise<ApiCareSchedule>;
+  updateSchedule: (scheduleId: string, body: ApiCareScheduleRequest) => Promise<ApiCareSchedule>;
   removeSchedule: (scheduleId: string) => Promise<void>;
   completeTask: (taskId: string, note?: string) => Promise<void>;
   skipTask: (taskId: string, note?: string) => Promise<void>;
@@ -101,6 +112,7 @@ const CareScheduleContext = createContext<CareScheduleContextValue | null>(null)
 
 export function CareScheduleProvider({ children }: { children: ReactNode }) {
   const { accessToken, isReady } = useAuthSession();
+  const { careNotificationsEnabled } = useAppPreferences();
   const [schedules, setSchedules] = useState<ApiCareSchedule[]>([]);
   const [todayTasks, setTodayTasks] = useState<ApiCareTask[]>([]);
   const [todaySummary, setTodaySummary] = useState<ApiCareDaySummary>(emptySummary);
@@ -136,6 +148,30 @@ export function CareScheduleProvider({ children }: { children: ReactNode }) {
     if (isReady) void refresh();
   }, [isReady, refresh]);
 
+  useEffect(() => {
+    if (!isReady) return;
+    if (!isApiConfigured || !accessToken || !careNotificationsEnabled) {
+      void syncCareTaskNotifications([], false);
+      return;
+    }
+    const today = new Date();
+    const from = toLocalIsoDate(today);
+    const end = new Date(today);
+    end.setDate(today.getDate() + 6);
+    const to = toLocalIsoDate(end);
+    let active = true;
+    void fetchCalendarCareTasks(accessToken, from, to)
+      .then((view) => {
+        if (active) void syncCareTaskNotifications(view.tasks ?? [], true);
+      })
+      .catch(() => {
+        if (active) void syncCareTaskNotifications(todayTasks, true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isReady, accessToken, careNotificationsEnabled, schedules, todayTasks]);
+
   const value = useMemo<CareScheduleContextValue>(() => ({
     schedules,
     todayTasks,
@@ -150,6 +186,14 @@ export function CareScheduleProvider({ children }: { children: ReactNode }) {
       const created = await createCareSchedule(plantId, accessToken, body);
       await refresh();
       return created;
+    },
+    updateSchedule: async (scheduleId, body) => {
+      if (!isApiConfigured || !accessToken) {
+        throw new Error('Cần đăng nhập và kết nối máy chủ để cập nhật lịch chăm sóc.');
+      }
+      const updated = await updateCareSchedule(scheduleId, accessToken, body);
+      await refresh();
+      return updated;
     },
     removeSchedule: async (scheduleId) => {
       if (!isApiConfigured || !accessToken) {

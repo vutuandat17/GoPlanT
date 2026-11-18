@@ -322,6 +322,96 @@ class ApiSecurityAndFlowTest {
     }
 
     @Test
+    void careScheduleEndpointsRequireAuthAndEnforceOwnership() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID foreignPlantId = UUID.randomUUID();
+        UUID foreignTaskId = UUID.randomUUID();
+        String token = bearerToken(userId, "member");
+
+        mockMvc.perform(get("/api/v1/schedules/today")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/plants/{plantId}/schedules", foreignPlantId)).andExpect(status().isUnauthorized());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM user_plants"), eq(Integer.class), eq(foreignPlantId), eq(userId)))
+                .thenReturn(0);
+        when(jdbc.query(contains("FROM care_tasks t"), any(RowMapper.class), eq(foreignTaskId), eq(userId)))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/schedules", foreignPlantId)
+                        .header("Authorization", token))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/complete", foreignTaskId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/skip", foreignTaskId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void careScheduleValidationRejectsInvalidRepeatRulesAndCompletedTask() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID plantId = UUID.randomUUID();
+        UUID scheduleId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        String token = bearerToken(userId, "member");
+
+        when(jdbc.queryForList(contains("SELECT timezone FROM users"), eq(String.class), eq(userId)))
+                .thenReturn(List.of("Asia/Ho_Chi_Minh"));
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM user_plants"), eq(Integer.class), eq(plantId), eq(userId)))
+                .thenReturn(1);
+
+        // DAILY_INTERVAL without frequencyDays -> 400
+        mockMvc.perform(post("/api/v1/plants/{plantId}/schedules", plantId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"taskType":"watering","repeatType":"DAILY_INTERVAL","timeOfDay":"08:00","startDate":"2026-11-18"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        // WEEKLY with empty daysOfWeek -> 400
+        mockMvc.perform(post("/api/v1/plants/{plantId}/schedules", plantId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"taskType":"watering","repeatType":"WEEKLY","daysOfWeek":[],"timeOfDay":"08:00","startDate":"2026-11-18"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        // Already completed/skipped task -> 409 Conflict
+        when(jdbc.query(contains("FROM care_tasks t"), any(RowMapper.class), eq(taskId), eq(userId)))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("care_schedule_id", UUID.class)).thenReturn(scheduleId);
+                    when(rs.getObject("due_date", java.time.LocalDate.class)).thenReturn(java.time.LocalDate.of(2026, 11, 18));
+                    when(rs.getString("status")).thenReturn("completed");
+                    when(rs.getString("timezone")).thenReturn("Asia/Ho_Chi_Minh");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/complete", taskId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isConflict());
+
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/skip", taskId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"note":"Trời mưa"}
+                                """))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
     void gardenAndPlantEndpointsRequireAuthentication() throws Exception {
         mockMvc.perform(get("/api/v1/gardens")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/v1/plants")).andExpect(status().isUnauthorized());
