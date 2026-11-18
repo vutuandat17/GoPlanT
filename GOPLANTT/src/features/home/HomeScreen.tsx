@@ -91,35 +91,37 @@ export default function HomeScreen() {
           <View style={styles.sunBadge}><Text style={styles.sun}>☼</Text></View>
         </View>
 
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            if (weatherGarden) {
-              router.push({ pathname: '/garden-detail', params: { gardenId: weatherGarden.id } } as never);
-            } else if (gardens.length > 0) {
-              router.push({ pathname: '/garden/create', params: { editGardenId: gardens[0].id } } as never);
-            } else {
-              navigate(accessToken ? '/garden/create' : '/auth/login');
-            }
-          }}
-          style={styles.weatherCard}>
-          <View style={[styles.roundIcon, { backgroundColor: '#E1F3E8' }]}><Text>☼</Text></View>
-          <View style={styles.flexCopy}>
-            <Text style={styles.cardTitle} numberOfLines={1}>
-              {weatherGarden ? `Thời tiết · ${weatherGarden.name}` : 'Thông tin thời tiết'}
-            </Text>
-            <Text style={styles.bodyText} numberOfLines={2}>
-              {weatherGarden
-                ? weatherLoading && !weather
-                  ? 'Đang cập nhật thời tiết...'
-                  : weather && weather.temperatureC != null
-                    ? `${weather.conditionDescription || weather.conditionMain || 'Ngoài trời'}${weather.humidityPct != null ? ` · Độ ẩm ${weather.humidityPct}%` : ''}${weather.plantAlerts.length > 0 ? ` · ⚠ ${weather.plantAlerts.length} cây cần chú ý` : ''}`
-                    : 'Chưa lấy được dữ liệu thời tiết.'
-                : gardens.length > 0
-                  ? 'Chưa thiết lập vị trí cho khu vườn.'
-                  : 'Tạo khu vườn kèm vị trí để xem thời tiết.'}
-            </Text>
-          </View>
+        <View style={styles.weatherCard}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              if (weatherGarden) {
+                router.push({ pathname: '/garden-detail', params: { gardenId: weatherGarden.id } } as never);
+              } else if (gardens.length > 0) {
+                router.push({ pathname: '/garden/create', params: { editGardenId: gardens[0].id } } as never);
+              } else {
+                navigate(accessToken ? '/garden/create' : '/auth/login');
+              }
+            }}
+            style={styles.weatherMain}>
+            <View style={[styles.roundIcon, { backgroundColor: '#E1F3E8' }]}><Text>☼</Text></View>
+            <View style={styles.flexCopy}>
+              <Text style={styles.cardTitle} numberOfLines={1}>
+                {weatherGarden ? `Thời tiết · ${weatherGarden.name}` : 'Thông tin thời tiết'}
+              </Text>
+              <Text style={styles.bodyText} numberOfLines={2}>
+                {weatherGarden
+                  ? weatherLoading && !weather
+                    ? 'Đang cập nhật thời tiết...'
+                    : weather && weather.temperatureC != null
+                      ? `${weather.conditionDescription || weather.conditionMain || 'Ngoài trời'}${weather.humidityPct != null ? ` · Độ ẩm ${weather.humidityPct}%` : ''}${weather.plantAlerts.length > 0 ? ` · ⚠ ${weather.plantAlerts.length} cây cần chú ý` : ''}`
+                      : 'Chưa lấy được dữ liệu thời tiết.'
+                  : gardens.length > 0
+                    ? 'Chưa thiết lập vị trí cho khu vườn.'
+                    : 'Tạo khu vườn kèm vị trí để xem thời tiết.'}
+              </Text>
+            </View>
+          </Pressable>
           <View style={styles.weatherActions}>
             <Text style={styles.lightPill}>
               {weatherGarden && weather?.temperatureC != null
@@ -136,37 +138,36 @@ export default function HomeScreen() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Đổi khu vườn xem thời tiết"
-                onPress={(e) => {
-                  e.stopPropagation?.();
-                  cycleWeatherGarden();
-                }}>
+                onPress={cycleWeatherGarden}>
                 <Text style={styles.switchGardenText}>Đổi vườn ↻</Text>
               </Pressable>
             ) : null}
           </View>
-        </Pressable>
+        </View>
 
         {nextTask && nextTaskMeta ? (
-          <Pressable
-            onPress={() => navigate('/schedule')}
-            style={todaySummary.overdue > 0 ? styles.reminderCard : styles.scheduleCard}>
-            <View style={styles.scheduleIcon}>
-              <Text style={styles.white}>{nextTaskMeta.emoji}</Text>
-            </View>
-            <View style={styles.flexCopy}>
-              <Text style={todaySummary.overdue > 0 ? styles.reminderText : styles.scheduleTitle} numberOfLines={1}>
-                {todaySummary.overdue > 0
-                  ? `${todaySummary.overdue} việc quá hạn · ${nextTaskMeta.label}`
-                  : `Hôm nay (${pendingTodayTasks.length} việc): ${nextTaskMeta.label}`}
-              </Text>
-              <Text style={styles.scheduleDescription} numberOfLines={1}>
-                🌱 {nextTask.plantName} · Nhấn để xem toàn bộ lịch chăm sóc
-              </Text>
-            </View>
+          <View style={todaySummary.overdue > 0 ? styles.reminderCard : styles.scheduleCard}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => navigate('/schedule')}
+              style={styles.taskMain}>
+              <View style={styles.scheduleIcon}>
+                <Text style={styles.white}>{nextTaskMeta.emoji}</Text>
+              </View>
+              <View style={styles.flexCopy}>
+                <Text style={todaySummary.overdue > 0 ? styles.reminderText : styles.scheduleTitle} numberOfLines={1}>
+                  {todaySummary.overdue > 0
+                    ? `${todaySummary.overdue} việc quá hạn · ${nextTaskMeta.label}`
+                    : `Hôm nay (${pendingTodayTasks.length} việc): ${nextTaskMeta.label}`}
+                </Text>
+                <Text style={styles.scheduleDescription} numberOfLines={1}>
+                  🌱 {nextTask.plantName} · Nhấn để xem toàn bộ lịch chăm sóc
+                </Text>
+              </View>
+            </Pressable>
             <Pressable
               disabled={completingTaskId === nextTask.id}
-              onPress={async (e) => {
-                e.stopPropagation?.();
+              onPress={async () => {
                 setCompletingTaskId(nextTask.id);
                 try {
                   await completeTask(nextTask.id);
@@ -177,7 +178,7 @@ export default function HomeScreen() {
               style={todaySummary.overdue > 0 ? styles.reminderButton : styles.scheduleButton}>
               <Text style={styles.white}>{completingTaskId === nextTask.id ? '...' : '✓ Xong'}</Text>
             </Pressable>
-          </Pressable>
+          </View>
         ) : todaySummary.total > 0 ? (
           <Pressable onPress={() => navigate('/schedule')} style={styles.scheduleCard}>
             <View style={styles.scheduleIcon}><Text style={styles.white}>✓</Text></View>
@@ -294,6 +295,8 @@ const styles = StyleSheet.create({
   sunBadge: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#D9F1E3', alignItems: 'center', justifyContent: 'center' },
   sun: { color: C.forest, fontSize: 26, lineHeight: 30 },
   weatherCard: { minHeight: 72, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: C.softSurface, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  weatherMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  taskMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
   roundIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   flexCopy: { flex: 1, gap: 2 },
   cardTitle: { color: C.text, fontFamily: F.semiBold, fontSize: 14, lineHeight: 19 },

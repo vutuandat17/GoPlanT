@@ -11,6 +11,12 @@ import { PlantArtwork } from '@/features/plants/PlantArtwork';
 import { apiBaseUrl, getGardenPhotoUri } from '@/services/api';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { getLatestHealthLabel, matchesPlantFilters, toOwnedFilterPlant } from '@/features/plants/plantFilters';
+import {
+  filterJournalEntries,
+  JournalFilterBar,
+  type JournalHealthFilter,
+  type JournalLogFilter,
+} from '@/features/journal/JournalFilterBar';
 import { JOURNAL_HEALTH_META, JOURNAL_LOG_TYPE_META, useJournals } from '@/features/journal/JournalStore';
 import { MonitoringDashboard } from '@/features/monitoring/MonitoringDashboard';
 import { formatDateVi, useCareSchedules } from '@/features/schedule/CareScheduleStore';
@@ -40,10 +46,13 @@ function EmptyCard({ icon, title, description, action, onPress }: { icon: string
 
 function EmptyPage({ kind }: { kind: PageKind }) {
   const { apiError, catalog, gardens, ownedPlants, favorites, isLoading, removePlant, updatePlant, toggleFavorite, filterStates, setFilterState } = usePlantData();
-  const { journals } = useJournals();
+  const { journals = [] } = useJournals();
   const { todayTasks, schedules } = useCareSchedules();
   const { accessToken } = useAuthSession();
   const [plantQuery, setPlantQuery] = useState('');
+  const [journalQuery, setJournalQuery] = useState('');
+  const [journalLogFilter, setJournalLogFilter] = useState<JournalLogFilter>('all');
+  const [journalHealthFilter, setJournalHealthFilter] = useState<JournalHealthFilter>('all');
   const [assigningPlant, setAssigningPlant] = useState<OwnedPlant | null>(null);
   const [assignBusy, setAssignBusy] = useState(false);
   const pageFilters = filterStates[kind] ?? {};
@@ -178,6 +187,11 @@ function EmptyPage({ kind }: { kind: PageKind }) {
     const journalPlants = new Set(journals.map((item) => item.plantId)).size;
     const latestEntryDate = journals[0] ? formatDateVi(journals[0].entryDate) : '—';
     const matchingJournalPlants = ownedPlants.filter((plant) => matchesPlantFilters(toOwnedFilterPlant(plant, journals, todayTasks, schedules, favorites.includes(plant.catalogId)), pageFilters));
+    const filteredJournals = filterJournalEntries(journals, {
+      query: journalQuery,
+      logType: journalLogFilter,
+      healthStatus: journalHealthFilter,
+    });
     return <>
       <View style={s.managementActions}>
         <Action label="＋ Thêm ghi nhận" onPress={() => router.push('/journal/new' as never)} />
@@ -215,11 +229,23 @@ function EmptyPage({ kind }: { kind: PageKind }) {
           })
         )}
       </Section>
-      <Section title="Nhật ký gần đây" hint={`${journals.length} bài`}>
+      <Section title="Nhật ký gần đây" hint={`${filteredJournals.length}/${journals.length} bài`}>
+        {journals.length > 0 ? (
+          <JournalFilterBar
+            query={journalQuery}
+            onQueryChange={setJournalQuery}
+            logType={journalLogFilter}
+            onLogTypeChange={setJournalLogFilter}
+            healthStatus={journalHealthFilter}
+            onHealthStatusChange={setJournalHealthFilter}
+          />
+        ) : null}
         {journals.length === 0 ? (
           <EmptyCard icon="▤" title="Chưa có nhật ký cây trồng" description="Hãy tạo ghi nhận đầu tiên để theo dõi sự phát triển của cây." action="Thêm ghi nhận" onPress={() => router.push('/journal/new' as never)} />
+        ) : filteredJournals.length === 0 ? (
+          <EmptyCard icon="⌕" title="Không có nhật ký phù hợp" description="Thử đổi từ khóa hoặc xóa bộ lọc loại ghi nhận / tình trạng." />
         ) : (
-          journals.slice(0, 10).map((entry) => {
+          filteredJournals.slice(0, 20).map((entry) => {
             const typeMeta = JOURNAL_LOG_TYPE_META[entry.logType] ?? JOURNAL_LOG_TYPE_META.other;
             const healthMeta = JOURNAL_HEALTH_META[entry.healthStatus] ?? JOURNAL_HEALTH_META.healthy;
             return (
@@ -251,7 +277,7 @@ function EmptyPage({ kind }: { kind: PageKind }) {
 
 function PageContent({ kind }: { kind: PageKind }) {
   const { ownedPlants, gardens } = usePlantData();
-  const { journals } = useJournals();
+  const { journals = [] } = useJournals();
   const config: Record<PageKind, { title: string; subtitle: string; intro: string }> = {
     gardens: { title: 'Trang Chủ', subtitle: 'Vườn của tôi', intro: gardens.length ? `Đang quản lý ${gardens.length} khu vườn` : 'Bắt đầu tạo khu vườn đầu tiên của bạn' },
     plants: { title: 'Cây Trồng', subtitle: 'Quản lý cây trồng', intro: `Tổng số ${ownedPlants.length} cây • ${gardens.length} khu vườn` },

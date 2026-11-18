@@ -691,4 +691,112 @@ class ApiSecurityAndFlowTest {
                 .andExpect(jsonPath("$.commonName").value("Trầu bà lá xẻ"))
                 .andExpect(jsonPath("$.waterFrequencyDays").value(5));
     }
+
+    @Test
+    void journalEndpointsEnforceAuthPaginationFiltersAndCrossUserIsolation() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID plantId = UUID.randomUUID();
+        UUID foreignJournalId = UUID.randomUUID();
+        String memberBearer = bearerToken(userId, "member");
+
+        mockMvc.perform(get("/api/v1/journals"))
+                .andExpect(status().isUnauthorized());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM plant_journals j JOIN user_plants p"), eq(Long.class), any(Object[].class)))
+                .thenReturn(0L);
+        when(jdbc.query(contains("FROM plant_journals j"), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/journals")
+                        .param("page", "0")
+                        .param("size", "10")
+                        .param("plantId", plantId.toString())
+                        .param("logType", "growth")
+                        .param("healthStatus", "warning")
+                        .param("q", "chồi")
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.items").isArray());
+
+        when(jdbc.query(contains("WHERE j.id=? AND j.owner_user_id=?"), any(RowMapper.class), eq(foreignJournalId), eq(userId)))
+                .thenReturn(List.of());
+        mockMvc.perform(get("/api/v1/journals/{journalId}", foreignJournalId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+
+        when(jdbc.update(contains("DELETE FROM plant_journals WHERE id=? AND owner_user_id=?"), eq(foreignJournalId), eq(userId)))
+                .thenReturn(0);
+        mockMvc.perform(delete("/api/v1/journals/{journalId}", foreignJournalId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void journalValidationEnforcesLogTypeHealthStatusCareTaskPlantAndMaxPhotos() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID plantId = UUID.randomUUID();
+        UUID wrongCareTaskId = UUID.randomUUID();
+        UUID journalId = UUID.randomUUID();
+        String memberBearer = bearerToken(userId, "member");
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM user_plants WHERE id=? AND owner_user_id=? AND archived_at IS NULL"), eq(Integer.class), eq(plantId), eq(userId)))
+                .thenReturn(1);
+
+        mockMvc.perform(post("/api/v1/plants/{plantId}/journals", plantId)
+                        .header("Authorization", memberBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "logType": "invalid_type",
+                                  "healthStatus": "healthy",
+                                  "note": "Ghi chú"
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/plants/{plantId}/journals", plantId)
+                        .header("Authorization", memberBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "logType": "growth",
+                                  "healthStatus": "unknown_status",
+                                  "note": "Ghi chú"
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM care_tasks WHERE id=? AND owner_user_id=? AND user_plant_id=?"), eq(Integer.class), eq(wrongCareTaskId), eq(userId), eq(plantId)))
+                .thenReturn(0);
+
+        mockMvc.perform(post("/api/v1/plants/{plantId}/journals", plantId)
+                        .header("Authorization", memberBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "logType": "watering",
+                                  "healthStatus": "healthy",
+                                  "note": "Tưới xong",
+                                  "careTaskId": "%s"
+                                }
+                                """.formatted(wrongCareTaskId)))
+                .andExpect(status().isBadRequest());
+
+        ByteArrayOutputStream pngOut = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", pngOut);
+        MockMultipartFile validPng = new MockMultipartFile("file", "journal.png", MediaType.IMAGE_PNG_VALUE, pngOut.toByteArray());
+
+        when(jdbc.queryForObject(contains("FROM plant_journals j"), eq(Integer.class), eq(journalId), eq(userId)))
+                .thenReturn(1);
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM journal_photos WHERE journal_id=? AND owner_user_id=?"), eq(Integer.class), eq(journalId), eq(userId)))
+                .thenReturn(5);
+
+        mockMvc.perform(multipart("/api/v1/journals/{journalId}/photos", journalId)
+                        .file(validPng)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isBadRequest());
+    }
 }

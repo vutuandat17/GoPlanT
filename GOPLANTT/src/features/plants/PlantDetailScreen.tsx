@@ -85,7 +85,14 @@ export default function PlantDetailScreen() {
 
       {owned ? (
         <View style={d.card}>
-          <Text style={d.sectionTitle}>Theo dõi & Nhật ký</Text>
+          <View style={d.scheduleHeader}>
+            <Text style={d.sectionTitle}>Theo dõi & Nhật ký</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push({ pathname: '/journal/new', params: { plantId: owned.id } } as never)}>
+              <Text style={d.scheduleCreateLink}>＋ Ghi nhật ký</Text>
+            </Pressable>
+          </View>
           <View style={d.quickLinksRow}>
             <Pressable
               accessibilityRole="button"

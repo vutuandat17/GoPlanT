@@ -195,9 +195,7 @@ export function ScheduleListScreen() {
     try {
       if (action === 'complete') {
         await completeTask(task.id, note);
-        if (SPECIAL_JOURNAL_LOG_MAP[task.taskType]) {
-          setJournalPromptTask(task);
-        }
+        setJournalPromptTask(task);
       } else {
         await skipTask(task.id, note);
       }
@@ -605,7 +603,7 @@ export function ScheduleListScreen() {
                   } as never);
                 }}
                 style={sc.actionDoneBtn}>
-                <Text style={sc.actionDoneText}>Ghi vào nhật ký</Text>
+                <Text style={sc.actionDoneText}>Ghi nhận vào nhật ký</Text>
               </Pressable>
             </View>
           </View>

@@ -559,8 +559,19 @@ export type ApiJournalPhotoMeta = {
   createdAt: string;
 };
 
-export function fetchJournals(token: string) {
-  return apiRequest<ApiJournalEntry[]>('/api/v1/journals', { token });
+export function fetchJournals(
+  token: string,
+  params?: { page?: number; size?: number; plantId?: string; logType?: JournalLogType; healthStatus?: JournalHealthStatus; q?: string },
+) {
+  const search = new URLSearchParams();
+  if (params?.page !== undefined) search.set('page', String(params.page));
+  if (params?.size !== undefined) search.set('size', String(params.size));
+  if (params?.plantId?.trim()) search.set('plantId', params.plantId.trim());
+  if (params?.logType) search.set('logType', params.logType);
+  if (params?.healthStatus) search.set('healthStatus', params.healthStatus);
+  if (params?.q?.trim()) search.set('q', params.q.trim());
+  const qs = search.toString();
+  return apiRequest<PageResponse<ApiJournalEntry>>(`/api/v1/journals${qs ? `?${qs}` : ''}`, { token });
 }
 
 export function fetchPlantJournals(plantId: string, token: string) {
