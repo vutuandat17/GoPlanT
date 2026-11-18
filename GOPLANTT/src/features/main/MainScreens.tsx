@@ -10,6 +10,7 @@ import { apiBaseUrl } from '@/services/api';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { matchesPlantFilters } from '@/features/plants/plantFilters';
 import { JOURNAL_HEALTH_META, JOURNAL_LOG_TYPE_META, useJournals } from '@/features/journal/JournalStore';
+import { MonitoringDashboard } from '@/features/monitoring/MonitoringDashboard';
 import { formatDateVi } from '@/features/schedule/CareScheduleStore';
 
 type PageKind = 'gardens' | 'plants' | 'journal' | 'schedule' | 'monitoring';
@@ -144,19 +145,15 @@ function EmptyPage({ kind }: { kind: PageKind }) {
       <View style={s.recommend}><Text style={s.cardTitle}>Mẹo ghi nhật ký</Text><Text style={s.body}>Ghi lại việc chăm sóc thường xuyên để dễ theo dõi thay đổi theo thời gian.</Text></View>
     </>;
   }
-  if (kind === 'monitoring') return <>
-    <View style={s.managementActions}><Action label="Lọc cây theo dõi" muted onPress={() => openFilter('monitoring')} /></View>
-    <Section title="Cây trong phạm vi theo dõi" hint={`${ownedPlants.filter((plant) => matchesPlantFilters({ ...plant, id: plant.catalogId }, pageFilters)).length} cây phù hợp`}>
-      {ownedPlants.filter((plant) => matchesPlantFilters({ ...plant, id: plant.catalogId }, pageFilters)).map((plant) => <View key={plant.id} style={s.rowCard}><PlantArtwork style={s.plantImage} category={plant.category} /><View style={s.cardCopy}><Text style={s.cardTitle}>{plant.name}</Text><Text style={s.body}>{plant.location || 'Chưa có vị trí cụ thể'}</Text></View></View>)}
-    </Section>
-    <View style={s.metrics}>{[['0', 'Cây đang theo dõi'], ['—', 'Tỉ lệ khỏe mạnh'], ['0', 'Cần xử lý'], ['—', 'Chỉ số sinh thái']].map(([value, label]) => <View key={label} style={s.metric}><Text style={s.metricValue}>{value}</Text><Text style={s.body}>{label}</Text></View>)}</View>
-    <View style={s.eco}><Text style={s.ecoScore}>—</Text><View style={s.cardCopy}><Text style={s.cardTitle}>Chưa có dữ liệu đánh giá</Text><Text style={s.body}>Thêm vườn và cây để bắt đầu theo dõi.</Text></View></View>
-    <Section title="Khu vườn" hint={`${filteredGardens.length} khu vực`}>
-      {filteredGardens.length === 0 ? <EmptyCard icon="⌂" title={gardens.length ? 'Không có vườn khớp bộ lọc' : 'Chưa có khu vườn để theo dõi'} description="Tạo hoặc chọn một khu vườn để mở danh sách cây của bạn." action={gardens.length ? undefined : 'Tạo khu vườn'} onPress={gardens.length ? undefined : () => router.push('/garden/create' as never)} /> : filteredGardens.map((garden) => <View key={garden.id} style={s.rowCard}><View style={s.emptyIcon}><Text style={s.emptyGlyph}>⌂</Text></View><View style={s.cardCopy}><Text style={s.cardTitle}>{garden.name}</Text><Text style={s.body}>{ownedPlants.filter((plant) => plant.gardenId === garden.id).length} cây • {garden.locationDetail || garden.locationType}</Text></View><Action label="Mở" muted onPress={() => router.push({ pathname: '/garden-detail', params: { gardenId: garden.id } } as never)} /></View>)}
-    </Section>
-    <Section title="Cây trồng theo dõi"><EmptyCard icon="♧" title="Chưa có cây được theo dõi" description="Thêm cây để ghi nhận sức khỏe và tiến triển chăm sóc." action="Thêm cây" onPress={() => router.push('/garden/add-plant' as never)} /></Section>
-    <Section title="Lịch sử ghi nhận"><EmptyCard icon="▤" title="Chưa có ghi nhận" description="Chưa có dữ liệu theo dõi." /></Section>
-  </>;
+  if (kind === 'monitoring') {
+    return (
+      <MonitoringDashboard
+        filteredGardens={filteredGardens}
+        pageFilters={pageFilters}
+        onOpenFilter={() => openFilter('monitoring')}
+      />
+    );
+  }
   return <>
     <View style={s.managementActions}><Action label="Lọc khu vườn chăm sóc" muted onPress={() => openFilter('schedule')} /></View>
     <Section title="Khu vườn của bạn" hint={`${filteredGardens.length} / ${gardens.length} khu vực`}>

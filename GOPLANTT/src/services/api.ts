@@ -609,3 +609,43 @@ export function deleteJournalPhoto(journalId: string, photoId: string, token: st
     token,
   });
 }
+
+export type BloomStage = 'seedling' | 'budding' | 'flowering' | 'fruiting';
+
+export type ApiGrowthRecord = {
+  id: string;
+  plantId: string;
+  recordedDate: string;
+  heightCm: number | null;
+  leafCount: number | null;
+  bloomStage: BloomStage | null;
+  note: string | null;
+  createdAt: string;
+};
+
+export type ApiGrowthRecordRequest = {
+  recordedDate?: string;
+  heightCm?: number | null;
+  leafCount?: number | null;
+  bloomStage?: BloomStage | null;
+  note?: string | null;
+};
+
+export function fetchPlantGrowthRecords(plantId: string, token: string) {
+  return apiRequest<ApiGrowthRecord[]>(`/api/v1/plants/${plantId}/growth-records`, { token });
+}
+
+export function createPlantGrowthRecord(plantId: string, token: string, body: ApiGrowthRecordRequest) {
+  return apiRequest<ApiGrowthRecord>(`/api/v1/plants/${plantId}/growth-records`, {
+    method: 'POST',
+    token,
+    body,
+  });
+}
+
+export function deletePlantGrowthRecord(recordId: string, token: string) {
+  return apiRequest<void>(`/api/v1/growth-records/${recordId}`, {
+    method: 'DELETE',
+    token,
+  });
+}
