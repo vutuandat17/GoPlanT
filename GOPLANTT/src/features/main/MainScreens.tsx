@@ -10,10 +10,10 @@ import { usePlantData, type OwnedPlant } from '@/features/plants/PlantDataStore'
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
 import { apiBaseUrl, getGardenPhotoUri } from '@/services/api';
 import { useAuthSession } from '@/features/auth/AuthSession';
-import { matchesPlantFilters } from '@/features/plants/plantFilters';
+import { getLatestHealthLabel, matchesPlantFilters, toOwnedFilterPlant } from '@/features/plants/plantFilters';
 import { JOURNAL_HEALTH_META, JOURNAL_LOG_TYPE_META, useJournals } from '@/features/journal/JournalStore';
 import { MonitoringDashboard } from '@/features/monitoring/MonitoringDashboard';
-import { formatDateVi } from '@/features/schedule/CareScheduleStore';
+import { formatDateVi, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 
 type PageKind = 'gardens' | 'plants' | 'journal' | 'monitoring';
 
@@ -39,8 +39,9 @@ function EmptyCard({ icon, title, description, action, onPress }: { icon: string
 }
 
 function EmptyPage({ kind }: { kind: PageKind }) {
-  const { apiError, catalog, gardens, ownedPlants, favorites, isLoading, removePlant, updatePlant, filterStates, setFilterState } = usePlantData();
+  const { apiError, catalog, gardens, ownedPlants, favorites, isLoading, removePlant, updatePlant, toggleFavorite, filterStates, setFilterState } = usePlantData();
   const { journals } = useJournals();
+  const { todayTasks, schedules } = useCareSchedules();
   const { accessToken } = useAuthSession();
   const [plantQuery, setPlantQuery] = useState('');
   const [assigningPlant, setAssigningPlant] = useState<OwnedPlant | null>(null);
@@ -128,20 +129,46 @@ function EmptyPage({ kind }: { kind: PageKind }) {
   }
   if (kind === 'plants') {
     const normalized = plantQuery.trim().toLocaleLowerCase();
-    const visiblePlants = ownedPlants.filter((plant) => `${plant.name} ${plant.scientificName} ${plant.location}`.toLocaleLowerCase().includes(normalized) && matchesPlantFilters({ ...plant, id: plant.catalogId }, pageFilters));
+    const visiblePlants = ownedPlants.filter((plant) => (
+      `${plant.name} ${plant.scientificName} ${plant.location}`.toLocaleLowerCase().includes(normalized)
+      && matchesPlantFilters(toOwnedFilterPlant(plant, journals, todayTasks, schedules, favorites.includes(plant.catalogId)), pageFilters)
+    ));
     const favoritePlants = catalog.filter((plant) => favorites.includes(plant.id));
     return <>
       <View style={s.search}><Text style={s.searchGlyph}>⌕</Text><TextInput value={plantQuery} onChangeText={setPlantQuery} placeholder="Tìm theo tên cây, loài hoặc vị trí..." placeholderTextColor={C.mutedText} style={s.searchInput} /></View>
       <View style={s.managementActions}><Action label="＋  Thêm cây" onPress={() => router.push('/garden/add-plant' as never)} /><Action label="Lọc cây" muted onPress={() => openFilter('plants')} /></View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.pills}>{[`Cây đang sở hữu (${ownedPlants.length})`, 'Khám phá & tìm cây'].map((x, i) => <Pressable key={x} onPress={() => i === 1 && router.push('/search' as never)}><Tag tone={i === 0 ? 'mint' : 'plain'}>{x}</Tag></Pressable>)}</ScrollView>
       <Section title="Cây đang sở hữu" hint={`${visiblePlants.length} cây`}>
-        {visiblePlants.length === 0 ? <EmptyCard icon="♧" title={plantQuery ? 'Không tìm thấy cây phù hợp' : 'Vườn của bạn chưa có cây'} description={plantQuery ? 'Thử tên cây, tên khoa học hoặc vị trí khác.' : 'Thêm cây đầu tiên để bắt đầu quản lý hồ sơ cây trồng.'} action={plantQuery ? undefined : '＋  Thêm cây đầu tiên'} onPress={plantQuery ? undefined : () => router.push('/garden/add-plant' as never)} /> : visiblePlants.map((plant) => <View key={plant.id} style={s.plantCard}>
-          <View style={s.rowTop}><PlantArtwork style={s.plantImage} category={plant.category} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : undefined} accessToken={accessToken} /><View style={s.cardCopy}><Text style={s.cardTitle}>{plant.name}</Text><Text style={s.latin}>{plant.scientificName}</Text><Text style={s.body}>{plant.category} • {plant.location}</Text><Text style={s.body}>Ngày thêm: {plant.plantedAt || 'Chưa có dữ liệu'} • Tình trạng: Chưa đánh giá</Text></View></View>
-          <View style={s.row}><Action label="Chi tiết" muted onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id } } as never)} /><Action label="Chỉnh sửa" muted onPress={() => router.push({ pathname: '/garden/add-plant', params: { editId: plant.id } } as never)} /><Action label="Xóa" muted onPress={() => Alert.alert('Xóa cây', `Xóa hồ sơ “${plant.name}” khỏi danh sách của bạn?`, [{ text: 'Hủy', style: 'cancel' }, { text: 'Xóa', style: 'destructive', onPress: () => void removePlant(plant.id) }])} /></View>
-        </View>)}
+        {visiblePlants.length === 0 ? <EmptyCard icon="♧" title={plantQuery ? 'Không tìm thấy cây phù hợp' : 'Vườn của bạn chưa có cây'} description={plantQuery ? 'Thử tên cây, tên khoa học hoặc vị trí khác.' : 'Thêm cây đầu tiên để bắt đầu quản lý hồ sơ cây trồng.'} action={plantQuery ? undefined : '＋  Thêm cây đầu tiên'} onPress={plantQuery ? undefined : () => router.push('/garden/add-plant' as never)} /> : visiblePlants.map((plant) => {
+          const healthLabel = getLatestHealthLabel(plant.id, journals);
+          return <View key={plant.id} style={s.plantCard}>
+            <View style={s.rowTop}><PlantArtwork style={s.plantImage} category={plant.category} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : undefined} accessToken={accessToken} /><View style={s.cardCopy}><Text style={s.cardTitle}>{plant.name}</Text><Text style={s.latin}>{plant.scientificName}</Text><Text style={s.body}>{plant.category} • {plant.location || 'Chưa có vị trí'}</Text><Text style={s.body}>Ngày thêm: {plant.plantedAt || 'Chưa có dữ liệu'} • Tình trạng: {healthLabel}</Text></View></View>
+            <View style={s.row}><Action label="Chi tiết" muted onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id } } as never)} /><Action label="Chỉnh sửa" muted onPress={() => router.push({ pathname: '/garden/add-plant', params: { editId: plant.id } } as never)} /><Action label="Xóa" muted onPress={() => Alert.alert('Xóa cây', `Xóa hồ sơ “${plant.name}” khỏi danh sách của bạn?`, [{ text: 'Hủy', style: 'cancel' }, { text: 'Xóa', style: 'destructive', onPress: () => void removePlant(plant.id) }])} /></View>
+          </View>;
+        })}
       </Section>
       <Section title="Cây trồng mong muốn" hint={`${favoritePlants.length} cây đã lưu`}>
-        {favoritePlants.length === 0 ? <EmptyCard icon="♡" title="Chưa có cây yêu thích" description="Khám phá thư viện cây để xem thông tin và đánh dấu yêu thích." action="Khám phá cây" onPress={() => router.push('/search' as never)} /> : favoritePlants.map((plant) => <View key={plant.id} style={s.rowCard}><PlantArtwork style={s.plantImage} category={plant.category} /><View style={s.cardCopy}><Text style={s.cardTitle}>{plant.name}</Text><Text style={s.latin}>{plant.scientificName}</Text></View><Pressable accessibilityRole="button" accessibilityLabel={`Xem ${plant.name}`} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name } } as never)}><Text style={s.heart}>♡</Text></Pressable></View>)}
+        {favoritePlants.length === 0 ? <EmptyCard icon="♡" title="Chưa có cây yêu thích" description="Khám phá thư viện cây để xem thông tin và đánh dấu yêu thích." action="Khám phá cây" onPress={() => router.push('/search' as never)} /> : favoritePlants.map((plant) => (
+          <View key={plant.id} style={s.rowCard}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Xem ${plant.name}`}
+              onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name } } as never)}
+              style={s.rowPressMain}>
+              <PlantArtwork style={s.plantImage} category={plant.category} />
+              <View style={s.cardCopy}>
+                <Text style={s.cardTitle}>{plant.name}</Text>
+                <Text style={s.latin}>{plant.scientificName}</Text>
+              </View>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Bỏ yêu thích ${plant.name}`}
+              onPress={() => void toggleFavorite(plant.id)}>
+              <Text style={s.heart}>♥</Text>
+            </Pressable>
+          </View>
+        ))}
       </Section>
       {apiError ? <Text style={s.helperNote}>{apiError}</Text> : null}
       {isLoading ? <Text style={s.helperNote}>Đang tải dữ liệu…</Text> : null}
@@ -150,7 +177,7 @@ function EmptyPage({ kind }: { kind: PageKind }) {
   if (kind === 'journal') {
     const journalPlants = new Set(journals.map((item) => item.plantId)).size;
     const latestEntryDate = journals[0] ? formatDateVi(journals[0].entryDate) : '—';
-    const matchingJournalPlants = ownedPlants.filter((plant) => matchesPlantFilters({ ...plant, id: plant.catalogId }, pageFilters));
+    const matchingJournalPlants = ownedPlants.filter((plant) => matchesPlantFilters(toOwnedFilterPlant(plant, journals, todayTasks, schedules, favorites.includes(plant.catalogId)), pageFilters));
     return <>
       <View style={s.managementActions}>
         <Action label="＋ Thêm ghi nhận" onPress={() => router.push('/journal/new' as never)} />
@@ -223,11 +250,13 @@ function EmptyPage({ kind }: { kind: PageKind }) {
 }
 
 function PageContent({ kind }: { kind: PageKind }) {
+  const { ownedPlants, gardens } = usePlantData();
+  const { journals } = useJournals();
   const config: Record<PageKind, { title: string; subtitle: string; intro: string }> = {
-    gardens: { title: 'Trang Chủ', subtitle: 'Vườn của tôi', intro: 'Bắt đầu tạo khu vườn đầu tiên của bạn' },
-    plants: { title: 'Cây Trồng', subtitle: 'Quản lý cây trồng', intro: 'Tổng số 0 cây • 0 khu vườn' },
-    journal: { title: 'Nhật ký', subtitle: 'Nhật ký phát triển', intro: 'Chưa có ghi nhận nào' },
-    monitoring: { title: 'Theo dõi & Ghi nhận', subtitle: 'Tổng quan sức khỏe vườn', intro: 'Chưa có cây hoặc khu vườn để theo dõi' },
+    gardens: { title: 'Trang Chủ', subtitle: 'Vườn của tôi', intro: gardens.length ? `Đang quản lý ${gardens.length} khu vườn` : 'Bắt đầu tạo khu vườn đầu tiên của bạn' },
+    plants: { title: 'Cây Trồng', subtitle: 'Quản lý cây trồng', intro: `Tổng số ${ownedPlants.length} cây • ${gardens.length} khu vườn` },
+    journal: { title: 'Nhật ký', subtitle: 'Nhật ký phát triển', intro: journals.length ? `${journals.length} ghi nhận phát triển` : 'Chưa có ghi nhận nào' },
+    monitoring: { title: 'Theo dõi & Ghi nhận', subtitle: 'Tổng quan sức khỏe vườn', intro: ownedPlants.length || gardens.length ? `Theo dõi ${ownedPlants.length} cây • ${gardens.length} khu vườn` : 'Chưa có cây hoặc khu vườn để theo dõi' },
   };
   const { subtitle, intro } = config[kind];
   return <TabScreenTransition>

@@ -7,7 +7,7 @@ import { useAuthSession } from '@/features/auth/AuthSession';
 import { JOURNAL_HEALTH_META, JOURNAL_LOG_TYPE_META, useJournals } from '@/features/journal/JournalStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
 import { usePlantData, type GardenProfile, type OwnedPlant } from '@/features/plants/PlantDataStore';
-import { matchesPlantFilters } from '@/features/plants/plantFilters';
+import { matchesPlantFilters, toOwnedFilterPlant } from '@/features/plants/plantFilters';
 import { CARE_TASK_META, formatDateVi, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 import {
   apiBaseUrl,
@@ -43,7 +43,7 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
   const { accessToken } = useAuthSession();
   const { ownedPlants, gardens } = usePlantData();
   const { journals } = useJournals();
-  const { todayTasks, loadCalendar } = useCareSchedules();
+  const { todayTasks, schedules, loadCalendar } = useCareSchedules();
 
   const [calendarTasks30d, setCalendarTasks30d] = useState<ApiCareTask[]>([]);
   const [weatherByGarden, setWeatherByGarden] = useState<Record<string, ApiGardenWeather>>({});
@@ -100,8 +100,8 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
   }, [accessToken, locatedGardenIdsKey]);
 
   const filteredPlants = useMemo(
-    () => ownedPlants.filter((plant) => matchesPlantFilters({ ...plant, id: plant.catalogId }, pageFilters)),
-    [ownedPlants, pageFilters],
+    () => ownedPlants.filter((plant) => matchesPlantFilters(toOwnedFilterPlant(plant, journals, todayTasks, schedules), pageFilters)),
+    [ownedPlants, journals, todayTasks, schedules, pageFilters],
   );
 
   // Latest journal per owned plant (journals from API are ordered newest-first, sort defensively by entryDate/createdAt).

@@ -7,7 +7,9 @@ import { Linking } from 'react-native';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { usePlantData } from '@/features/plants/PlantDataStore';
+import { getLatestHealthLabel } from '@/features/plants/plantFilters';
 import { useAuthSession } from '@/features/auth/AuthSession';
+import { useJournals } from '@/features/journal/JournalStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
 import { CARE_TASK_META, formatScheduleRepeat, formatTimeShort, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 import { apiBaseUrl } from '@/services/api';
@@ -20,11 +22,14 @@ function InfoRow({ label, value }: { label: string; value?: string }) {
 
 export default function PlantDetailScreen() {
   const { name, ownedId } = useLocalSearchParams<{ name?: string; ownedId?: string }>();
-  const { catalog, ownedPlants, favorites, toggleFavorite, updatePlantPhoto } = usePlantData();
+  const { catalog, ownedPlants, gardens, favorites, toggleFavorite, updatePlantPhoto, removePlant } = usePlantData();
+  const { journals } = useJournals();
   const { schedules } = useCareSchedules();
   const { accessToken } = useAuthSession();
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const owned = ownedPlants.find((item) => item.id === ownedId);
+  const currentGarden = owned?.gardenId ? gardens.find((item) => item.id === owned.gardenId) : undefined;
+  const healthLabel = owned ? getLatestHealthLabel(owned.id, journals) : 'Chưa đánh giá';
   const plantSchedules = owned ? schedules.filter((s) => s.plantId === owned.id && s.active) : [];
   const plant = (owned && catalog.find((item) => item.id === owned.catalogId))
     ?? catalog.find((item) => item.name === name || item.scientificName === name)
@@ -67,15 +72,36 @@ export default function PlantDetailScreen() {
 
       {owned ? <View style={d.card}>
         <Text style={d.sectionTitle}>Hồ sơ cây của bạn</Text>
+        <InfoRow label="Khu vườn hiện tại" value={currentGarden?.name ?? 'Chưa phân vườn'} />
         <InfoRow label="Ngày trồng / bắt đầu chăm sóc" value={owned.plantedAt} />
         <InfoRow label="Vị trí hiện tại" value={owned.location} />
         <InfoRow label="Ghi chú" value={owned.note} />
-        <InfoRow label="Tình trạng" value="Chưa đánh giá" />
+        <InfoRow label="Tình trạng" value={healthLabel} />
         <Text style={d.note}>Hồ sơ cây được lưu trong tài khoản GoPlant của bạn.</Text>
         <Pressable accessibilityRole="button" disabled={uploadingPhoto} onPress={() => void replacePhoto()} style={[d.photoButton, uploadingPhoto && d.photoButtonDisabled]}>
           <Text style={d.photoButtonText}>{uploadingPhoto ? 'Đang tải ảnh…' : owned.photoUpdatedAt ? 'Thay ảnh cây' : 'Tải ảnh lên thay ảnh mặc định'}</Text>
         </Pressable>
       </View> : null}
+
+      {owned ? (
+        <View style={d.card}>
+          <Text style={d.sectionTitle}>Theo dõi & Nhật ký</Text>
+          <View style={d.quickLinksRow}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push({ pathname: '/journal/detail', params: { plantId: owned.id } } as never)}
+              style={d.quickLinkBtn}>
+              <Text style={d.quickLinkText}>▤ Nhật ký cây ›</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push({ pathname: '/monitoring/detail', params: { plantId: owned.id } } as never)}
+              style={d.quickLinkBtn}>
+              <Text style={d.quickLinkText}>♡ Theo dõi sức khỏe ›</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
 
       <View style={d.card}>
         <Text style={d.sectionTitle}>Thông tin nhận diện</Text>
@@ -147,7 +173,32 @@ export default function PlantDetailScreen() {
       ) : null}
 
       <View style={d.actions}>
-        {!owned ? <Pressable onPress={() => router.push({ pathname: '/garden/add-plant', params: { plantId: plant.id } } as never)} style={d.primaryButton}><Text style={d.primaryText}>＋  Thêm cây vào cây của tôi</Text></Pressable> : <Pressable onPress={() => router.push({ pathname: '/garden/add-plant', params: { editId: owned.id } } as never)} style={d.primaryButton}><Text style={d.primaryText}>Chỉnh sửa hồ sơ cây</Text></Pressable>}
+        {!owned ? (
+          <Pressable onPress={() => router.push({ pathname: '/garden/add-plant', params: { plantId: plant.id } } as never)} style={d.primaryButton}>
+            <Text style={d.primaryText}>＋  Thêm cây vào cây của tôi</Text>
+          </Pressable>
+        ) : (
+          <>
+            <Pressable onPress={() => router.push({ pathname: '/garden/add-plant', params: { editId: owned.id } } as never)} style={d.primaryButton}>
+              <Text style={d.primaryText}>Chỉnh sửa hồ sơ cây</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => Alert.alert('Xóa cây', `Xóa hồ sơ “${owned.name}” khỏi danh sách của bạn?`, [
+                { text: 'Hủy', style: 'cancel' },
+                {
+                  text: 'Xóa cây',
+                  style: 'destructive',
+                  onPress: () => void removePlant(owned.id)
+                    .then(() => router.back())
+                    .catch((error) => Alert.alert('Không thể xóa cây', error instanceof Error ? error.message : 'Vui lòng thử lại.')),
+                },
+              ])}
+              style={d.deleteButton}>
+              <Text style={d.deleteButtonText}>Xóa cây</Text>
+            </Pressable>
+          </>
+        )}
       </View>
       <Text style={d.note}>Chỉ thông tin đã được duyệt mới xuất hiện trong thư viện. Các điều kiện sinh trưởng chưa có nguồn sẽ hiển thị là chưa có dữ liệu.</Text>
     </ScrollView>
@@ -162,4 +213,9 @@ const d = StyleSheet.create({
   scheduleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
   scheduleCreateLink: { color: C.primary, fontFamily: F.semiBold, fontSize: 11 },
   scheduleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E2EAE3' },
+  quickLinksRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  quickLinkBtn: { flex: 1, minHeight: 40, paddingHorizontal: 10, borderRadius: 10, backgroundColor: C.softSurface, alignItems: 'center', justifyContent: 'center' },
+  quickLinkText: { color: C.forest, fontFamily: F.semiBold, fontSize: 11 },
+  deleteButton: { minHeight: 44, paddingHorizontal: 10, borderRadius: 10, backgroundColor: '#FCEBE9', alignItems: 'center', justifyContent: 'center' },
+  deleteButtonText: { color: '#A12D24', fontFamily: F.semiBold, fontSize: 12 },
 });

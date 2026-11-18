@@ -4,11 +4,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -37,6 +39,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import vn.goplant.backend.auth.VerificationEmailSender;
 import vn.goplant.backend.catalog.PlantCatalogController;
+import vn.goplant.backend.gardens.GardenController;
 
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
@@ -73,6 +76,7 @@ class ApiSecurityAndFlowTest {
                 .expiresAt(now.plusSeconds(900))
                 .subject(userId.toString())
                 .claim("role", role)
+                .claim("roles", List.of(role))
                 .build();
         return "Bearer " + jwtEncoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
     }
@@ -509,5 +513,182 @@ class ApiSecurityAndFlowTest {
         mockMvc.perform(delete("/api/v1/gardens/{id}/photo", gardenId)
                         .header("Authorization", memberBearer))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void plantLifecycleSupportsCreateUpdateSoftDeleteAndDeactivatesSchedules() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID catalogId = UUID.randomUUID();
+        UUID gardenId = UUID.randomUUID();
+        UUID plantId = UUID.randomUUID();
+        String memberBearer = bearerToken(userId, "member");
+        Instant now = Instant.now();
+
+        GardenController.OwnedPlant createdPlant = new GardenController.OwnedPlant(
+                plantId, catalogId, gardenId, "Trầu bà ban công", "Trầu bà lá xẻ", "Monstera deliciosa",
+                "Kệ cửa sổ", java.time.LocalDate.of(2026, 5, 1), "Tưới vừa", now, null);
+        GardenController.OwnedPlant updatedPlant = new GardenController.OwnedPlant(
+                plantId, catalogId, null, "Trầu bà phòng khách", "Trầu bà lá xẻ", "Monstera deliciosa",
+                "Góc sofa", java.time.LocalDate.of(2026, 5, 1), "Ít nắng", now, null);
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM gardens WHERE id=? AND owner_user_id=?"), eq(Integer.class), eq(gardenId), eq(userId)))
+                .thenReturn(1);
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM plant_catalog WHERE id=? AND is_active=true AND publication_status='approved'"), eq(Integer.class), eq(catalogId)))
+                .thenReturn(1);
+        when(jdbc.queryForObject(contains("FROM user_plants p JOIN plant_catalog c"), any(RowMapper.class), any(UUID.class), eq(userId)))
+                .thenReturn(createdPlant);
+
+        mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", memberBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "catalogId": "%s",
+                                  "gardenId": "%s",
+                                  "displayName": "Trầu bà ban công",
+                                  "specificLocation": "Kệ cửa sổ",
+                                  "plantedOn": "2026-05-01",
+                                  "note": "Tưới vừa"
+                                }
+                                """.formatted(catalogId, gardenId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.displayName").value("Trầu bà ban công"))
+                .andExpect(jsonPath("$.gardenId").value(gardenId.toString()));
+
+        when(jdbc.update(contains("UPDATE user_plants SET display_name=?"), any(Object[].class))).thenReturn(1);
+        when(jdbc.queryForObject(contains("FROM user_plants p JOIN plant_catalog c"), any(RowMapper.class), eq(plantId), eq(userId)))
+                .thenReturn(updatedPlant);
+
+        mockMvc.perform(put("/api/v1/plants/{id}", plantId)
+                        .header("Authorization", memberBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "displayName": "Trầu bà phòng khách",
+                                  "gardenId": null,
+                                  "specificLocation": "Góc sofa",
+                                  "plantedOn": "2026-05-01",
+                                  "note": "Ít nắng"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayName").value("Trầu bà phòng khách"))
+                .andExpect(jsonPath("$.specificLocation").value("Góc sofa"));
+
+        when(jdbc.update(contains("UPDATE user_plants SET archived_at=now(),updated_at=now()"), eq(plantId), eq(userId)))
+                .thenReturn(1);
+
+        mockMvc.perform(delete("/api/v1/plants/{id}", plantId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNoContent());
+
+        verify(jdbc).update(contains("UPDATE user_plants SET archived_at=now(),updated_at=now()"), eq(plantId), eq(userId));
+        verify(jdbc).update(contains("UPDATE care_schedules SET is_active=false"), eq(plantId), eq(userId));
+        verify(jdbc).update(contains("DELETE FROM care_tasks WHERE user_plant_id=? AND owner_user_id=? AND status='pending'"), eq(plantId), eq(userId));
+    }
+
+    @Test
+    void plantPhotoEndpointsEnforceAuthOwnershipValidationAndLifecycle() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID plantId = UUID.randomUUID();
+        UUID foreignPlantId = UUID.randomUUID();
+        String memberBearer = bearerToken(userId, "member");
+
+        ByteArrayOutputStream pngOut = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", pngOut);
+        MockMultipartFile validPng = new MockMultipartFile("file", "plant.png", MediaType.IMAGE_PNG_VALUE, pngOut.toByteArray());
+        MockMultipartFile invalidFile = new MockMultipartFile("file", "bad.txt", MediaType.TEXT_PLAIN_VALUE, "not-an-image".getBytes());
+
+        mockMvc.perform(get("/api/v1/plants/{id}/photo", plantId))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(multipart("/api/v1/plants/{id}/photo", plantId)
+                        .file(invalidFile)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isUnsupportedMediaType());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM user_plants WHERE id=? AND owner_user_id=? AND archived_at IS NULL"), eq(Integer.class), eq(foreignPlantId), eq(userId)))
+                .thenReturn(0);
+        mockMvc.perform(multipart("/api/v1/plants/{id}/photo", foreignPlantId)
+                        .file(validPng)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(delete("/api/v1/plants/{id}/photo", foreignPlantId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM user_plants WHERE id=? AND owner_user_id=? AND archived_at IS NULL"), eq(Integer.class), eq(plantId), eq(userId)))
+                .thenReturn(1);
+        mockMvc.perform(multipart("/api/v1/plants/{id}/photo", plantId)
+                        .file(validPng)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNoContent());
+
+        when(jdbc.query(contains("FROM user_plant_photos ph"), any(RowMapper.class), eq(plantId), eq(userId)))
+                .thenReturn(List.of());
+        mockMvc.perform(get("/api/v1/plants/{id}/photo", plantId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(delete("/api/v1/plants/{id}/photo", plantId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void catalogFavoritesAndAdminUpdateEnforceAuthRolesAndValidation() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        UUID catalogId = UUID.randomUUID();
+        UUID missingCatalogId = UUID.randomUUID();
+        String memberBearer = bearerToken(userId, "member");
+        String adminBearer = bearerToken(adminId, "admin");
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM plant_catalog WHERE id=? AND is_active=true AND publication_status='approved'"), eq(Integer.class), eq(missingCatalogId)))
+                .thenReturn(0);
+        mockMvc.perform(post("/api/v1/catalog/plants/{id}/favorite", missingCatalogId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM plant_catalog WHERE id=? AND is_active=true AND publication_status='approved'"), eq(Integer.class), eq(catalogId)))
+                .thenReturn(1);
+        mockMvc.perform(post("/api/v1/catalog/plants/{id}/favorite", catalogId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(delete("/api/v1/catalog/plants/{id}/favorite", catalogId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNoContent());
+
+        String updateBody = """
+                {
+                  "commonName": "Trầu bà lá xẻ",
+                  "scientificName": "Monstera deliciosa",
+                  "category": "Cây nội thất",
+                  "difficulty": "Dễ",
+                  "lightRequirement": "Ánh sáng gián tiếp vừa",
+                  "waterFrequencyDays": 5
+                }
+                """;
+        mockMvc.perform(put("/api/v1/admin/catalog/plants/{id}", catalogId)
+                        .header("Authorization", memberBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updateBody))
+                .andExpect(status().isForbidden());
+
+        PlantCatalogController.Plant updatedCatalog = new PlantCatalogController.Plant(
+                catalogId, "Trầu bà lá xẻ", "Monstera deliciosa", "Cây nội thất",
+                "Dễ", "Ánh sáng gián tiếp vừa", 5, null, null, null, null, null);
+        when(jdbc.update(contains("UPDATE plant_catalog"), any(Object[].class))).thenReturn(1);
+        when(jdbc.queryForObject(contains("FROM plant_catalog WHERE id=?"), any(RowMapper.class), eq(catalogId)))
+                .thenReturn(updatedCatalog);
+
+        mockMvc.perform(put("/api/v1/admin/catalog/plants/{id}", catalogId)
+                        .header("Authorization", adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updateBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.commonName").value("Trầu bà lá xẻ"))
+                .andExpect(jsonPath("$.waterFrequencyDays").value(5));
     }
 }
