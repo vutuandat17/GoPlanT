@@ -123,7 +123,12 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return response.json() as Promise<T>;
 }
 
-export async function uploadPlantPhoto(plantId: string, token: string, photo: { uri: string; mimeType?: string | null; fileName?: string | null }) {
+async function uploadPhoto(
+  endpoint: string,
+  defaultFileName: string,
+  token: string,
+  photo: { uri: string; mimeType?: string | null; fileName?: string | null },
+) {
   if (!apiBaseUrl) throw new ApiError('Chưa cấu hình EXPO_PUBLIC_API_URL.');
   const mimeType = photo.mimeType ?? (photo.fileName?.toLocaleLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
   if (mimeType !== 'image/jpeg' && mimeType !== 'image/png') {
@@ -131,10 +136,10 @@ export async function uploadPlantPhoto(plantId: string, token: string, photo: { 
   }
   const file = new File(photo.uri);
   const body = new FormData();
-  body.append('file', file, photo.fileName ?? `plant-${plantId}.jpg`);
+  body.append('file', file, photo.fileName ?? defaultFileName);
   let response: Response;
   try {
-    response = await expoFetch(`${apiBaseUrl}/api/v1/plants/${plantId}/photo`, {
+    response = await expoFetch(`${apiBaseUrl}${endpoint}`, {
       method: 'POST', headers: { Accept: 'application/json', Authorization: `Bearer ${token}` }, body,
     });
   } catch (error) {
@@ -149,6 +154,22 @@ export async function uploadPlantPhoto(plantId: string, token: string, photo: { 
     } catch { /* Keep the status-based message when the response has no JSON body. */ }
     throw new ApiError(message, response.status);
   }
+}
+
+export function uploadPlantPhoto(plantId: string, token: string, photo: { uri: string; mimeType?: string | null; fileName?: string | null }) {
+  return uploadPhoto(`/api/v1/plants/${plantId}/photo`, `plant-${plantId}.jpg`, token, photo);
+}
+
+export function uploadGardenPhoto(gardenId: string, token: string, photo: { uri: string; mimeType?: string | null; fileName?: string | null }) {
+  return uploadPhoto(`/api/v1/gardens/${gardenId}/photo`, `garden-${gardenId}.jpg`, token, photo);
+}
+
+export function deleteGardenPhoto(gardenId: string, token: string) {
+  return apiRequest<void>(`/api/v1/gardens/${gardenId}/photo`, { method: 'DELETE', token });
+}
+
+export function getGardenPhotoUri(gardenId: string, photoUpdatedAt?: string | null) {
+  return photoUpdatedAt && apiBaseUrl ? `${apiBaseUrl}/api/v1/gardens/${gardenId}/photo?v=${encodeURIComponent(photoUpdatedAt)}` : null;
 }
 
 export type ApiUser = { id: string; email: string; displayName: string; roles: string[]; timezone?: string };
@@ -254,6 +275,7 @@ export type ApiGarden = {
   locationSource?: 'province' | 'gps' | null;
   createdAt: string;
   updatedAt: string;
+  photoUpdatedAt?: string | null;
 };
 
 export type ApiGardenRequest = {

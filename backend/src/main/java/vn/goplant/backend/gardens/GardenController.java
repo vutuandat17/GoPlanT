@@ -41,25 +41,29 @@ public class GardenController {
     public GardenController(JdbcTemplate jdbc, CareScheduleService care) { this.jdbc = jdbc; this.care = care; }
 
     private static final String GARDEN_COLUMNS =
-            "id,name,location_type,location_detail,description,province_code,latitude,longitude,location_source,created_at,updated_at";
+            "g.id,g.name,g.location_type,g.location_detail,g.description,g.province_code,g.latitude,g.longitude,g.location_source,g.created_at,g.updated_at,ph.updated_at AS photo_updated_at";
+    private static final String GARDEN_FROM =
+            " FROM gardens g LEFT JOIN garden_photos ph ON ph.garden_id=g.id";
 
     private static final RowMapper<Garden> GARDEN_MAPPER = (rs, row) -> {
         String provinceCode = rs.getString("province_code");
         Object latitude = rs.getObject("latitude");
         Object longitude = rs.getObject("longitude");
+        var photoUpdatedAt = rs.getTimestamp("photo_updated_at");
         return new Garden(rs.getObject("id", UUID.class), rs.getString("name"), rs.getString("location_type"),
                 rs.getString("location_detail"), rs.getString("description"), provinceCode,
                 VietnamProvinces.find(provinceCode).map(VietnamProvinces.Province::name).orElse(null),
                 latitude instanceof Number n ? n.doubleValue() : null,
                 longitude instanceof Number n ? n.doubleValue() : null,
                 rs.getString("location_source"),
-                rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant());
+                rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(),
+                photoUpdatedAt == null ? null : photoUpdatedAt.toInstant());
     };
 
     @GetMapping("/gardens")
     public List<Garden> gardens(@AuthenticationPrincipal Jwt jwt) {
         UUID owner = owner(jwt);
-        return jdbc.query("SELECT " + GARDEN_COLUMNS + " FROM gardens WHERE owner_user_id=? ORDER BY created_at DESC", GARDEN_MAPPER, owner);
+        return jdbc.query("SELECT " + GARDEN_COLUMNS + GARDEN_FROM + " WHERE g.owner_user_id=? ORDER BY g.created_at DESC", GARDEN_MAPPER, owner);
     }
 
     @PostMapping("/gardens")
@@ -73,7 +77,7 @@ public class GardenController {
                 """,
                 id, owner, request.name().trim(), request.locationType(), blankToNull(request.locationDetail()), blankToNull(request.description()),
                 location.provinceCode(), location.latitude(), location.longitude(), location.source());
-        return jdbc.queryForObject("SELECT " + GARDEN_COLUMNS + " FROM gardens WHERE id=?", GARDEN_MAPPER, id);
+        return jdbc.queryForObject("SELECT " + GARDEN_COLUMNS + GARDEN_FROM + " WHERE g.id=?", GARDEN_MAPPER, id);
     }
 
     @PutMapping("/gardens/{id}")
@@ -88,7 +92,7 @@ public class GardenController {
                 request.name().trim(), request.locationType(), blankToNull(request.locationDetail()), blankToNull(request.description()),
                 location.provinceCode(), location.latitude(), location.longitude(), location.source(), id, owner);
         if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        return jdbc.queryForObject("SELECT " + GARDEN_COLUMNS + " FROM gardens WHERE id=? AND owner_user_id=?", GARDEN_MAPPER, id, owner);
+        return jdbc.queryForObject("SELECT " + GARDEN_COLUMNS + GARDEN_FROM + " WHERE g.id=? AND g.owner_user_id=?", GARDEN_MAPPER, id, owner);
     }
 
     @DeleteMapping("/gardens/{id}")
@@ -208,7 +212,7 @@ public class GardenController {
 
     public record Garden(UUID id, String name, String locationType, String locationDetail, String description,
                          String provinceCode, String provinceName, Double latitude, Double longitude, String locationSource,
-                         Instant createdAt, Instant updatedAt) {}
+                         Instant createdAt, Instant updatedAt, Instant photoUpdatedAt) {}
     public record GardenRequest(@NotBlank @Size(max=160) String name,
                                 @NotNull @Pattern(regexp="balcony|rooftop|garden|indoor|greenhouse|other") String locationType,
                                 @Size(max=240) String locationDetail, String description,

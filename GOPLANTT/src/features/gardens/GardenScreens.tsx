@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -7,10 +8,13 @@ import { SafeAreaView } from '@/components/app-primitives';
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { AccountButton } from '@/features/auth/AccountButton';
 import { useAuthSession } from '@/features/auth/AuthSession';
+import { GardenArtwork } from '@/features/gardens/GardenArtwork';
+import { GardenPickerModal } from '@/features/gardens/GardenPickerModal';
+import { useJournals } from '@/features/journal/JournalStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
-import { usePlantData } from '@/features/plants/PlantDataStore';
-import { useCareSchedules } from '@/features/schedule/CareScheduleStore';
-import { ApiError, apiBaseUrl, fetchGardenWeather, fetchWeatherProvinces, type ApiGardenWeather, type ApiProvince } from '@/services/api';
+import { usePlantData, type OwnedPlant } from '@/features/plants/PlantDataStore';
+import { CARE_TASK_META, useCareSchedules } from '@/features/schedule/CareScheduleStore';
+import { ApiError, apiBaseUrl, fetchGardenWeather, fetchWeatherProvinces, getGardenPhotoUri, type ApiGardenWeather, type ApiProvince } from '@/services/api';
 
 function GardenHeader({ title }: { title: string }) {
   return <View style={g.header}><Pressable onPress={() => router.back()} style={g.back}><Text style={g.backText}>‹</Text></Pressable><Text style={g.headerTitle}>{title}</Text><AccountButton size={29} /></View>;
@@ -22,13 +26,90 @@ function ActionButton({ label, secondary = false, onPress }: { label: string; se
 
 export function GardenDetailScreen() {
   const { gardenId } = useLocalSearchParams<{ gardenId?: string }>();
-  const { gardens, ownedPlants, catalog, removePlant, removeGarden } = usePlantData();
-  const { todayTasks } = useCareSchedules();
+  const { gardens, ownedPlants, catalog, updatePlant, removePlant, removeGarden, updateGardenPhoto, removeGardenPhoto } = usePlantData();
+  const { todayTasks, completeTask } = useCareSchedules();
+  const { journals } = useJournals();
   const { accessToken } = useAuthSession();
   const garden = gardens.find((item) => item.id === gardenId);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  const replaceGardenPhoto = async () => {
+    if (!garden) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Cần quyền truy cập ảnh', 'Cho phép GoPlant truy cập thư viện ảnh để chọn ảnh khu vườn.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [16, 9], quality: 0.85 });
+    if (result.canceled || !result.assets[0]) return;
+    setUploadingPhoto(true);
+    try {
+      const asset = result.assets[0];
+      await updateGardenPhoto(garden.id, { uri: asset.uri, mimeType: asset.mimeType, fileName: asset.fileName });
+      Alert.alert('Đã cập nhật ảnh', 'Ảnh bìa khu vườn đã được lưu.');
+    } catch (error) {
+      Alert.alert('Không tải được ảnh', error instanceof Error ? error.message : 'Vui lòng thử ảnh JPEG hoặc PNG dưới 5 MB.');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const confirmDeleteGardenPhoto = () => {
+    if (!garden || !garden.photoUpdatedAt) return;
+    Alert.alert('Xóa ảnh bìa', 'Khôi phục ảnh mặc định cho khu vườn này?', [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Xóa ảnh',
+        style: 'destructive',
+        onPress: () => {
+          setUploadingPhoto(true);
+          void removeGardenPhoto(garden.id)
+            .catch((error) => Alert.alert('Không xóa được ảnh', error instanceof Error ? error.message : 'Vui lòng thử lại.'))
+            .finally(() => setUploadingPhoto(false));
+        },
+      },
+    ]);
+  };
   const plants = ownedPlants.filter((plant) => plant.gardenId === gardenId);
   const gardenPlantIds = new Set(plants.map((p) => p.id));
-  const pendingTodayCount = todayTasks.filter((t) => t.status === 'pending' && gardenPlantIds.has(t.plantId)).length;
+  const gardenPendingTasks = todayTasks.filter((t) => t.status === 'pending' && gardenPlantIds.has(t.plantId));
+  const pendingTodayCount = gardenPendingTasks.length;
+
+  // Health summary from latest journal of each plant in this garden
+  const healthSummary = (() => {
+    const latestStatus = new Map<string, string>();
+    const sorted = [...journals].sort((a, b) => b.entryDate.localeCompare(a.entryDate) || b.createdAt.localeCompare(a.createdAt));
+    for (const entry of sorted) {
+      if (gardenPlantIds.has(entry.plantId) && !latestStatus.has(entry.plantId)) {
+        latestStatus.set(entry.plantId, entry.healthStatus);
+      }
+    }
+    let healthy = 0;
+    let attention = 0;
+    for (const p of plants) {
+      const st = latestStatus.get(p.id);
+      if (st === 'warning' || st === 'critical') attention += 1;
+      else healthy += 1;
+    }
+    return { healthy, attention };
+  })();
+
+  const [movingPlant, setMovingPlant] = useState<OwnedPlant | null>(null);
+  const [moveBusy, setMoveBusy] = useState(false);
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+
+  const handleMovePlant = async (nextGardenId: string | null) => {
+    if (!movingPlant) return;
+    setMoveBusy(true);
+    try {
+      await updatePlant(movingPlant.id, { ...movingPlant, gardenId: nextGardenId });
+      setMovingPlant(null);
+    } catch (err) {
+      Alert.alert('Không thể chuyển vườn', err instanceof Error ? err.message : 'Vui lòng thử lại.');
+    } finally {
+      setMoveBusy(false);
+    }
+  };
   const [weather, setWeather] = useState<ApiGardenWeather | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState('');
@@ -59,10 +140,77 @@ export function GardenDetailScreen() {
 
   return <SafeAreaView style={g.safe} edges={['top']}><GardenHeader title="Chi tiết khu vườn"/><ScrollView contentContainerStyle={g.content}>
     {!garden ? <View style={g.card}><Text style={g.sectionTitle}>Không tìm thấy khu vườn</Text><Text style={g.body}>Danh sách có thể đã thay đổi hoặc khu vườn đã bị xóa.</Text><ActionButton label="Về danh sách vườn" onPress={() => router.replace('/gardens' as never)}/></View> : <>
-      <View style={g.hero}><Text style={g.heroPlant}>♧</Text><Text style={g.heroLabel}>{garden.locationType.toLocaleUpperCase()}</Text></View>
+      <GardenArtwork
+        locationType={garden.locationType}
+        photoUri={getGardenPhotoUri(garden.id, garden.photoUpdatedAt)}
+        accessToken={accessToken}
+        style={g.hero}
+        glyphStyle={g.heroPlant}
+        labelStyle={g.heroLabel}
+      />
+      <View style={g.photoActionsRow}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={uploadingPhoto}
+          onPress={() => void replaceGardenPhoto()}
+          style={[g.photoBtn, uploadingPhoto && g.photoBtnDisabled]}>
+          <Text style={g.photoBtnText}>{uploadingPhoto ? 'Đang tải ảnh…' : 'Đổi ảnh khu vườn'}</Text>
+        </Pressable>
+        {garden.photoUpdatedAt ? (
+          <Pressable
+            accessibilityRole="button"
+            disabled={uploadingPhoto}
+            onPress={confirmDeleteGardenPhoto}
+            style={[g.photoDeleteBtn, uploadingPhoto && g.photoBtnDisabled]}>
+            <Text style={g.photoDeleteBtnText}>Xóa ảnh</Text>
+          </Pressable>
+        ) : null}
+      </View>
       <Text style={g.title}>{garden.name}</Text>
       <Text style={g.body}>⌖  {garden.locationDetail || 'Chưa có vị trí cụ thể'}{locationSummary ? ` • ${locationSummary}` : ''}</Text>
-      <View style={g.card}><Text style={g.sectionTitle}>Tổng quan khu vườn</Text><Text style={g.body}>{garden.description || 'Chưa có mô tả.'}</Text><Text style={g.body}>{plants.length} cây đang trồng</Text><Pressable onPress={() => router.push('/schedule' as never)}><Text style={g.link}>{pendingTodayCount > 0 ? `◷ ${pendingTodayCount} việc chăm sóc cần làm hôm nay ›` : '◷ Xem lịch chăm sóc ›'}</Text></Pressable></View>
+      <View style={g.card}>
+        <Text style={g.sectionTitle}>Tổng quan khu vườn</Text>
+        <Text style={g.body}>{garden.description || 'Chưa có mô tả.'}</Text>
+        <Text style={g.body}>{plants.length} cây đang trồng</Text>
+        {plants.length > 0 ? (
+          <View style={g.healthBadgesRow}>
+            <Text style={g.healthMintBadge}>🌿 {healthSummary.healthy} khỏe mạnh</Text>
+            {healthSummary.attention > 0 ? (
+              <Text style={g.healthWarnBadge}>⚠ {healthSummary.attention} cần theo dõi</Text>
+            ) : null}
+          </View>
+        ) : null}
+        <Pressable onPress={() => router.push('/schedule' as never)}><Text style={g.link}>{pendingTodayCount > 0 ? `◷ ${pendingTodayCount} việc chăm sóc cần làm hôm nay ›` : '◷ Xem lịch chăm sóc ›'}</Text></Pressable>
+      </View>
+
+      {gardenPendingTasks.length > 0 ? (
+        <View style={g.taskBannerCard}>
+          <View style={g.row}>
+            <Text style={g.sectionTitle}>Hôm nay vườn này có {gardenPendingTasks.length} việc cần làm</Text>
+            <Pressable onPress={() => router.push('/schedule' as never)}><Text style={g.link}>Tất cả ›</Text></Pressable>
+          </View>
+          {gardenPendingTasks.slice(0, 4).map((task) => {
+            const meta = CARE_TASK_META[task.taskType] ?? CARE_TASK_META.other;
+            const busy = completingTaskId === task.id;
+            return (
+              <View key={task.id} style={g.gardenTaskRow}>
+                <View style={g.plantCopy}>
+                  <Text style={g.plantName}>{meta.emoji} {task.title || meta.label} · {task.plantName}</Text>
+                </View>
+                <Pressable
+                  disabled={busy}
+                  onPress={() => {
+                    setCompletingTaskId(task.id);
+                    void completeTask(task.id).finally(() => setCompletingTaskId(null));
+                  }}
+                  style={g.quickDoneBtn}>
+                  <Text style={g.quickDoneText}>{busy ? '...' : '✓ Xong'}</Text>
+                </Pressable>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
       <View style={g.card}>
         <View style={g.row}>
           <Text style={g.sectionTitle}>Thời tiết & Môi trường</Text>
@@ -117,12 +265,41 @@ export function GardenDetailScreen() {
         ) : null}
       </View>
       <View style={g.row}><Text style={g.sectionTitle}>Cây đang trồng ({plants.length})</Text><Pressable onPress={() => router.push({ pathname: '/garden/add-plant', params: { gardenId: garden.id } } as never)}><Text style={g.link}>＋ Thêm cây</Text></Pressable></View>
-      {plants.map((plant) => <View key={plant.id} style={g.plantCard}><PlantArtwork category={catalog.find((item) => item.id === plant.catalogId)?.category ?? 'Cây trồng'} accessToken={accessToken} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{plant.name}</Text><Text style={g.body}>{plant.scientificName} • {plant.location || 'Chưa có vị trí cụ thể'}</Text></View><Pressable accessibilityRole="button" accessibilityLabel={`Xem chi tiết ${plant.name}`} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id } } as never)}><Text style={g.link}>›</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel={`Xóa ${plant.name} khỏi vườn`} onPress={() => Alert.alert('Xóa cây', `Xóa hồ sơ “${plant.name}” khỏi tài khoản?`, [{ text: 'Hủy', style: 'cancel' }, { text: 'Xóa cây', style: 'destructive', onPress: () => void removePlant(plant.id).catch((error) => Alert.alert('Không thể xóa cây', error instanceof Error ? error.message : 'Vui lòng thử lại.')) }])}><Text style={g.deleteLink}>Xóa</Text></Pressable></View>)}
+      {plants.map((plant) => (
+        <View key={plant.id} style={g.plantCard}>
+          <PlantArtwork category={catalog.find((item) => item.id === plant.catalogId)?.category ?? 'Cây trồng'} accessToken={accessToken} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null} style={g.plantImage}/>
+          <View style={g.plantCopy}>
+            <Text style={g.plantName}>{plant.name}</Text>
+            <Text style={g.body}>{plant.scientificName} • {plant.location || 'Chưa có vị trí cụ thể'}</Text>
+          </View>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Chuyển vườn cho ${plant.name}`} onPress={() => setMovingPlant(plant)} style={g.moveBtn}>
+            <Text style={g.moveBtnText}>Chuyển</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Xem chi tiết ${plant.name}`} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id } } as never)}>
+            <Text style={g.link}>›</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Xóa ${plant.name} khỏi vườn`} onPress={() => Alert.alert('Xóa cây', `Xóa hồ sơ “${plant.name}” khỏi tài khoản?`, [{ text: 'Hủy', style: 'cancel' }, { text: 'Xóa cây', style: 'destructive', onPress: () => void removePlant(plant.id).catch((error) => Alert.alert('Không thể xóa cây', error instanceof Error ? error.message : 'Vui lòng thử lại.')) }])}>
+            <Text style={g.deleteLink}>Xóa</Text>
+          </Pressable>
+        </View>
+      ))}
       {plants.length === 0 ? <Text style={g.note}>Khu vườn chưa có cây.</Text> : null}
       <ActionButton label="Chỉnh sửa thông tin vườn" onPress={() => router.push({ pathname: '/garden/create', params: { editGardenId: garden.id } } as never)}/>
       <ActionButton secondary label="Xóa khu vườn" onPress={() => Alert.alert('Xóa khu vườn', 'Cây trong vườn sẽ được giữ lại và chuyển sang trạng thái chưa phân vườn.', [{ text: 'Hủy', style: 'cancel' }, { text: 'Xóa vườn', style: 'destructive', onPress: () => void removeGarden(garden.id).then(() => router.replace('/gardens' as never)).catch((error) => Alert.alert('Không thể xóa vườn', error instanceof Error ? error.message : 'Vui lòng thử lại.')) }])}/>
     </>}
-  </ScrollView></SafeAreaView>;
+  </ScrollView>
+  <GardenPickerModal
+    visible={Boolean(movingPlant)}
+    title="Chuyển cây sang vườn khác"
+    subtitle={movingPlant ? `Chọn khu vườn mới cho “${movingPlant.name}”.` : undefined}
+    gardens={gardens}
+    currentGardenId={garden?.id}
+    allowUnassign
+    busy={moveBusy}
+    onSelect={(id) => void handleMovePlant(id)}
+    onClose={() => setMovingPlant(null)}
+  />
+  </SafeAreaView>;
 }
 
 function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
@@ -402,4 +579,19 @@ const g = StyleSheet.create({
   pickBtnActive: { backgroundColor: C.primary, borderColor: C.primary },
   pickBtnText: { color: C.forest, fontFamily: F.semiBold, fontSize: 11 },
   pickBtnTextActive: { color: C.surface },
+  healthBadgesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  healthMintBadge: { overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 99, backgroundColor: '#D5F2E1', color: C.forest, fontFamily: F.semiBold, fontSize: 10 },
+  healthWarnBadge: { overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 99, backgroundColor: C.peach, color: C.terracotta, fontFamily: F.semiBold, fontSize: 10 },
+  taskBannerCard: { padding: 11, borderRadius: 14, backgroundColor: '#E6F5ED', borderWidth: 1, borderColor: '#BCE6CD', gap: 8 },
+  gardenTaskRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#C8E5D3' },
+  quickDoneBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 99, backgroundColor: C.primary },
+  quickDoneText: { color: C.surface, fontFamily: F.semiBold, fontSize: 11 },
+  moveBtn: { paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, backgroundColor: C.softSurface },
+  moveBtnText: { color: C.forest, fontFamily: F.semiBold, fontSize: 10 },
+  photoActionsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  photoBtn: { flex: 1, minHeight: 38, borderRadius: 10, backgroundColor: C.softSurface, borderWidth: 1, borderColor: '#CBE3D3', alignItems: 'center', justifyContent: 'center' },
+  photoBtnDisabled: { opacity: 0.6 },
+  photoBtnText: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 },
+  photoDeleteBtn: { minHeight: 38, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#FCEBE9', alignItems: 'center', justifyContent: 'center' },
+  photoDeleteBtnText: { color: '#A12D24', fontFamily: F.semiBold, fontSize: 12 },
 });

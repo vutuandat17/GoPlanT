@@ -7,14 +7,19 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -455,5 +460,54 @@ class ApiSecurityAndFlowTest {
         mockMvc.perform(delete("/api/v1/gardens/{id}", foreignGardenId)
                         .header("Authorization", memberBearer))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void gardenPhotoEndpointsEnforceAuthOwnershipValidationAndLifecycle() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID gardenId = UUID.randomUUID();
+        UUID foreignGardenId = UUID.randomUUID();
+        String memberBearer = bearerToken(userId, "member");
+
+        ByteArrayOutputStream pngOut = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", pngOut);
+        byte[] pngBytes = pngOut.toByteArray();
+        MockMultipartFile validPng = new MockMultipartFile("file", "garden.png", MediaType.IMAGE_PNG_VALUE, pngBytes);
+        MockMultipartFile invalidFile = new MockMultipartFile("file", "bad.txt", MediaType.TEXT_PLAIN_VALUE, "not-an-image".getBytes());
+
+        mockMvc.perform(get("/api/v1/gardens/{id}/photo", gardenId))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(multipart("/api/v1/gardens/{id}/photo", gardenId)
+                        .file(invalidFile)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isUnsupportedMediaType());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM gardens WHERE id=? AND owner_user_id=?"), eq(Integer.class), eq(foreignGardenId), eq(userId)))
+                .thenReturn(0);
+        mockMvc.perform(multipart("/api/v1/gardens/{id}/photo", foreignGardenId)
+                        .file(validPng)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(delete("/api/v1/gardens/{id}/photo", foreignGardenId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM gardens WHERE id=? AND owner_user_id=?"), eq(Integer.class), eq(gardenId), eq(userId)))
+                .thenReturn(1);
+        mockMvc.perform(multipart("/api/v1/gardens/{id}/photo", gardenId)
+                        .file(validPng)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNoContent());
+
+        when(jdbc.query(contains("FROM garden_photos ph"), any(RowMapper.class), eq(gardenId), eq(userId)))
+                .thenReturn(List.of());
+        mockMvc.perform(get("/api/v1/gardens/{id}/photo", gardenId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(delete("/api/v1/gardens/{id}/photo", gardenId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNoContent());
     }
 }

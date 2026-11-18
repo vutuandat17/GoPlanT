@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { useAuthSession } from '@/features/auth/AuthSession';
-import { apiRequest, fetchCatalogPlants, fetchOwnedPlants, isApiConfigured, updateGarden as updateGardenApi, uploadPlantPhoto, type ApiGarden, type ApiOwnedPlant, type PlantCatalogItem } from '@/services/api';
+import { apiRequest, deleteGardenPhoto, fetchCatalogPlants, fetchOwnedPlants, isApiConfigured, updateGarden as updateGardenApi, uploadGardenPhoto, uploadPlantPhoto, type ApiGarden, type ApiOwnedPlant, type PlantCatalogItem } from '@/services/api';
 
 export type PlantProfile = {
   id: string;
@@ -55,6 +55,7 @@ export type GardenProfile = {
   latitude?: number | null;
   longitude?: number | null;
   locationSource?: 'province' | 'gps' | null;
+  photoUpdatedAt?: string | null;
 };
 
 type PlantDataContextValue = {
@@ -73,6 +74,8 @@ type PlantDataContextValue = {
   removePlant: (id: string) => Promise<void>;
   addGarden: (garden: Omit<GardenProfile, 'id'>) => Promise<string>;
   updateGarden: (id: string, garden: Omit<GardenProfile, 'id'>) => Promise<void>;
+  updateGardenPhoto: (id: string, photo: { uri: string; mimeType?: string | null; fileName?: string | null }) => Promise<void>;
+  removeGardenPhoto: (id: string) => Promise<void>;
   removeGarden: (id: string) => Promise<void>;
   toggleFavorite: (catalogId: string) => Promise<void>;
 };
@@ -125,6 +128,7 @@ function mapGarden(garden: ApiGarden): GardenProfile {
     latitude: garden.latitude ?? null,
     longitude: garden.longitude ?? null,
     locationSource: garden.locationSource ?? null,
+    photoUpdatedAt: garden.photoUpdatedAt ?? null,
   };
 }
 
@@ -245,6 +249,16 @@ export function PlantDataProvider({ children }: { children: ReactNode }) {
         longitude: garden.longitude ?? null,
       });
       setGardens((items) => items.map((item) => (item.id === id ? mapGarden(updated) : item)));
+    },
+    updateGardenPhoto: async (id, photo) => {
+      if (!isApiConfigured || !accessToken) throw new Error('Cần đăng nhập và kết nối máy chủ để tải ảnh lên.');
+      await uploadGardenPhoto(id, accessToken, photo);
+      await refresh();
+    },
+    removeGardenPhoto: async (id) => {
+      if (!isApiConfigured || !accessToken) throw new Error('Cần đăng nhập và kết nối máy chủ để xóa ảnh.');
+      await deleteGardenPhoto(id, accessToken);
+      await refresh();
     },
     removeGarden: async (id) => {
       if (!isApiConfigured || !accessToken) throw new Error('Cần đăng nhập và kết nối máy chủ để xóa khu vườn.');

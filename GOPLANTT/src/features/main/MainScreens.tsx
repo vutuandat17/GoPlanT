@@ -4,9 +4,11 @@ import { router } from 'expo-router';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { TabScreenTransition } from '@/components/tab-screen-transition';
-import { usePlantData } from '@/features/plants/PlantDataStore';
+import { GardenArtwork } from '@/features/gardens/GardenArtwork';
+import { GardenPickerModal } from '@/features/gardens/GardenPickerModal';
+import { usePlantData, type OwnedPlant } from '@/features/plants/PlantDataStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
-import { apiBaseUrl } from '@/services/api';
+import { apiBaseUrl, getGardenPhotoUri } from '@/services/api';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { matchesPlantFilters } from '@/features/plants/plantFilters';
 import { JOURNAL_HEALTH_META, JOURNAL_LOG_TYPE_META, useJournals } from '@/features/journal/JournalStore';
@@ -37,27 +39,93 @@ function EmptyCard({ icon, title, description, action, onPress }: { icon: string
 }
 
 function EmptyPage({ kind }: { kind: PageKind }) {
-  const { apiError, catalog, gardens, ownedPlants, favorites, isLoading, removePlant, filterStates, setFilterState } = usePlantData();
+  const { apiError, catalog, gardens, ownedPlants, favorites, isLoading, removePlant, updatePlant, filterStates, setFilterState } = usePlantData();
   const { journals } = useJournals();
   const { accessToken } = useAuthSession();
   const [plantQuery, setPlantQuery] = useState('');
+  const [assigningPlant, setAssigningPlant] = useState<OwnedPlant | null>(null);
+  const [assignBusy, setAssignBusy] = useState(false);
   const pageFilters = filterStates[kind] ?? {};
-  const filteredGardens = gardens.filter((garden) => matchesPlantFilters({ id: garden.id, name: garden.name, scientificName: '', category: ({ balcony: 'Ban công', rooftop: 'Sân thượng', garden: 'Sân vườn', indoor: 'Trong nhà', greenhouse: 'Nhà kính', other: 'Khác' } as Record<string, string>)[garden.locationType] ?? 'Khác', location: garden.locationDetail }, pageFilters));
+  const locationLabels: Record<string, string> = {
+    balcony: 'Ban công',
+    rooftop: 'Sân thượng',
+    garden: 'Sân vườn',
+    indoor: 'Trong nhà',
+    greenhouse: 'Nhà kính',
+    other: 'Khác',
+  };
+  const filteredGardens = gardens.filter((garden) => matchesPlantFilters({ id: garden.id, name: garden.name, scientificName: '', category: locationLabels[garden.locationType] ?? 'Khác', location: garden.locationDetail }, pageFilters));
   const openFilter = (context: string) => router.push({ pathname: '/filter', params: { context } } as never);
-  if (kind === 'gardens') return <>
-    {apiError ? <Text style={s.helperNote}>{apiError}</Text> : null}
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.pills}>{[{ label: `Tất cả (${gardens.length})`, type: '' }, { label: `Ban công (${gardens.filter((garden) => garden.locationType === 'balcony').length})`, type: 'Ban công' }, { label: `Trong nhà (${gardens.filter((garden) => garden.locationType === 'indoor').length})`, type: 'Trong nhà' }].map((item) => <Pressable key={item.label} onPress={() => setFilterState('gardens', item.type && pageFilters.category?.[0] !== item.type ? { category: [item.type] } : {})}><Tag tone={!item.type || pageFilters.category?.includes(item.type) ? 'mint' : 'plain'}>{item.label}</Tag></Pressable>)}</ScrollView>
-    <View style={s.managementActions}><Action label="＋  Tạo khu vườn mới" onPress={() => router.push('/garden/create' as never)} /><Action label="Lọc vườn" muted onPress={() => openFilter('gardens')} /></View>
-    <Section title="Khu vườn của bạn" hint={`${filteredGardens.length} / ${gardens.length} khu vực`}>
-      {filteredGardens.length === 0 ? <EmptyCard icon="⌂" title={gardens.length && Object.values(pageFilters).some((values) => values.length) ? 'Không có vườn khớp bộ lọc' : isLoading ? 'Đang tải khu vườn…' : 'Chưa có khu vườn nào'} description="Tạo khu vườn để sắp xếp cây theo không gian và điều kiện chăm sóc." action={gardens.length ? undefined : '＋  Tạo khu vườn mới'} onPress={gardens.length ? undefined : () => router.push('/garden/create' as never)} /> : filteredGardens.map((garden) => {
-        const gardenPlants = ownedPlants.filter((plant) => plant.gardenId === garden.id);
-        return <View key={garden.id} style={s.card}><View style={s.gardenArt}><Text style={s.artGlyph}>♧</Text><Text style={s.artLabel}>{garden.locationType.toLocaleUpperCase()}</Text></View><View style={s.cardBody}><Text style={s.cardTitle}>{garden.name}</Text><Text style={s.body}>{garden.locationDetail || 'Chưa có vị trí'}</Text><Text style={s.body}>{gardenPlants.length} cây đang trồng</Text><Action label="Quản lý vườn →" onPress={() => router.push({ pathname: '/garden-detail', params: { gardenId: garden.id } } as never)} /></View></View>;
-      })}
-    </Section>
-    <Section title="Cây chưa phân vườn" hint={`${ownedPlants.filter((plant) => !plant.gardenId).length} cây`}>
-      {ownedPlants.filter((plant) => !plant.gardenId).length === 0 ? <EmptyCard icon="♧" title="Không có cây chờ sắp xếp" description="Cây chưa gắn vườn sẽ xuất hiện tại đây." /> : ownedPlants.filter((plant) => !plant.gardenId).map((plant) => <View key={plant.id} style={s.rowCard}><PlantArtwork style={s.plantImage} category={plant.category} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : undefined} accessToken={accessToken} /><View style={s.cardCopy}><Text style={s.cardTitle}>{plant.name}</Text><Text style={s.body}>{plant.location || 'Chưa có vị trí cụ thể'}</Text></View></View>)}
-    </Section>
-  </>;
+  if (kind === 'gardens') {
+    const locationOrder = ['balcony', 'rooftop', 'garden', 'indoor', 'greenhouse', 'other'];
+    const dynamicPills = [
+      { label: `Tất cả (${gardens.length})`, type: '' },
+      ...locationOrder
+        .map((code) => ({ code, count: gardens.filter((g) => g.locationType === code).length }))
+        .filter((item) => item.count > 0)
+        .map((item) => ({ label: `${locationLabels[item.code]} (${item.count})`, type: locationLabels[item.code] })),
+    ];
+    const unassignedPlants = ownedPlants.filter((plant) => !plant.gardenId);
+    const handleAssignGarden = async (nextGardenId: string | null) => {
+      if (!assigningPlant || !nextGardenId) return;
+      setAssignBusy(true);
+      try {
+        await updatePlant(assigningPlant.id, { ...assigningPlant, gardenId: nextGardenId });
+        setAssigningPlant(null);
+      } catch (err) {
+        Alert.alert('Không thể gán vào vườn', err instanceof Error ? err.message : 'Vui lòng thử lại.');
+      } finally {
+        setAssignBusy(false);
+      }
+    };
+    return <>
+      {apiError ? <Text style={s.helperNote}>{apiError}</Text> : null}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.pills}>
+        {dynamicPills.map((item) => {
+          const isSelected = !item.type ? !pageFilters.category?.length : Boolean(pageFilters.category?.includes(item.type));
+          return (
+            <Pressable key={item.label} onPress={() => setFilterState('gardens', item.type && pageFilters.category?.[0] !== item.type ? { category: [item.type] } : {})}>
+              <Tag tone={isSelected ? 'mint' : 'plain'}>{item.label}</Tag>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+      <View style={s.managementActions}><Action label="＋  Tạo khu vườn mới" onPress={() => router.push('/garden/create' as never)} /><Action label="Lọc vườn" muted onPress={() => openFilter('gardens')} /></View>
+      <Section title="Khu vườn của bạn" hint={`${filteredGardens.length} / ${gardens.length} khu vực`}>
+        {filteredGardens.length === 0 ? <EmptyCard icon="⌂" title={gardens.length && Object.values(pageFilters).some((values) => values.length) ? 'Không có vườn khớp bộ lọc' : isLoading ? 'Đang tải khu vườn…' : 'Chưa có khu vườn nào'} description="Tạo khu vườn để sắp xếp cây theo không gian và điều kiện chăm sóc." action={gardens.length ? undefined : '＋  Tạo khu vườn mới'} onPress={gardens.length ? undefined : () => router.push('/garden/create' as never)} /> : filteredGardens.map((garden) => {
+          const gardenPlants = ownedPlants.filter((plant) => plant.gardenId === garden.id);
+          return <View key={garden.id} style={s.card}><GardenArtwork locationType={garden.locationType} photoUri={getGardenPhotoUri(garden.id, garden.photoUpdatedAt)} accessToken={accessToken} style={s.gardenArt} glyphStyle={s.artGlyph} labelStyle={s.artLabel} /><View style={s.cardBody}><Text style={s.cardTitle}>{garden.name}</Text><Text style={s.body}>{garden.locationDetail || 'Chưa có vị trí'}</Text><Text style={s.body}>{gardenPlants.length} cây đang trồng</Text><Action label="Quản lý vườn →" onPress={() => router.push({ pathname: '/garden-detail', params: { gardenId: garden.id } } as never)} /></View></View>;
+        })}
+      </Section>
+      <Section title="Cây chưa phân vườn" hint={`${unassignedPlants.length} cây`}>
+        {unassignedPlants.length === 0 ? <EmptyCard icon="♧" title="Không có cây chờ sắp xếp" description="Cây chưa gắn vườn sẽ xuất hiện tại đây." /> : unassignedPlants.map((plant) => (
+          <View key={plant.id} style={s.rowCard}>
+            <Pressable
+              style={s.rowPressMain}
+              onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id } } as never)}>
+              <PlantArtwork style={s.plantImage} category={plant.category} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : undefined} accessToken={accessToken} />
+              <View style={s.cardCopy}>
+                <Text style={s.cardTitle}>{plant.name}</Text>
+                <Text style={s.body}>{plant.location || 'Chưa có vị trí cụ thể'}</Text>
+              </View>
+            </Pressable>
+            {gardens.length > 0 ? (
+              <Action label="Gán vào vườn" onPress={() => setAssigningPlant(plant)} />
+            ) : null}
+          </View>
+        ))}
+      </Section>
+      <GardenPickerModal
+        visible={Boolean(assigningPlant)}
+        title="Gán vào khu vườn"
+        subtitle={assigningPlant ? `Chọn khu vườn để đưa “${assigningPlant.name}” vào quản lý.` : undefined}
+        gardens={gardens}
+        busy={assignBusy}
+        onSelect={(id) => void handleAssignGarden(id)}
+        onClose={() => setAssigningPlant(null)}
+      />
+    </>;
+  }
   if (kind === 'plants') {
     const normalized = plantQuery.trim().toLocaleLowerCase();
     const visiblePlants = ownedPlants.filter((plant) => `${plant.name} ${plant.scientificName} ${plant.location}`.toLocaleLowerCase().includes(normalized) && matchesPlantFilters({ ...plant, id: plant.catalogId }, pageFilters));
@@ -187,7 +255,7 @@ const s = StyleSheet.create({
   action: { minHeight: 34, paddingHorizontal: 10, borderRadius: 9, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, actionText: { color: C.surface, fontFamily: F.semiBold, fontSize: 11 }, actionMuted: { flex: 1, backgroundColor: C.softSurface }, actionMutedText: { color: C.secondaryText },
   pills: { flexDirection: 'row', gap: 7, paddingVertical: 3 }, recommend: { padding: 13, borderRadius: 13, backgroundColor: '#D9F2E3', gap: 6 },
   search: { minHeight: 44, paddingHorizontal: 9, borderRadius: 11, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 6 }, searchGlyph: { width: 23, textAlign: 'center', color: C.secondaryText, fontSize: 24 }, searchInput: { flex: 1, paddingVertical: 7, color: C.text, fontFamily: F.regular, fontSize: 12 },
-  plantCard: { padding: 9, borderRadius: 14, backgroundColor: C.surface, gap: 7 }, plantImage: { width: 54, height: 54, borderRadius: 10, backgroundColor: '#E4F0E7', alignItems: 'center', justifyContent: 'center' }, plantEmoji: { fontSize: 25 }, latin: { color: C.mutedText, fontFamily: F.regular, fontSize: 10, fontStyle: 'italic' }, divider: { height: StyleSheet.hairlineWidth, backgroundColor: '#DEE8E0' }, rowCard: { padding: 9, borderRadius: 13, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 9 }, heart: { color: '#A84B20', fontSize: 18 },
+  plantCard: { padding: 9, borderRadius: 14, backgroundColor: C.surface, gap: 7 }, plantImage: { width: 54, height: 54, borderRadius: 10, backgroundColor: '#E4F0E7', alignItems: 'center', justifyContent: 'center' }, plantEmoji: { fontSize: 25 }, latin: { color: C.mutedText, fontFamily: F.regular, fontSize: 10, fontStyle: 'italic' }, divider: { height: StyleSheet.hairlineWidth, backgroundColor: '#DEE8E0' }, rowCard: { padding: 9, borderRadius: 13, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 9 }, rowPressMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 9 }, heart: { color: '#A84B20', fontSize: 18 },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, metric: { width: '48%', minHeight: 54, padding: 9, borderRadius: 12, backgroundColor: C.surface }, metricValue: { color: C.forest, fontFamily: F.bold, fontSize: 15 }, eco: { marginVertical: 8, padding: 10, borderRadius: 12, backgroundColor: C.softSurface, flexDirection: 'row', alignItems: 'center', gap: 12 }, ecoScore: { color: C.forest, fontFamily: F.bold, fontSize: 23 },
   plantCardActions: { flexDirection: 'row', gap: 5 }, scheduleBanner: { padding: 12, borderRadius: 13, backgroundColor: C.softSurface, flexDirection: 'row', alignItems: 'center', gap: 9 }, bannerIcon: { color: C.forest, fontSize: 22 }, taskCard: { padding: 10, borderRadius: 13, backgroundColor: C.surface, gap: 8 },
   helperNote: { marginTop: 8, color: C.mutedText, fontFamily: F.regular, fontSize: 10, textAlign: 'center' },
