@@ -6,9 +6,11 @@ import { SafeAreaView } from '@/components/app-primitives';
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { usePlantData } from '@/features/plants/PlantDataStore';
 import { useAuthSession } from '@/features/auth/AuthSession';
+import { useJournals } from '@/features/journal/JournalStore';
+import { useCareSchedules } from '@/features/schedule/CareScheduleStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
 import { apiBaseUrl } from '@/services/api';
-import { matchesPlantFilters, type FilterPlant, type PlantFilterState, ownedFilterGroups, catalogFilterGroups, gardenFilterGroups, vietnameseAlphabet } from '@/features/plants/plantFilters';
+import { getLatestHealthLabel, matchesPlantFilters, toOwnedFilterPlant, type FilterPlant, type PlantFilterState, ownedFilterGroups, catalogFilterGroups, gardenFilterGroups, vietnameseAlphabet } from '@/features/plants/plantFilters';
 
 type SearchResultItem = FilterPlant & {
   owned: boolean;
@@ -37,6 +39,8 @@ function SearchResult({ item, accessToken, onAdd, onFavorite }: { item: SearchRe
 export function SearchScreen() {
   const params = useLocalSearchParams<{ query?: string }>();
   const { catalog, ownedPlants, favorites, toggleFavorite } = usePlantData();
+  const { journals } = useJournals();
+  const { todayTasks, schedules } = useCareSchedules();
   const { accessToken } = useAuthSession();
   const [query, setQuery] = useState(params.query ?? 'Trầu bà');
   const [scope, setScope] = useState('Tất cả');
@@ -46,9 +50,16 @@ export function SearchScreen() {
     catch { return {}; }
   }, [filtersParam]);
   const rows = useMemo<SearchResultItem[]>(() => [
-    ...ownedPlants.map((plant) => ({ ...plant, id: plant.catalogId, latin: plant.scientificName, owned: true, ownedId: plant.id, detail: 'Chưa đánh giá', isFavorite: favorites.includes(plant.catalogId), photoUri: plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null })),
+    ...ownedPlants.map((plant) => ({
+      ...toOwnedFilterPlant(plant, journals, todayTasks, schedules, favorites.includes(plant.catalogId)),
+      latin: plant.scientificName,
+      owned: true,
+      ownedId: plant.id,
+      detail: getLatestHealthLabel(plant.id, journals),
+      photoUri: plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null,
+    })),
     ...catalog.map((plant) => ({ ...plant, latin: plant.scientificName, owned: false, detail: 'Thông tin từ danh mục cây', isFavorite: favorites.includes(plant.id) })),
-  ], [ownedPlants, catalog, favorites]);
+  ], [ownedPlants, catalog, favorites, journals, todayTasks, schedules]);
   const list = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     return rows.filter((item) => {
@@ -74,6 +85,8 @@ export function SearchScreen() {
 export function FilterScreen() {
   const params = useLocalSearchParams<{ query?: string; scope?: string; filters?: string; context?: string }>();
   const { catalog, ownedPlants, gardens, favorites, filterStates, setFilterState } = usePlantData();
+  const { journals } = useJournals();
+  const { todayTasks, schedules } = useCareSchedules();
   const context = params.context ?? '';
   const [scope, setScope] = useState<'owned' | 'catalog'>(context === 'plants' || context === 'journal' || context === 'monitoring' ? 'owned' : params.scope === 'Trong vườn của tôi' || params.scope === 'owned' ? 'owned' : 'catalog');
   const [query, setQuery] = useState(params.query ?? '');
@@ -82,9 +95,9 @@ export function FilterScreen() {
   });
   const rows = useMemo<FilterPlant[]>(() => [
     ...(context === 'gardens' || context === 'schedule' ? gardens.map((garden) => ({ id: garden.id, name: garden.name, scientificName: '', category: ({ balcony: 'Ban công', rooftop: 'Sân thượng', garden: 'Sân vườn', indoor: 'Trong nhà', greenhouse: 'Nhà kính', other: 'Khác' } as Record<string, string>)[garden.locationType] ?? 'Khác', location: garden.locationDetail, isFavorite: false })) : []),
-    ...(!['gardens', 'schedule'].includes(context) ? ownedPlants : []).map((plant) => ({ ...plant, id: plant.catalogId, environment: undefined, isFavorite: favorites.includes(plant.catalogId) })),
+    ...(!['gardens', 'schedule'].includes(context) ? ownedPlants : []).map((plant) => toOwnedFilterPlant(plant, journals, todayTasks, schedules, favorites.includes(plant.catalogId))),
     ...(!context || context === 'home' ? catalog : []).map((plant) => ({ ...plant, isFavorite: favorites.includes(plant.id) })),
-  ], [context, gardens, ownedPlants, catalog, favorites]);
+  ], [context, gardens, ownedPlants, catalog, favorites, journals, todayTasks, schedules]);
   const groups = context === 'gardens' || context === 'schedule' ? gardenFilterGroups
     : scope === 'owned' ? ownedFilterGroups
       : catalogFilterGroups.map((group) => group.key === 'category' ? { ...group, options: [...new Set([...group.options, ...catalog.map((plant) => plant.category)])] } : group);

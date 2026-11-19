@@ -35,15 +35,41 @@ export const JOURNAL_HEALTH_META: Record<JournalHealthStatus, { label: string; b
 
 export const JOURNAL_HEALTH_STATUSES: JournalHealthStatus[] = ['healthy', 'warning', 'critical'];
 
-export type LocalPhotoDraft = { uri: string; mimeType?: string | null; fileName?: string | null };
+export const MAX_JOURNAL_PHOTO_BYTES = 5 * 1024 * 1024;
+
+export type LocalPhotoDraft = {
+  uri: string;
+  mimeType?: string | null;
+  fileName?: string | null;
+  fileSize?: number | null;
+};
+
+export type JournalSaveResult = {
+  entry: ApiJournalEntry;
+  failedPhotoCount: number;
+  firstPhotoError?: string;
+};
+
+export function validateJournalPhotoDraft(photo: LocalPhotoDraft): string | null {
+  const mime = photo.mimeType?.toLocaleLowerCase();
+  const ext = photo.fileName?.toLocaleLowerCase();
+  const resolvedMime = mime ?? (ext?.endsWith('.png') ? 'image/png' : ext?.endsWith('.jpg') || ext?.endsWith('.jpeg') ? 'image/jpeg' : null);
+  if (resolvedMime && resolvedMime !== 'image/jpeg' && resolvedMime !== 'image/png') {
+    return 'Ảnh cần ở định dạng JPEG hoặc PNG.';
+  }
+  if (photo.fileSize != null && photo.fileSize > MAX_JOURNAL_PHOTO_BYTES) {
+    return 'Ảnh vượt quá dung lượng tối đa 5 MB.';
+  }
+  return null;
+}
 
 type JournalContextValue = {
   journals: ApiJournalEntry[];
   isLoading: boolean;
   error: string;
   refresh: () => Promise<void>;
-  createJournal: (plantId: string, body: ApiJournalRequest, photos?: LocalPhotoDraft[]) => Promise<ApiJournalEntry>;
-  updateJournal: (journalId: string, body: ApiJournalUpdateRequest, newPhotos?: LocalPhotoDraft[]) => Promise<ApiJournalEntry>;
+  createJournal: (plantId: string, body: ApiJournalRequest, photos?: LocalPhotoDraft[]) => Promise<JournalSaveResult>;
+  updateJournal: (journalId: string, body: ApiJournalUpdateRequest, newPhotos?: LocalPhotoDraft[]) => Promise<JournalSaveResult>;
   removeJournal: (journalId: string) => Promise<void>;
   removePhoto: (journalId: string, photoId: string) => Promise<void>;
 };
@@ -65,8 +91,8 @@ export function JournalProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     setError('');
     try {
-      const rows = await fetchJournals(accessToken);
-      setJournals(rows);
+      const page = await fetchJournals(accessToken, { page: 0, size: 100 });
+      setJournals(Array.isArray(page?.items) ? page.items : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không tải được nhật ký chăm sóc.');
     } finally {
@@ -88,22 +114,48 @@ export function JournalProvider({ children }: { children: ReactNode }) {
         throw new Error('Cần đăng nhập và kết nối máy chủ để lưu nhật ký.');
       }
       const created = await createJournalEntry(plantId, accessToken, body);
+      let failedPhotoCount = 0;
+      let firstPhotoError: string | undefined;
       for (const photo of photos) {
-        await uploadJournalPhoto(created.id, accessToken, photo);
+        const validationError = validateJournalPhotoDraft(photo);
+        if (validationError) {
+          failedPhotoCount += 1;
+          firstPhotoError ??= validationError;
+          continue;
+        }
+        try {
+          await uploadJournalPhoto(created.id, accessToken, photo);
+        } catch (err) {
+          failedPhotoCount += 1;
+          firstPhotoError ??= err instanceof Error ? err.message : 'Không tải được ảnh.';
+        }
       }
       await refresh();
-      return created;
+      return { entry: created, failedPhotoCount, firstPhotoError };
     },
     updateJournal: async (journalId, body, newPhotos = []) => {
       if (!isApiConfigured || !accessToken) {
         throw new Error('Cần đăng nhập để cập nhật nhật ký.');
       }
       const updated = await updateJournalEntry(journalId, accessToken, body);
+      let failedPhotoCount = 0;
+      let firstPhotoError: string | undefined;
       for (const photo of newPhotos) {
-        await uploadJournalPhoto(journalId, accessToken, photo);
+        const validationError = validateJournalPhotoDraft(photo);
+        if (validationError) {
+          failedPhotoCount += 1;
+          firstPhotoError ??= validationError;
+          continue;
+        }
+        try {
+          await uploadJournalPhoto(journalId, accessToken, photo);
+        } catch (err) {
+          failedPhotoCount += 1;
+          firstPhotoError ??= err instanceof Error ? err.message : 'Không tải được ảnh.';
+        }
       }
       await refresh();
-      return updated;
+      return { entry: updated, failedPhotoCount, firstPhotoError };
     },
     removeJournal: async (journalId) => {
       if (!isApiConfigured || !accessToken) {

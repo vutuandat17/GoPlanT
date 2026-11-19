@@ -29,6 +29,10 @@ public class AuthController {
     @PostMapping(value = "/verify-email", consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void verify(@Valid @RequestBody VerifyRequest request) { auth.verifyEmail(request.token()); }
+    @PostMapping("/resend-verification")
+    public AuthService.ResendVerificationResult resendVerification(@Valid @RequestBody ResendVerificationRequest request) {
+        return auth.resendVerification(request.email());
+    }
     @GetMapping(value = "/verify-email", produces = MediaType.TEXT_HTML_VALUE)
     @ResponseBody
     public String confirmVerification(@RequestParam String token) {
@@ -108,6 +112,7 @@ public class AuthController {
     }
     public record RegisterRequest(@NotBlank @Size(max=120) String displayName, @NotBlank @Email @Size(max=320) String email, @NotBlank @Size(min=12, max=72) String password) {}
     public record VerifyRequest(@NotBlank String token) {}
+    public record ResendVerificationRequest(@NotBlank @Email String email) {}
     public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {}
     public record RefreshRequest(@NotBlank String refreshToken) {}
     public record ChangePasswordRequest(@NotBlank String currentPassword, @NotBlank @Size(min=12, max=72) String newPassword) {}

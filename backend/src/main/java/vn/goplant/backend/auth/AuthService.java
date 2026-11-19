@@ -37,19 +37,24 @@ public class AuthService {
     private final int tokenMinutes;
     private final int refreshTokenDays;
     private final boolean exposeVerificationToken;
+    private final boolean requireEmailVerification;
     private final CareScheduleService careSchedules;
+    private final LoginAttemptGuard loginAttempts;
     private final SecureRandom random = new SecureRandom();
 
     public AuthService(JdbcTemplate jdbc, PasswordEncoder passwords, JwtEncoder jwtEncoder,
                        VerificationEmailSender verificationEmails, CareScheduleService careSchedules,
+                       LoginAttemptGuard loginAttempts,
                        @Value("${goplant.jwt.access-token-minutes:15}") int tokenMinutes,
                        @Value("${goplant.jwt.refresh-token-days:30}") int refreshTokenDays,
                        @Value("${goplant.auth.expose-verification-token:false}") boolean exposeVerificationToken,
+                       @Value("${goplant.auth.require-email-verification:false}") boolean requireEmailVerification,
                        Environment environment) {
         if (exposeVerificationToken && Arrays.stream(environment.getActiveProfiles()).noneMatch("local"::equals)) {
             throw new IllegalStateException("Verification tokens may only be exposed with the local profile");
         }
         this.careSchedules = careSchedules;
+        this.loginAttempts = loginAttempts;
         this.jdbc = jdbc;
         this.passwords = passwords;
         this.jwtEncoder = jwtEncoder;
@@ -57,25 +62,88 @@ public class AuthService {
         this.tokenMinutes = tokenMinutes;
         this.refreshTokenDays = refreshTokenDays;
         this.exposeVerificationToken = exposeVerificationToken;
+        this.requireEmailVerification = requireEmailVerification;
     }
 
     @Transactional
     public Registration register(String displayName, String email, String password) {
         String normalizedEmail = normalizeEmail(email);
+        var existing = jdbc.query("""
+                SELECT u.status FROM users u
+                JOIN user_email_addresses e ON e.user_id=u.id AND e.address_type='primary'
+                WHERE e.normalized_email=?
+                """, (rs, row) -> rs.getString("status"), normalizedEmail);
+        if (!existing.isEmpty()) {
+            String message = "pending_verification".equals(existing.getFirst())
+                    ? "Email này đã được đăng ký nhưng chưa xác minh. Vui lòng kiểm tra hộp thư hoặc yêu cầu gửi lại email xác minh."
+                    : "Email này đã được đăng ký.";
+            throw new ResponseStatusException(HttpStatus.CONFLICT, message);
+        }
         UUID userId = UUID.randomUUID();
-        jdbc.update("INSERT INTO users(id,display_name,password_hash,status) VALUES (?,?,?,'pending_verification')",
-                userId, displayName.trim(), passwords.encode(password));
-        jdbc.update("INSERT INTO user_email_addresses(user_id,normalized_email,address_type) VALUES (?,?,'primary')", userId, normalizedEmail);
+        String initialStatus = requireEmailVerification ? "pending_verification" : "active";
+        jdbc.update("INSERT INTO users(id,display_name,password_hash,status) VALUES (?,?,?,?)",
+                userId, displayName.trim(), passwords.encode(password), initialStatus);
+        if (requireEmailVerification) {
+            jdbc.update("INSERT INTO user_email_addresses(user_id,normalized_email,address_type) VALUES (?,?,'primary')",
+                    userId, normalizedEmail);
+        } else {
+            jdbc.update("INSERT INTO user_email_addresses(user_id,normalized_email,address_type,verified_at) VALUES (?,?,'primary',now())",
+                    userId, normalizedEmail);
+        }
         jdbc.update("INSERT INTO user_roles(user_id,role_id) SELECT ?,id FROM roles WHERE code='user'", userId);
+        if (!requireEmailVerification) {
+            return new Registration(userId, normalizedEmail, null, "Đăng ký tài khoản thành công.", false);
+        }
+        String token = issueVerificationToken(userId);
+        if (!exposeVerificationToken) verificationEmails.sendVerification(normalizedEmail, token);
+        return new Registration(userId, normalizedEmail, exposeVerificationToken ? token : null,
+                exposeVerificationToken ? "Verify with the returned token (local development only)." : "Tài khoản đã tạo. Vui lòng mở email để xác minh trước khi đăng nhập.",
+                true);
+    }
+
+    @Transactional
+    public ResendVerificationResult resendVerification(String email) {
+        String normalizedEmail = normalizeEmail(email);
+        var matches = jdbc.query("""
+                SELECT u.id, u.status FROM users u
+                JOIN user_email_addresses e ON e.user_id=u.id AND e.address_type='primary'
+                WHERE e.normalized_email=?
+                """, (rs, row) -> new UserStatusRow(rs.getObject("id", UUID.class), rs.getString("status")), normalizedEmail);
+        if (matches.isEmpty() || !"pending_verification".equals(matches.getFirst().status())) {
+            return new ResendVerificationResult("Nếu email đã đăng ký và chưa xác minh, liên kết xác minh mới đã được gửi.", null);
+        }
+        UUID userId = matches.getFirst().id();
+        var recent = jdbc.query("""
+                SELECT created_at FROM account_action_tokens
+                WHERE user_id=? AND purpose='EMAIL_VERIFICATION'
+                ORDER BY created_at DESC LIMIT 1
+                """, (rs, row) -> rs.getTimestamp("created_at").toInstant(), userId);
+        if (!recent.isEmpty() && recent.getFirst().isAfter(Instant.now().minusSeconds(60))) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Vui lòng đợi ít nhất 60 giây trước khi yêu cầu gửi lại email xác minh.");
+        }
+        jdbc.update("UPDATE account_action_tokens SET consumed_at=now() WHERE user_id=? AND purpose='EMAIL_VERIFICATION' AND consumed_at IS NULL",
+                userId);
+        String token = issueVerificationToken(userId);
+        if (!exposeVerificationToken) verificationEmails.sendVerification(normalizedEmail, token);
+        return new ResendVerificationResult(
+                exposeVerificationToken
+                        ? "Đã tạo lại mã xác minh (local development only)."
+                        : "Nếu email đã đăng ký và chưa xác minh, liên kết xác minh mới đã được gửi.",
+                exposeVerificationToken ? token : null);
+    }
+
+    private String issueVerificationToken(UUID userId) {
         byte[] bytes = new byte[32];
         random.nextBytes(bytes);
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
         jdbc.update("INSERT INTO account_action_tokens(user_id,purpose,token_hash,expires_at) VALUES (?,'EMAIL_VERIFICATION',?,?)",
                 userId, sha256(token), Timestamp.from(Instant.now().plus(24, ChronoUnit.HOURS)));
-        if (!exposeVerificationToken) verificationEmails.sendVerification(normalizedEmail, token);
-        return new Registration(userId, normalizedEmail, exposeVerificationToken ? token : null,
-                exposeVerificationToken ? "Verify with the returned token (local development only)." : "Tài khoản đã tạo. Vui lòng mở email để xác minh trước khi đăng nhập.");
+        return token;
     }
+
+    private record UserStatusRow(UUID id, String status) {}
+    public record ResendVerificationResult(String message, String verificationToken) {}
 
     @Transactional
     public void verifyEmail(String token) {
@@ -98,6 +166,7 @@ public class AuthService {
     @Transactional
     public LoginResult login(String email, String password) {
         String normalized = normalizeEmail(email);
+        loginAttempts.checkAllowed(normalized);
         var rows = jdbc.query("""
                 SELECT u.id,u.display_name,u.password_hash,u.status,u.timezone,e.normalized_email
                 FROM users u JOIN user_email_addresses e ON e.user_id=u.id AND e.address_type='primary'
@@ -105,10 +174,12 @@ public class AuthService {
                 """, (rs, row) -> new Account(rs.getObject("id", UUID.class), rs.getString("display_name"),
                 rs.getString("password_hash"), rs.getString("status"), rs.getString("normalized_email"), rs.getString("timezone")), normalized);
         if (rows.isEmpty() || !passwords.matches(password, rows.getFirst().passwordHash())) {
+            loginAttempts.recordFailure(normalized);
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Email hoặc mật khẩu không chính xác.");
         }
         Account account = rows.getFirst();
         if (!"active".equals(account.status())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản chưa được kích hoạt hoặc đã bị khóa.");
+        loginAttempts.reset(normalized);
         String refreshToken = issueRefreshToken(account.id(), null);
         return buildLoginResult(account.id(), account.email(), account.displayName(), account.timezone(), refreshToken);
     }
@@ -314,7 +385,7 @@ public class AuthService {
         catch (Exception ex) { throw new IllegalStateException("SHA-256 is unavailable", ex); }
     }
 
-    public record Registration(UUID id, String email, String verificationToken, String message) {}
+    public record Registration(UUID id, String email, String verificationToken, String message, boolean verificationRequired) {}
     public record ForgotPasswordResult(String resetToken, String message) {}
     public record UserView(UUID id, String email, String displayName, java.util.List<String> roles, String timezone) {}
     public record LoginResult(String accessToken, String refreshToken, String tokenType, int expiresIn, UserView user) {}

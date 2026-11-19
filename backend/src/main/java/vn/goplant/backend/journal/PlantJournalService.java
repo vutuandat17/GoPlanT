@@ -26,6 +26,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import vn.goplant.backend.config.ImageValidator;
+import vn.goplant.backend.config.PageResponse;
 
 @Service
 public class PlantJournalService {
@@ -51,13 +52,52 @@ public class PlantJournalService {
         this.clock = clock;
     }
 
-    public List<JournalEntry> listAll(UUID owner) {
-        var rows = jdbc.query(JOURNAL_SELECT + """
-                WHERE j.owner_user_id=? AND p.archived_at IS NULL
-                ORDER BY j.entry_date DESC, j.created_at DESC
-                LIMIT 200
-                """, (rs, n) -> mapRow(rs), owner);
-        return attachPhotoIds(owner, rows);
+    public PageResponse<JournalEntry> listAll(
+            UUID owner,
+            int page,
+            int size,
+            UUID plantId,
+            String logType,
+            String healthStatus,
+            String q) {
+        int safePage = PageResponse.normalizePage(page);
+        int safeSize = PageResponse.normalizeSize(size);
+        StringBuilder where = new StringBuilder(" WHERE j.owner_user_id=? AND p.archived_at IS NULL");
+        List<Object> params = new ArrayList<>();
+        params.add(owner);
+        if (plantId != null) {
+            where.append(" AND j.user_plant_id=?");
+            params.add(plantId);
+        }
+        if (logType != null && !logType.isBlank()) {
+            where.append(" AND j.log_type=?");
+            params.add(normalizeLogType(logType));
+        }
+        if (healthStatus != null && !healthStatus.isBlank()) {
+            where.append(" AND j.health_status=?");
+            params.add(normalizeHealthStatus(healthStatus));
+        }
+        if (q != null && !q.isBlank()) {
+            String pattern = "%" + q.trim().toLowerCase(Locale.ROOT) + "%";
+            where.append(" AND (LOWER(COALESCE(j.title,'')) LIKE ? OR LOWER(j.note) LIKE ? OR LOWER(p.display_name) LIKE ?)");
+            params.add(pattern);
+            params.add(pattern);
+            params.add(pattern);
+        }
+        Long total = jdbc.queryForObject(
+                "SELECT count(*) FROM plant_journals j JOIN user_plants p ON p.id = j.user_plant_id" + where,
+                Long.class,
+                params.toArray());
+        long totalElements = total == null ? 0L : total;
+
+        List<Object> queryParams = new ArrayList<>(params);
+        queryParams.add(safeSize);
+        queryParams.add((long) safePage * safeSize);
+        var rows = jdbc.query(JOURNAL_SELECT + where + """
+                 ORDER BY j.entry_date DESC, j.created_at DESC
+                LIMIT ? OFFSET ?
+                """, (rs, n) -> mapRow(rs), queryParams.toArray());
+        return PageResponse.of(attachPhotoIds(owner, rows), safePage, safeSize, totalElements);
     }
 
     public List<JournalEntry> listByPlant(UUID owner, UUID plantId) {

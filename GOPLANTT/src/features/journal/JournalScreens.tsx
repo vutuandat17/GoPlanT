@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Modal } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
 import { SafeAreaView } from '@/components/app-primitives';
 import { router } from 'expo-router';
 
@@ -10,11 +11,18 @@ import { AccountButton } from '@/features/auth/AccountButton';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { usePlantData } from '@/features/plants/PlantDataStore';
 import {
+  filterJournalEntries,
+  JournalFilterBar,
+  type JournalHealthFilter,
+  type JournalLogFilter,
+} from '@/features/journal/JournalFilterBar';
+import {
   JOURNAL_HEALTH_META,
   JOURNAL_HEALTH_STATUSES,
   JOURNAL_LOG_TYPES,
   JOURNAL_LOG_TYPE_META,
   useJournals,
+  validateJournalPhotoDraft,
   type LocalPhotoDraft,
 } from '@/features/journal/JournalStore';
 import { formatDateVi } from '@/features/schedule/CareScheduleStore';
@@ -60,9 +68,21 @@ export function JournalDetailScreen({ plantId }: { plantId?: string }) {
   const { ownedPlants } = usePlantData();
   const { journals, isLoading, removeJournal, refresh } = useJournals();
 
+  const [searchQuery, setSearchQuery] = useState('');
+  const [logFilter, setLogFilter] = useState<JournalLogFilter>('all');
+  const [healthFilter, setHealthFilter] = useState<JournalHealthFilter>('all');
+  const [previewPhotoUri, setPreviewPhotoUri] = useState<string | null>(null);
+
   const targetPlantId = plantId ?? journals[0]?.plantId ?? ownedPlants[0]?.id;
   const plant = ownedPlants.find((p) => p.id === targetPlantId);
-  const plantJournals = targetPlantId ? journals.filter((entry) => entry.plantId === targetPlantId) : [];
+  const plantJournals = useMemo(
+    () => (targetPlantId ? journals.filter((entry) => entry.plantId === targetPlantId) : []),
+    [journals, targetPlantId],
+  );
+  const filteredJournals = useMemo(
+    () => filterJournalEntries(plantJournals, { query: searchQuery, logType: logFilter, healthStatus: healthFilter }),
+    [plantJournals, searchQuery, logFilter, healthFilter],
+  );
   const latestHealth = plantJournals[0]?.healthStatus;
   const latestHealthMeta = latestHealth ? JOURNAL_HEALTH_META[latestHealth] : null;
 
@@ -138,8 +158,19 @@ export function JournalDetailScreen({ plantId }: { plantId?: string }) {
         <View style={j.card}>
           <View style={j.row}>
             <Text style={j.sectionTitle}>Nhật ký theo thời gian</Text>
-            <Text style={j.tag}>{plantJournals.length} ghi nhận</Text>
+            <Text style={j.tag}>{filteredJournals.length}/{plantJournals.length} ghi nhận</Text>
           </View>
+
+          {plantJournals.length > 0 ? (
+            <JournalFilterBar
+              query={searchQuery}
+              onQueryChange={setSearchQuery}
+              logType={logFilter}
+              onLogTypeChange={setLogFilter}
+              healthStatus={healthFilter}
+              onHealthStatusChange={setHealthFilter}
+            />
+          ) : null}
 
           {isLoading && plantJournals.length === 0 ? (
             <ActivityIndicator color={C.primary} style={{ marginVertical: 16 }} />
@@ -154,8 +185,12 @@ export function JournalDetailScreen({ plantId }: { plantId?: string }) {
                 </Pressable>
               ) : null}
             </View>
+          ) : filteredJournals.length === 0 ? (
+            <View style={j.emptyTimeline}>
+              <Text style={j.body}>Không có bài nhật ký nào khớp bộ lọc hiện tại.</Text>
+            </View>
           ) : (
-            plantJournals.map((entry) => {
+            filteredJournals.map((entry) => {
               const typeMeta = JOURNAL_LOG_TYPE_META[entry.logType] ?? JOURNAL_LOG_TYPE_META.other;
               const healthMeta = JOURNAL_HEALTH_META[entry.healthStatus] ?? JOURNAL_HEALTH_META.healthy;
               return (
@@ -173,16 +208,22 @@ export function JournalDetailScreen({ plantId }: { plantId?: string }) {
 
                   {entry.photoIds.length > 0 ? (
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={j.photoScroll}>
-                      {entry.photoIds.map((photoId) => (
-                        <Image
-                          key={photoId}
-                          source={{
-                            uri: `${apiBaseUrl}/api/v1/journals/${entry.id}/photos/${photoId}`,
-                            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-                          }}
-                          style={j.photoImage}
-                        />
-                      ))}
+                      {entry.photoIds.map((photoId) => {
+                        const uri = `${apiBaseUrl}/api/v1/journals/${entry.id}/photos/${photoId}`;
+                        return (
+                          <Pressable key={photoId} onPress={() => setPreviewPhotoUri(uri)} accessibilityRole="button" accessibilityLabel="Phóng to ảnh nhật ký">
+                            <ExpoImage
+                              source={{
+                                uri,
+                                headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+                              }}
+                              contentFit="cover"
+                              cachePolicy="none"
+                              style={j.photoImage}
+                            />
+                          </Pressable>
+                        );
+                      })}
                     </ScrollView>
                   ) : null}
 
@@ -200,6 +241,25 @@ export function JournalDetailScreen({ plantId }: { plantId?: string }) {
           )}
         </View>
       </ScrollView>
+
+      <Modal visible={Boolean(previewPhotoUri)} transparent animationType="fade" onRequestClose={() => setPreviewPhotoUri(null)}>
+        <Pressable style={j.lightboxBackdrop} onPress={() => setPreviewPhotoUri(null)}>
+          <Pressable style={j.lightboxClose} onPress={() => setPreviewPhotoUri(null)} accessibilityRole="button" accessibilityLabel="Đóng ảnh">
+            <Text style={j.lightboxCloseText}>✕</Text>
+          </Pressable>
+          {previewPhotoUri ? (
+            <ExpoImage
+              source={{
+                uri: previewPhotoUri,
+                headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+              }}
+              contentFit="contain"
+              cachePolicy="none"
+              style={j.lightboxImage}
+            />
+          ) : null}
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -207,10 +267,14 @@ export function JournalDetailScreen({ plantId }: { plantId?: string }) {
 function JournalForm({
   editing = false,
   initialPlantId,
+  careTaskId,
+  initialLogType,
   journalId,
 }: {
   editing?: boolean;
   initialPlantId?: string;
+  careTaskId?: string;
+  initialLogType?: JournalLogType;
   journalId?: string;
 }) {
   const { accessToken } = useAuthSession();
@@ -223,7 +287,7 @@ function JournalForm({
   const [plantQuery, setPlantQuery] = useState('');
   const [title, setTitle] = useState(existing?.title ?? '');
   const [note, setNote] = useState(existing?.note ?? '');
-  const [logType, setLogType] = useState<JournalLogType>(existing?.logType ?? 'growth');
+  const [logType, setLogType] = useState<JournalLogType>(existing?.logType ?? initialLogType ?? 'growth');
   const [healthStatus, setHealthStatus] = useState<JournalHealthStatus>(existing?.healthStatus ?? 'healthy');
   const [entryDate, setEntryDate] = useState(() =>
     existing ? formatDateVi(existing.entryDate) : formatDateVi(toLocalIsoDate()),
@@ -272,7 +336,18 @@ function JournalForm({
     });
     if (result.canceled || !result.assets[0]) return;
     const asset = result.assets[0];
-    setNewPhotos((prev) => [...prev, { uri: asset.uri, mimeType: asset.mimeType, fileName: asset.fileName }]);
+    const draft: LocalPhotoDraft = {
+      uri: asset.uri,
+      mimeType: asset.mimeType,
+      fileName: asset.fileName,
+      fileSize: asset.fileSize,
+    };
+    const validationError = validateJournalPhotoDraft(draft);
+    if (validationError) {
+      Alert.alert('Ảnh chưa hợp lệ', validationError);
+      return;
+    }
+    setNewPhotos((prev) => [...prev, draft]);
   };
 
   const handleRemoveExistingPhoto = async (photoId: string) => {
@@ -299,23 +374,46 @@ function JournalForm({
     setSaving(true);
     try {
       if (editing && existing) {
-        await updateJournal(
+        const result = await updateJournal(
           existing.id,
           { entryDate: isoDate, logType, healthStatus, title: title.trim() || null, note: note.trim() },
           newPhotos,
         );
-        Alert.alert('Đã cập nhật', 'Bài nhật ký đã được lưu thay đổi.', [
-          { text: 'OK', onPress: () => router.back() },
-        ]);
+        if (result.failedPhotoCount > 0) {
+          Alert.alert(
+            'Đã lưu nội dung nhật ký',
+            `Đã lưu nội dung nhật ký nhưng ${result.failedPhotoCount} ảnh chưa tải lên được; bạn có thể vào Chỉnh sửa để thử lại.`,
+            [{ text: 'OK', onPress: () => router.back() }],
+          );
+        } else {
+          Alert.alert('Đã cập nhật', 'Bài nhật ký đã được lưu thay đổi.', [
+            { text: 'OK', onPress: () => router.back() },
+          ]);
+        }
       } else {
-        await createJournal(
+        const result = await createJournal(
           plantId,
-          { entryDate: isoDate, logType, healthStatus, title: title.trim() || null, note: note.trim() },
+          {
+            careTaskId: careTaskId || null,
+            entryDate: isoDate,
+            logType,
+            healthStatus,
+            title: title.trim() || null,
+            note: note.trim(),
+          },
           newPhotos,
         );
-        Alert.alert('Đã lưu ghi nhận', 'Nhật ký chăm sóc đã được thêm thành công.', [
-          { text: 'OK', onPress: () => router.back() },
-        ]);
+        if (result.failedPhotoCount > 0) {
+          Alert.alert(
+            'Đã lưu nội dung nhật ký',
+            `Đã lưu nội dung nhật ký nhưng ${result.failedPhotoCount} ảnh chưa tải lên được; bạn có thể vào Chỉnh sửa để thử lại.`,
+            [{ text: 'OK', onPress: () => router.back() }],
+          );
+        } else {
+          Alert.alert('Đã lưu ghi nhận', 'Nhật ký chăm sóc đã được thêm thành công.', [
+            { text: 'OK', onPress: () => router.back() },
+          ]);
+        }
       }
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Không thể lưu ghi nhận. Vui lòng thử lại.');
@@ -417,11 +515,13 @@ function JournalForm({
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={j.photoScroll}>
           {existing && existingPhotoIds.map((photoId) => (
             <View key={photoId} style={j.photoPreviewWrap}>
-              <Image
+              <ExpoImage
                 source={{
                   uri: `${apiBaseUrl}/api/v1/journals/${existing.id}/photos/${photoId}`,
                   headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
                 }}
+                contentFit="cover"
+                cachePolicy="none"
                 style={j.photoPreview}
               />
               <Pressable onPress={() => void handleRemoveExistingPhoto(photoId)} style={j.photoRemoveBtn}>
@@ -431,7 +531,7 @@ function JournalForm({
           ))}
           {newPhotos.map((photo, index) => (
             <View key={`${photo.uri}-${index}`} style={j.photoPreviewWrap}>
-              <Image source={{ uri: photo.uri }} style={j.photoPreview} />
+              <ExpoImage source={{ uri: photo.uri }} contentFit="cover" style={j.photoPreview} />
               <Pressable
                 onPress={() => setNewPhotos((prev) => prev.filter((_, i) => i !== index))}
                 style={j.photoRemoveBtn}>
@@ -489,8 +589,16 @@ function JournalForm({
   );
 }
 
-export function NewJournalScreen({ initialPlantId }: { initialPlantId?: string }) {
-  return <JournalForm initialPlantId={initialPlantId} />;
+export function NewJournalScreen({
+  initialPlantId,
+  careTaskId,
+  initialLogType,
+}: {
+  initialPlantId?: string;
+  careTaskId?: string;
+  initialLogType?: JournalLogType;
+}) {
+  return <JournalForm initialPlantId={initialPlantId} careTaskId={careTaskId} initialLogType={initialLogType} />;
 }
 
 export function EditJournalScreen({ journalId }: { journalId?: string }) {
@@ -555,4 +663,8 @@ const j = StyleSheet.create({
   multiline: { minHeight: 96, paddingTop: 10, textAlignVertical: 'top' },
   errorBorder: { borderWidth: 1, borderColor: '#B42318' },
   errorText: { color: '#B42318', fontFamily: F.regular, fontSize: 12, textAlign: 'center' },
+  lightboxBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', alignItems: 'center', justifyContent: 'center', padding: 16 },
+  lightboxImage: { width: '100%', height: '80%' },
+  lightboxClose: { position: 'absolute', top: 44, right: 18, zIndex: 2, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+  lightboxCloseText: { color: '#FFFFFF', fontSize: 18, fontFamily: F.bold },
 });

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
 import { router } from 'expo-router';
 
@@ -7,7 +7,7 @@ import { useAuthSession } from '@/features/auth/AuthSession';
 import { TabScreenTransition } from '@/components/tab-screen-transition';
 import { usePlantData } from '@/features/plants/PlantDataStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
-import { apiBaseUrl } from '@/services/api';
+import { apiBaseUrl, fetchGardenWeather, type ApiGardenWeather } from '@/services/api';
 import { matchesPlantFilters } from '@/features/plants/plantFilters';
 import { CARE_TASK_META, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 
@@ -25,10 +25,44 @@ function SectionTitle({ title, trailing }: { title: string; trailing?: string })
 export default function HomeScreen() {
   const { user, accessToken } = useAuthSession();
   const { catalog, gardens, ownedPlants, isLoading, apiError, filterStates } = usePlantData();
-  const { todayTasks, todaySummary, completeTask } = useCareSchedules();
+  const { schedules, todayTasks, todaySummary, completeTask } = useCareSchedules();
   const [category, setCategory] = useState(categories[0]);
   const [query, setQuery] = useState('');
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const locatedGardens = gardens.filter((g) => Boolean(g.locationSource) || (g.latitude != null && g.longitude != null));
+  const [selectedWeatherGardenId, setSelectedWeatherGardenId] = useState<string | null>(null);
+  const weatherGarden = locatedGardens.find((g) => g.id === selectedWeatherGardenId) ?? locatedGardens[0] ?? null;
+  const [weather, setWeather] = useState<ApiGardenWeather | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+
+  useEffect(() => {
+    if (!accessToken || !weatherGarden) {
+      setWeather(null);
+      return;
+    }
+    let active = true;
+    setWeatherLoading(true);
+    void fetchGardenWeather(weatherGarden.id, accessToken)
+      .then((data) => {
+        if (active) setWeather(data);
+      })
+      .catch(() => {
+        if (active) setWeather(null);
+      })
+      .finally(() => {
+        if (active) setWeatherLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [accessToken, weatherGarden?.id]);
+
+  const cycleWeatherGarden = () => {
+    if (locatedGardens.length <= 1 || !weatherGarden) return;
+    const idx = locatedGardens.findIndex((g) => g.id === weatherGarden.id);
+    const next = locatedGardens[(idx + 1) % locatedGardens.length];
+    setSelectedWeatherGardenId(next.id);
+  };
 
   const pendingTodayTasks = todayTasks.filter((t) => t.status === 'pending');
   const nextTask = pendingTodayTasks[0];
@@ -58,35 +92,82 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.weatherCard}>
-          <View style={[styles.roundIcon, { backgroundColor: '#E1F3E8' }]}><Text>☼</Text></View>
-          <View style={styles.flexCopy}>
-            <Text style={styles.cardTitle}>Thông tin thời tiết</Text>
-            <Text style={styles.bodyText}>Chưa có dữ liệu thời tiết cho khu vườn.</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              if (weatherGarden) {
+                router.push({ pathname: '/garden-detail', params: { gardenId: weatherGarden.id } } as never);
+              } else if (gardens.length > 0) {
+                router.push({ pathname: '/garden/create', params: { editGardenId: gardens[0].id } } as never);
+              } else {
+                navigate(accessToken ? '/garden/create' : '/auth/login');
+              }
+            }}
+            style={styles.weatherMain}>
+            <View style={[styles.roundIcon, { backgroundColor: '#E1F3E8' }]}><Text>☼</Text></View>
+            <View style={styles.flexCopy}>
+              <Text style={styles.cardTitle} numberOfLines={1}>
+                {weatherGarden ? `Thời tiết · ${weatherGarden.name}` : 'Thông tin thời tiết'}
+              </Text>
+              <Text style={styles.bodyText} numberOfLines={2}>
+                {weatherGarden
+                  ? weatherLoading && !weather
+                    ? 'Đang cập nhật thời tiết...'
+                    : weather && weather.temperatureC != null
+                      ? `${weather.conditionDescription || weather.conditionMain || 'Ngoài trời'}${weather.humidityPct != null ? ` · Độ ẩm ${weather.humidityPct}%` : ''}${weather.plantAlerts.length > 0 ? ` · ⚠ ${weather.plantAlerts.length} cây cần chú ý` : ''}`
+                      : 'Chưa lấy được dữ liệu thời tiết.'
+                  : gardens.length > 0
+                    ? 'Chưa thiết lập vị trí cho khu vườn.'
+                    : 'Tạo khu vườn kèm vị trí để xem thời tiết.'}
+              </Text>
+            </View>
+          </Pressable>
+          <View style={styles.weatherActions}>
+            <Text style={styles.lightPill}>
+              {weatherGarden && weather?.temperatureC != null
+                ? `${Math.round(weather.temperatureC)}°C`
+                : gardens.length > 0 && !weatherGarden
+                  ? 'Thiết lập'
+                  : !weatherGarden
+                    ? 'Tạo vườn'
+                    : weatherLoading
+                      ? '...'
+                      : 'Xem'}
+            </Text>
+            {locatedGardens.length > 1 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Đổi khu vườn xem thời tiết"
+                onPress={cycleWeatherGarden}>
+                <Text style={styles.switchGardenText}>Đổi vườn ↻</Text>
+              </Pressable>
+            ) : null}
           </View>
-          <Text style={styles.lightPill}>Chưa có dữ liệu</Text>
         </View>
 
         {nextTask && nextTaskMeta ? (
-          <Pressable
-            onPress={() => navigate('/schedule')}
-            style={todaySummary.overdue > 0 ? styles.reminderCard : styles.scheduleCard}>
-            <View style={styles.scheduleIcon}>
-              <Text style={styles.white}>{nextTaskMeta.emoji}</Text>
-            </View>
-            <View style={styles.flexCopy}>
-              <Text style={todaySummary.overdue > 0 ? styles.reminderText : styles.scheduleTitle} numberOfLines={1}>
-                {todaySummary.overdue > 0
-                  ? `${todaySummary.overdue} việc quá hạn · ${nextTaskMeta.label}`
-                  : `Hôm nay (${pendingTodayTasks.length} việc): ${nextTaskMeta.label}`}
-              </Text>
-              <Text style={styles.scheduleDescription} numberOfLines={1}>
-                🌱 {nextTask.plantName} · Nhấn để xem toàn bộ lịch chăm sóc
-              </Text>
-            </View>
+          <View style={todaySummary.overdue > 0 ? styles.reminderCard : styles.scheduleCard}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => navigate('/schedule')}
+              style={styles.taskMain}>
+              <View style={styles.scheduleIcon}>
+                <Text style={styles.white}>{nextTaskMeta.emoji}</Text>
+              </View>
+              <View style={styles.flexCopy}>
+                <Text style={todaySummary.overdue > 0 ? styles.reminderText : styles.scheduleTitle} numberOfLines={1}>
+                  {todaySummary.overdue > 0
+                    ? `${todaySummary.overdue} việc quá hạn · ${nextTaskMeta.label}`
+                    : `Hôm nay (${pendingTodayTasks.length} việc): ${nextTaskMeta.label}`}
+                </Text>
+                <Text style={styles.scheduleDescription} numberOfLines={1}>
+                  🌱 {nextTask.plantName} · Nhấn để xem toàn bộ lịch chăm sóc
+                </Text>
+              </View>
+            </Pressable>
             <Pressable
               disabled={completingTaskId === nextTask.id}
-              onPress={async (e) => {
-                e.stopPropagation?.();
+              onPress={async () => {
                 setCompletingTaskId(nextTask.id);
                 try {
                   await completeTask(nextTask.id);
@@ -97,7 +178,7 @@ export default function HomeScreen() {
               style={todaySummary.overdue > 0 ? styles.reminderButton : styles.scheduleButton}>
               <Text style={styles.white}>{completingTaskId === nextTask.id ? '...' : '✓ Xong'}</Text>
             </Pressable>
-          </Pressable>
+          </View>
         ) : todaySummary.total > 0 ? (
           <Pressable onPress={() => navigate('/schedule')} style={styles.scheduleCard}>
             <View style={styles.scheduleIcon}><Text style={styles.white}>✓</Text></View>
@@ -128,6 +209,29 @@ export default function HomeScreen() {
           </View>
         </Pressable>
 
+        {schedules.length > 0 ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Quản lý lịch chăm sóc của bạn"
+            onPress={() => navigate('/schedule')}
+            style={styles.myScheduleBanner}>
+            <View style={styles.scheduleBannerLeft}>
+              <View style={styles.myScheduleBannerIcon}>
+                <Text style={styles.myScheduleBannerIconGlyph}>✓</Text>
+              </View>
+              <View style={styles.scheduleBannerCopy}>
+                <Text style={styles.scheduleBannerTitle}>Lịch chăm sóc của bạn</Text>
+                <Text style={styles.scheduleBannerSub}>
+                  Đang theo dõi {schedules.length} lịch chăm sóc định kỳ (nhắc nhở tưới nước, bón phân, tỉa cành đúng hạn).
+                </Text>
+              </View>
+            </View>
+            <View style={styles.myScheduleBannerCta}>
+              <Text style={styles.myScheduleBannerCtaText}>Quản lý lịch</Text>
+            </View>
+          </Pressable>
+        ) : null}
+
         <View style={styles.searchBox}>
           <Text style={styles.searchIcon}>⌕</Text>
           <TextInput value={query} onChangeText={setQuery} onSubmitEditing={() => router.push({ pathname: '/search', params: { query } } as never)} placeholder="Tìm kiếm giống cây, sâu bệnh, kỹ thuật..." placeholderTextColor="#7B8580" style={styles.searchInput} returnKeyType="search" />
@@ -146,7 +250,7 @@ export default function HomeScreen() {
           {[
             ['♧', 'Quản lý cây', '#E8EFEB', '/plants'],
             ['▦', 'Quản lý vườn', C.brightMint, '/gardens'],
-            ['▤', 'Nhật ký chăm', C.peach, '/journal'],
+            ['▤', 'Nhật ký', C.peach, '/journal'],
             ['♧', 'Sâu bệnh', '#FAD8D3', '/monitoring'],
           ].map(([icon, label, color, route]) => (
             <Pressable key={label} onPress={() => navigate(route)} style={styles.shortcut}>
@@ -191,12 +295,16 @@ const styles = StyleSheet.create({
   sunBadge: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#D9F1E3', alignItems: 'center', justifyContent: 'center' },
   sun: { color: C.forest, fontSize: 26, lineHeight: 30 },
   weatherCard: { minHeight: 72, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: C.softSurface, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  weatherMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  taskMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
   roundIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   flexCopy: { flex: 1, gap: 2 },
   cardTitle: { color: C.text, fontFamily: F.semiBold, fontSize: 14, lineHeight: 19 },
   secondary: { color: C.secondaryText, fontFamily: F.regular },
   bodyText: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12, lineHeight: 18 },
   lightPill: { overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 99, backgroundColor: C.surface, color: C.forest, fontFamily: F.semiBold, fontSize: 12 },
+  weatherActions: { alignItems: 'flex-end', gap: 4 },
+  switchGardenText: { color: C.primary, fontFamily: F.semiBold, fontSize: 10 },
   reminderCard: { minHeight: 76, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: '#F9E6D4', flexDirection: 'row', alignItems: 'center', gap: 8 },
   reminderText: { color: '#8B3D13', fontFamily: F.regular, fontSize: 12, lineHeight: 17 },
   reminderButton: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 99, backgroundColor: '#A94F1B' },
@@ -267,4 +375,9 @@ const styles = StyleSheet.create({
   scheduleBannerSub: { color: '#3B6752', fontFamily: F.regular, fontSize: 11, lineHeight: 16 },
   scheduleBannerCta: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: C.primary, marginLeft: 8 },
   scheduleBannerCtaText: { color: '#FFFFFF', fontFamily: F.semiBold, fontSize: 12 },
+  myScheduleBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14, borderRadius: 14, backgroundColor: C.surface, borderWidth: 1, borderColor: '#CBE3D3' },
+  myScheduleBannerIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#E1F3E8', alignItems: 'center', justifyContent: 'center' },
+  myScheduleBannerIconGlyph: { color: C.forest, fontFamily: F.bold, fontSize: 20, lineHeight: 24 },
+  myScheduleBannerCta: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: C.softSurface, borderWidth: 1, borderColor: '#CBE3D3', marginLeft: 8 },
+  myScheduleBannerCtaText: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 },
 });

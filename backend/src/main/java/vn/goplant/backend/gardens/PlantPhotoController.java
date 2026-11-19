@@ -10,6 +10,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -59,6 +60,17 @@ public class PlantPhotoController {
         Photo photo = photos.getFirst();
         return ResponseEntity.ok().contentType(MediaType.parseMediaType(photo.contentType()))
                 .cacheControl(CacheControl.noCache()).body(photo.bytes());
+    }
+
+    @DeleteMapping
+    @Transactional
+    public ResponseEntity<Void> delete(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) {
+        UUID ownerId = UUID.fromString(jwt.getSubject());
+        int owned = jdbc.queryForObject("SELECT count(*) FROM user_plants WHERE id=? AND owner_user_id=? AND archived_at IS NULL",
+                Integer.class, id, ownerId);
+        if (owned == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy cây trong tài khoản.");
+        jdbc.update("DELETE FROM user_plant_photos WHERE user_plant_id=?", id);
+        return ResponseEntity.noContent().build();
     }
 
     private record Photo(String contentType, byte[] bytes) {}

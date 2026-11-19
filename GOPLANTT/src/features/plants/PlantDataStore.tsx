@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { useAuthSession } from '@/features/auth/AuthSession';
-import { apiRequest, fetchCatalogPlants, fetchOwnedPlants, isApiConfigured, uploadPlantPhoto, type ApiGarden, type ApiOwnedPlant, type PlantCatalogItem } from '@/services/api';
+import { apiRequest, deleteGardenPhoto, fetchCatalogPlants, fetchOwnedPlants, isApiConfigured, updateGarden as updateGardenApi, uploadGardenPhoto, uploadPlantPhoto, type ApiGarden, type ApiOwnedPlant, type PlantCatalogItem } from '@/services/api';
 
 export type PlantProfile = {
   id: string;
@@ -50,6 +50,12 @@ export type GardenProfile = {
   locationType: string;
   locationDetail: string;
   description: string;
+  provinceCode?: string | null;
+  provinceName?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  locationSource?: 'province' | 'gps' | null;
+  photoUpdatedAt?: string | null;
 };
 
 type PlantDataContextValue = {
@@ -67,6 +73,9 @@ type PlantDataContextValue = {
   updatePlantPhoto: (id: string, photo: { uri: string; mimeType?: string | null; fileName?: string | null }) => Promise<void>;
   removePlant: (id: string) => Promise<void>;
   addGarden: (garden: Omit<GardenProfile, 'id'>) => Promise<string>;
+  updateGarden: (id: string, garden: Omit<GardenProfile, 'id'>) => Promise<void>;
+  updateGardenPhoto: (id: string, photo: { uri: string; mimeType?: string | null; fileName?: string | null }) => Promise<void>;
+  removeGardenPhoto: (id: string) => Promise<void>;
   removeGarden: (id: string) => Promise<void>;
   toggleFavorite: (catalogId: string) => Promise<void>;
 };
@@ -108,7 +117,19 @@ function mapOwnedPlant(plant: ApiOwnedPlant, catalog: PlantProfile[]): OwnedPlan
 }
 
 function mapGarden(garden: ApiGarden): GardenProfile {
-  return { id: garden.id, name: garden.name, locationType: garden.locationType, locationDetail: garden.locationDetail ?? '', description: garden.description ?? '' };
+  return {
+    id: garden.id,
+    name: garden.name,
+    locationType: garden.locationType,
+    locationDetail: garden.locationDetail ?? '',
+    description: garden.description ?? '',
+    provinceCode: garden.provinceCode ?? null,
+    provinceName: garden.provinceName ?? null,
+    latitude: garden.latitude ?? null,
+    longitude: garden.longitude ?? null,
+    locationSource: garden.locationSource ?? null,
+    photoUpdatedAt: garden.photoUpdatedAt ?? null,
+  };
 }
 
 function parseDate(value: string): string | null {
@@ -199,12 +220,45 @@ export function PlantDataProvider({ children }: { children: ReactNode }) {
       if (isApiConfigured && accessToken) {
         const created = await apiRequest<ApiGarden>('/api/v1/gardens', {
           method: 'POST', token: accessToken,
-          body: { name: garden.name, locationType: garden.locationType, locationDetail: garden.locationDetail || null, description: garden.description || null },
+          body: {
+            name: garden.name,
+            locationType: garden.locationType,
+            locationDetail: garden.locationDetail || null,
+            description: garden.description || null,
+            locationSource: garden.locationSource ?? null,
+            provinceCode: garden.provinceCode ?? null,
+            latitude: garden.latitude ?? null,
+            longitude: garden.longitude ?? null,
+          },
         });
         setGardens((items) => [mapGarden(created), ...items]);
         return created.id;
       }
       throw new Error('Cần đăng nhập và kết nối máy chủ để tạo khu vườn.');
+    },
+    updateGarden: async (id, garden) => {
+      if (!isApiConfigured || !accessToken) throw new Error('Cần đăng nhập và kết nối máy chủ để cập nhật khu vườn.');
+      const updated = await updateGardenApi(id, accessToken, {
+        name: garden.name,
+        locationType: garden.locationType,
+        locationDetail: garden.locationDetail || null,
+        description: garden.description || null,
+        locationSource: garden.locationSource ?? null,
+        provinceCode: garden.provinceCode ?? null,
+        latitude: garden.latitude ?? null,
+        longitude: garden.longitude ?? null,
+      });
+      setGardens((items) => items.map((item) => (item.id === id ? mapGarden(updated) : item)));
+    },
+    updateGardenPhoto: async (id, photo) => {
+      if (!isApiConfigured || !accessToken) throw new Error('Cần đăng nhập và kết nối máy chủ để tải ảnh lên.');
+      await uploadGardenPhoto(id, accessToken, photo);
+      await refresh();
+    },
+    removeGardenPhoto: async (id) => {
+      if (!isApiConfigured || !accessToken) throw new Error('Cần đăng nhập và kết nối máy chủ để xóa ảnh.');
+      await deleteGardenPhoto(id, accessToken);
+      await refresh();
     },
     removeGarden: async (id) => {
       if (!isApiConfigured || !accessToken) throw new Error('Cần đăng nhập và kết nối máy chủ để xóa khu vườn.');

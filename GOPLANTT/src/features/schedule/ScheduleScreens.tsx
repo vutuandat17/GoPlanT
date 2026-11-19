@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator } from 'react-native';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
 import { SafeAreaView } from '@/components/app-primitives';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { AccountButton } from '@/features/auth/AccountButton';
@@ -11,6 +11,7 @@ import {
   CARE_TASK_META,
   CARE_TASK_TYPES,
   formatDateVi,
+  formatDueTimeLocal,
   formatScheduleRepeat,
   formatTimeShort,
   useCareSchedules,
@@ -20,6 +21,7 @@ import {
   type ApiCareTask,
   type CareRepeatType,
   type CareTaskType,
+  type JournalLogType,
 } from '@/services/api';
 
 type RepeatOption = 'daily' | 'alternate' | 'weekly' | 'custom';
@@ -101,25 +103,105 @@ function Header({ title, showCreate }: { title: string; showCreate?: boolean }) 
   );
 }
 
+const WEEK_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+
+const SPECIAL_JOURNAL_LOG_MAP: Partial<Record<CareTaskType, JournalLogType>> = {
+  fertilizing: 'fertilizing',
+  pest_control: 'pest',
+  pruning: 'pruning',
+  repotting: 'other',
+};
+
+function getWeekBounds(weekOffset: number): { monday: Date; dates: Date[] } {
+  const today = new Date();
+  const dayOfWeek = today.getDay();
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - ((dayOfWeek + 6) % 7) + weekOffset * 7);
+  const dates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return d;
+  });
+  return { monday, dates };
+}
+
 // ─── ScheduleListScreen ───────────────────────────────────────────────────────
 
 export function ScheduleListScreen() {
-  const { schedules, todayTasks, todaySummary, isLoading, error, completeTask, skipTask, refresh } = useCareSchedules();
+  const { ownedPlants, gardens } = usePlantData();
+  const { schedules, todayTasks, todaySummary, isLoading, error, completeTask, skipTask, loadCalendar, refresh } = useCareSchedules();
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
+  const [selectedGardenId, setSelectedGardenId] = useState<string>('all');
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  const [weekOffset, setWeekOffset] = useState(0);
+  const todayIso = toLocalIsoDate();
+  const [selectedIso, setSelectedIso] = useState(todayIso);
+  const [calendarTasks, setCalendarTasks] = useState<ApiCareTask[]>([]);
+  const [calendarLoading, setCalendarLoading] = useState(false);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
+  const [noteModal, setNoteModal] = useState<{ task: ApiCareTask; action: 'complete' | 'skip' } | null>(null);
+  const [noteInput, setNoteInput] = useState('');
+  const [journalPromptTask, setJournalPromptTask] = useState<ApiCareTask | null>(null);
 
-  const filteredSchedules = schedules.filter((s) => activeFilter === 'all' || s.taskType === activeFilter);
-  const pendingToday = todayTasks.filter((t) => t.status === 'pending');
+  const plantGardenMap = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const p of ownedPlants) map.set(p.id, p.gardenId ?? null);
+    return map;
+  }, [ownedPlants]);
+
+  const matchesGarden = useCallback(
+    (plantId: string) => selectedGardenId === 'all' || plantGardenMap.get(plantId) === selectedGardenId,
+    [selectedGardenId, plantGardenMap],
+  );
+
+  const { dates: weekDates } = useMemo(() => getWeekBounds(weekOffset), [weekOffset]);
+
+  const fetchGlobalWeek = useCallback(async () => {
+    setCalendarLoading(true);
+    try {
+      const from = toLocalIsoDate(weekDates[0]);
+      const to = toLocalIsoDate(weekDates[6]);
+      const view = await loadCalendar(from, to);
+      setCalendarTasks(view.tasks ?? []);
+    } catch {
+      setCalendarTasks([]);
+    } finally {
+      setCalendarLoading(false);
+    }
+  }, [loadCalendar, weekDates]);
+
+  useEffect(() => {
+    if (viewMode === 'calendar') {
+      void fetchGlobalWeek();
+    }
+  }, [viewMode, fetchGlobalWeek]);
+
+  const filteredSchedules = schedules.filter(
+    (s) => (activeFilter === 'all' || s.taskType === activeFilter) && matchesGarden(s.plantId),
+  );
+  const pendingToday = todayTasks.filter(
+    (t) => t.status === 'pending' && (activeFilter === 'all' || t.taskType === activeFilter) && matchesGarden(t.plantId),
+  );
+  const selectedDayTasks = calendarTasks.filter(
+    (t) => t.dueDate === selectedIso && (activeFilter === 'all' || t.taskType === activeFilter) && matchesGarden(t.plantId),
+  );
 
   const todayPercent = todaySummary.total > 0
     ? Math.round(((todaySummary.completed + todaySummary.skipped) / todaySummary.total) * 100)
     : 0;
 
-  const handleTaskAction = async (taskId: string, action: 'complete' | 'skip') => {
-    setBusyTaskId(taskId);
+  const executeTaskAction = async (task: ApiCareTask, action: 'complete' | 'skip', note?: string) => {
+    setBusyTaskId(task.id);
     try {
-      if (action === 'complete') await completeTask(taskId);
-      else await skipTask(taskId);
+      if (action === 'complete') {
+        await completeTask(task.id, note);
+        setJournalPromptTask(task);
+      } else {
+        await skipTask(task.id, note);
+      }
+      if (viewMode === 'calendar') {
+        void fetchGlobalWeek();
+      }
     } catch (err) {
       Alert.alert('Không thể cập nhật', err instanceof Error ? err.message : 'Vui lòng thử lại.');
     } finally {
@@ -127,9 +209,14 @@ export function ScheduleListScreen() {
     }
   };
 
+  const openNoteModal = (task: ApiCareTask, action: 'complete' | 'skip') => {
+    setNoteInput('');
+    setNoteModal({ task, action });
+  };
+
   return (
     <SafeAreaView style={sc.safe} edges={['top']}>
-      <Header title="Lập lịch chăm sóc" showCreate />
+      <Header title="Lập lịch chăm sóc" />
       <ScrollView style={sc.scroll} contentContainerStyle={sc.scrollContent} showsVerticalScrollIndicator={false}>
         {/* ── Banner giới thiệu ── */}
         <View style={sc.introBanner}>
@@ -198,6 +285,9 @@ export function ScheduleListScreen() {
             {pendingToday.map((task) => {
               const meta = CARE_TASK_META[task.taskType] ?? CARE_TASK_META.other;
               const busy = busyTaskId === task.id;
+              const localTime = formatDueTimeLocal(task.dueAt);
+              const dueMs = Date.parse(task.dueAt);
+              const isTimeReached = Number.isFinite(dueMs) && dueMs <= Date.now();
               return (
                 <View key={task.id} style={[sc.todayTaskCard, task.overdue && sc.todayTaskOverdue]}>
                   <View style={[sc.taskIconBox, { backgroundColor: meta.color }]}>
@@ -205,26 +295,33 @@ export function ScheduleListScreen() {
                   </View>
                   <View style={sc.taskCopy}>
                     <View style={sc.taskTopRow}>
-                      <Text style={sc.taskTitle} numberOfLines={1}>{meta.label}</Text>
+                      <Text style={sc.taskTitle} numberOfLines={1}>{task.title || meta.label}</Text>
                       {task.overdue ? (
                         <View style={sc.overduePill}>
                           <Text style={sc.overduePillText}>Quá hạn ({formatDateVi(task.dueDate)})</Text>
                         </View>
+                      ) : isTimeReached ? (
+                        <View style={sc.dueNowPill}>
+                          <Text style={sc.dueNowPillText}>Đến giờ · {localTime}</Text>
+                        </View>
                       ) : (
-                        <Text style={sc.taskTime}>{formatTimeShort(task.dueAt.slice(11, 16))}</Text>
+                        <View style={sc.upcomingPill}>
+                          <Text style={sc.upcomingPillText}>Sắp tới · {localTime}</Text>
+                        </View>
                       )}
                     </View>
                     <Text style={sc.taskPlant} numberOfLines={1}>🌱 {task.plantName}</Text>
                     <View style={sc.taskActions}>
                       <Pressable
                         disabled={busy}
-                        onPress={() => void handleTaskAction(task.id, 'complete')}
+                        onPress={() => void executeTaskAction(task, 'complete')}
+                        onLongPress={() => openNoteModal(task, 'complete')}
                         style={[sc.actionDoneBtn, busy && sc.btnDisabled]}>
                         <Text style={sc.actionDoneText}>{busy ? '...' : '✓ Hoàn thành'}</Text>
                       </Pressable>
                       <Pressable
                         disabled={busy}
-                        onPress={() => void handleTaskAction(task.id, 'skip')}
+                        onPress={() => openNoteModal(task, 'skip')}
                         style={[sc.actionSkipBtn, busy && sc.btnDisabled]}>
                         <Text style={sc.actionSkipText}>Bỏ qua</Text>
                       </Pressable>
@@ -236,7 +333,42 @@ export function ScheduleListScreen() {
           </View>
         ) : null}
 
-        {/* ── Bộ lọc nhanh ── */}
+        {/* ── Chế độ xem & Bộ lọc nhanh ── */}
+        <View style={sc.modeSwitch}>
+          <Pressable
+            onPress={() => setViewMode('list')}
+            style={[sc.modeBtn, viewMode === 'list' && sc.modeBtnActive]}>
+            <Text style={[sc.modeText, viewMode === 'list' && sc.modeTextActive]}>Danh sách lịch</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setViewMode('calendar')}
+            style={[sc.modeBtn, viewMode === 'calendar' && sc.modeBtnActive]}>
+            <Text style={[sc.modeText, viewMode === 'calendar' && sc.modeTextActive]}>Lịch tuần tổng hợp</Text>
+          </Pressable>
+        </View>
+
+        {gardens.length > 0 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={sc.filterRow}>
+            <Pressable
+              onPress={() => setSelectedGardenId('all')}
+              style={[sc.filterTab, selectedGardenId === 'all' && sc.filterTabActive]}>
+              <Text style={[sc.filterTabText, selectedGardenId === 'all' && sc.filterTabTextActive]}>
+                Tất cả vườn
+              </Text>
+            </Pressable>
+            {gardens.map((g) => (
+              <Pressable
+                key={g.id}
+                onPress={() => setSelectedGardenId(g.id)}
+                style={[sc.filterTab, selectedGardenId === g.id && sc.filterTabActive]}>
+                <Text style={[sc.filterTabText, selectedGardenId === g.id && sc.filterTabTextActive]}>
+                  🏡 {g.name}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        ) : null}
+
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -253,7 +385,93 @@ export function ScheduleListScreen() {
           ))}
         </ScrollView>
 
-        {/* ── Danh sách lịch ── */}
+        {viewMode === 'calendar' ? (
+          <>
+            <View style={sc.monthRow}>
+              <Pressable onPress={() => setWeekOffset((w) => w - 1)} style={sc.weekArrowBtn}>
+                <Text style={sc.monthArrow}>‹</Text>
+              </Pressable>
+              <Text style={sc.monthLabel}>
+                Tháng {weekDates[0].toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' })}
+              </Text>
+              <Pressable onPress={() => setWeekOffset((w) => w + 1)} style={sc.weekArrowBtn}>
+                <Text style={sc.monthArrow}>›</Text>
+              </Pressable>
+            </View>
+            <View style={sc.weekStrip}>
+              {weekDates.map((d, i) => {
+                const iso = toLocalIsoDate(d);
+                const active = selectedIso === iso;
+                const isToday = iso === todayIso;
+                const hasTask = calendarTasks.some(
+                  (t) => t.dueDate === iso && (activeFilter === 'all' || t.taskType === activeFilter) && matchesGarden(t.plantId),
+                );
+                return (
+                  <Pressable
+                    key={iso}
+                    onPress={() => setSelectedIso(iso)}
+                    style={[sc.dayCell, active && sc.dayCellActive]}>
+                    <Text style={[sc.dayLabel, active && sc.dayLabelActive]}>{WEEK_DAYS[i]}</Text>
+                    <Text style={[sc.dayDate, active && sc.dayDateActive]}>{d.getDate()}</Text>
+                    <View style={sc.dayDotRow}>
+                      {isToday ? <View style={[sc.todayDot, active && sc.todayDotActive]} /> : null}
+                      {hasTask && !isToday ? <View style={[sc.taskDot, active && sc.todayDotActive]} /> : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={sc.sectionHeader}>
+              <Text style={sc.sectionTitle}>Công việc ngày {formatDateVi(selectedIso)}</Text>
+              <Text style={sc.sectionHint}>{selectedDayTasks.length} việc</Text>
+            </View>
+            {calendarLoading ? (
+              <View style={sc.loadingWrap}>
+                <ActivityIndicator color={C.primary} />
+              </View>
+            ) : selectedDayTasks.length === 0 ? (
+              <View style={sc.emptyDayCard}>
+                <Text style={sc.hintText}>Không có công việc phù hợp bộ lọc trong ngày này.</Text>
+              </View>
+            ) : (
+              selectedDayTasks.map((task) => {
+                const meta = CARE_TASK_META[task.taskType] ?? CARE_TASK_META.other;
+                const busy = busyTaskId === task.id;
+                return (
+                  <View key={task.id} style={[sc.timelineCard, task.overdue && sc.timelineCardUrgent]}>
+                    <View style={sc.timelineTop}>
+                      <Text style={sc.timelineTime}>{meta.emoji} {formatDueTimeLocal(task.dueAt)}</Text>
+                      <Text style={sc.sectionHint}>
+                        {task.status === 'completed' ? '✓ Đã xong' : task.status === 'skipped' ? 'Đã bỏ qua' : task.overdue ? 'Quá hạn' : 'Chờ làm'}
+                      </Text>
+                    </View>
+                    <Text style={sc.timelineTitle}>{task.title || meta.label} · {task.plantName}</Text>
+                    {task.note ? <Text style={sc.timelineDesc}>{task.note}</Text> : null}
+                    {task.status === 'pending' ? (
+                      <View style={sc.taskActions}>
+                        <Pressable
+                          disabled={busy}
+                          onPress={() => void executeTaskAction(task, 'complete')}
+                          onLongPress={() => openNoteModal(task, 'complete')}
+                          style={[sc.actionDoneBtn, busy && sc.btnDisabled]}>
+                          <Text style={sc.actionDoneText}>{busy ? '...' : '✓ Hoàn thành'}</Text>
+                        </Pressable>
+                        <Pressable
+                          disabled={busy}
+                          onPress={() => openNoteModal(task, 'skip')}
+                          style={[sc.actionSkipBtn, busy && sc.btnDisabled]}>
+                          <Text style={sc.actionSkipText}>Bỏ qua</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })
+            )}
+          </>
+        ) : (
+          <>
+            {/* ── Danh sách lịch ── */}
         <View style={sc.sectionHeader}>
           <Text style={sc.sectionTitle}>Lịch định kỳ của bạn</Text>
           <Text style={sc.sectionHint}>{filteredSchedules.length} lịch</Text>
@@ -311,9 +529,86 @@ export function ScheduleListScreen() {
             );
           })
         )}
+          </>
+        )}
 
         <View style={{ height: 24 }} />
       </ScrollView>
+
+      {/* Modal nhập lý do bỏ qua / ghi chú hoàn thành */}
+      <Modal visible={Boolean(noteModal)} transparent animationType="fade" onRequestClose={() => setNoteModal(null)}>
+        <View style={sc.modalBackdrop}>
+          <View style={sc.modalCard}>
+            <Text style={sc.sectionTitle}>
+              {noteModal?.action === 'skip' ? 'Bỏ qua công việc' : 'Hoàn thành kèm ghi chú'}
+            </Text>
+            <Text style={sc.timelineDesc}>
+              {noteModal ? `${CARE_TASK_META[noteModal.task.taskType]?.label ?? 'Chăm sóc'} · ${noteModal.task.plantName}` : ''}
+            </Text>
+            <TextInput
+              value={noteInput}
+              onChangeText={setNoteInput}
+              placeholder={noteModal?.action === 'skip' ? 'Lý do bỏ qua (vd: Trời mưa, đất còn ẩm...)' : 'Ghi chú khi hoàn thành (tùy chọn)'}
+              placeholderTextColor={C.mutedText}
+              style={sc.searchInput}
+            />
+            <View style={sc.taskActions}>
+              <Pressable onPress={() => setNoteModal(null)} style={sc.actionSkipBtn}>
+                <Text style={sc.actionSkipText}>Hủy</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  if (!noteModal) return;
+                  const target = noteModal;
+                  const trimmed = noteInput.trim();
+                  setNoteModal(null);
+                  void executeTaskAction(target.task, target.action, trimmed || undefined);
+                }}
+                style={sc.actionDoneBtn}>
+                <Text style={sc.actionDoneText}>
+                  {noteModal?.action === 'skip' ? 'Xác nhận bỏ qua' : '✓ Xác nhận hoàn thành'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal gợi ý ghi nhanh nhật ký sau công việc đặc biệt */}
+      <Modal visible={Boolean(journalPromptTask)} transparent animationType="fade" onRequestClose={() => setJournalPromptTask(null)}>
+        <View style={sc.modalBackdrop}>
+          <View style={sc.modalCard}>
+            <Text style={sc.sectionTitle}>Đã hoàn thành! Ghi vào nhật ký?</Text>
+            <Text style={sc.timelineDesc}>
+              {journalPromptTask
+                ? `Bạn vừa xong "${CARE_TASK_META[journalPromptTask.taskType]?.label}" cho ${journalPromptTask.plantName}. Lưu lại vào nhật ký chăm sóc để tiện theo dõi?`
+                : ''}
+            </Text>
+            <View style={sc.taskActions}>
+              <Pressable onPress={() => setJournalPromptTask(null)} style={sc.actionSkipBtn}>
+                <Text style={sc.actionSkipText}>Để sau</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  const target = journalPromptTask;
+                  setJournalPromptTask(null);
+                  if (!target) return;
+                  router.push({
+                    pathname: '/journal/new',
+                    params: {
+                      plantId: target.plantId,
+                      careTaskId: target.id,
+                      logType: SPECIAL_JOURNAL_LOG_MAP[target.taskType] ?? 'other',
+                    },
+                  } as never);
+                }}
+                style={sc.actionDoneBtn}>
+                <Text style={sc.actionDoneText}>Ghi nhận vào nhật ký</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -321,19 +616,63 @@ export function ScheduleListScreen() {
 // ─── CreateScheduleScreen ─────────────────────────────────────────────────────
 
 export function CreateScheduleScreen() {
+  const params = useLocalSearchParams<{ scheduleId?: string; plantId?: string }>();
   const { ownedPlants } = usePlantData();
-  const { createSchedule } = useCareSchedules();
-  const [plantId, setPlantId] = useState('');
+  const { schedules, createSchedule, updateSchedule } = useCareSchedules();
+  const editingSchedule = params.scheduleId ? schedules.find((s) => s.id === params.scheduleId) : undefined;
+  const isEditing = Boolean(editingSchedule);
+
+  const [plantId, setPlantId] = useState(editingSchedule?.plantId ?? params.plantId ?? '');
   const [plantQuery, setPlantQuery] = useState('');
-  const [taskType, setTaskType] = useState<CareTaskType | ''>('');
-  const [repeatOption, setRepeatOption] = useState<RepeatOption>('daily');
-  const [customDays, setCustomDays] = useState('3');
-  const [daysOfWeek, setDaysOfWeek] = useState<number[]>([getIsoDayToday()]);
-  const [startDate, setStartDate] = useState(() => formatDateVi(toLocalIsoDate()));
-  const [time, setTime] = useState('08:00');
-  const [note, setNote] = useState('');
+  const [taskType, setTaskType] = useState<CareTaskType | ''>(editingSchedule?.taskType ?? '');
+  const [title, setTitle] = useState(editingSchedule?.title ?? '');
+  const [repeatOption, setRepeatOption] = useState<RepeatOption>(() => {
+    if (!editingSchedule) return 'daily';
+    if (editingSchedule.repeatType === 'WEEKLY') return 'weekly';
+    if (editingSchedule.frequencyDays === 1) return 'daily';
+    if (editingSchedule.frequencyDays === 2) return 'alternate';
+    return 'custom';
+  });
+  const [customDays, setCustomDays] = useState(String(editingSchedule?.frequencyDays ?? 3));
+  const [daysOfWeek, setDaysOfWeek] = useState<number[]>(
+    editingSchedule?.daysOfWeek?.length ? editingSchedule.daysOfWeek : [getIsoDayToday()],
+  );
+  const [startDate, setStartDate] = useState(() => formatDateVi(editingSchedule?.startDate ?? toLocalIsoDate()));
+  const [endDate, setEndDate] = useState(() => (editingSchedule?.endDate ? formatDateVi(editingSchedule.endDate) : ''));
+  const [time, setTime] = useState(() => formatTimeShort(editingSchedule?.timeOfDay ?? '08:00'));
+  const [note, setNote] = useState(editingSchedule?.note ?? '');
   const [errorMsg, setErrorMsg] = useState('');
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (editingSchedule) {
+      setPlantId(editingSchedule.plantId);
+      setPlantQuery(editingSchedule.plantName);
+      setTaskType(editingSchedule.taskType);
+      setTitle(editingSchedule.title ?? '');
+      setNote(editingSchedule.note ?? '');
+      setStartDate(formatDateVi(editingSchedule.startDate));
+      setEndDate(editingSchedule.endDate ? formatDateVi(editingSchedule.endDate) : '');
+      setTime(formatTimeShort(editingSchedule.timeOfDay));
+      if (editingSchedule.repeatType === 'WEEKLY') {
+        setRepeatOption('weekly');
+        if (editingSchedule.daysOfWeek?.length) setDaysOfWeek(editingSchedule.daysOfWeek);
+      } else if (editingSchedule.frequencyDays === 1) {
+        setRepeatOption('daily');
+      } else if (editingSchedule.frequencyDays === 2) {
+        setRepeatOption('alternate');
+      } else {
+        setRepeatOption('custom');
+        setCustomDays(String(editingSchedule.frequencyDays ?? 3));
+      }
+      return;
+    }
+    if (params.plantId) {
+      setPlantId(params.plantId);
+      const matched = ownedPlants.find((p) => p.id === params.plantId);
+      if (matched) setPlantQuery(matched.name);
+    }
+  }, [editingSchedule, params.plantId, ownedPlants]);
 
   const matchingPlants = plantQuery.trim()
     ? ownedPlants.filter((p) =>
@@ -365,6 +704,19 @@ export function CreateScheduleScreen() {
     if (!isoStartDate) {
       setErrorMsg('Ngày bắt đầu không đúng định dạng (DD/MM/YYYY hoặc YYYY-MM-DD).');
       return;
+    }
+
+    let isoEndDate: string | null = null;
+    if (endDate.trim()) {
+      isoEndDate = parseUserDate(endDate);
+      if (!isoEndDate) {
+        setErrorMsg('Ngày kết thúc không đúng định dạng (DD/MM/YYYY hoặc YYYY-MM-DD).');
+        return;
+      }
+      if (isoEndDate < isoStartDate) {
+        setErrorMsg('Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.');
+        return;
+      }
     }
 
     const formattedTime = parseUserTime(time);
@@ -400,21 +752,31 @@ export function CreateScheduleScreen() {
 
     setSaving(true);
     try {
-      await createSchedule(plantId, {
+      const payload = {
         taskType,
+        title: title.trim() || null,
         note: note.trim() || null,
         repeatType,
         frequencyDays,
         daysOfWeek: selectedWeekDays,
         timeOfDay: formattedTime,
         startDate: isoStartDate,
-      });
-      const label = CARE_TASK_META[taskType].label;
-      Alert.alert('Tạo lịch thành công', `Đã tạo lịch "${label}" cho ${selectedPlant?.name ?? ''}.`, [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+        endDate: isoEndDate,
+      };
+      if (editingSchedule) {
+        await updateSchedule(editingSchedule.id, payload);
+        Alert.alert('Cập nhật thành công', `Đã lưu thay đổi cho lịch "${title.trim() || CARE_TASK_META[taskType].label}".`, [
+          { text: 'OK', onPress: () => router.back() },
+        ]);
+      } else {
+        await createSchedule(plantId, payload);
+        const label = title.trim() || CARE_TASK_META[taskType].label;
+        Alert.alert('Tạo lịch thành công', `Đã tạo lịch "${label}" cho ${selectedPlant?.name ?? ''}.`, [
+          { text: 'OK', onPress: () => router.back() },
+        ]);
+      }
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Không thể tạo lịch chăm sóc. Vui lòng thử lại.');
+      setErrorMsg(err instanceof Error ? err.message : 'Không thể lưu lịch chăm sóc. Vui lòng thử lại.');
     } finally {
       setSaving(false);
     }
@@ -422,7 +784,7 @@ export function CreateScheduleScreen() {
 
   return (
     <SafeAreaView style={sc.safe} edges={['top']}>
-      <Header title="Tạo lịch chăm sóc" />
+      <Header title={isEditing ? 'Chỉnh sửa lịch chăm sóc' : 'Tạo lịch chăm sóc'} />
       <ScrollView style={sc.scroll} contentContainerStyle={sc.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <View style={sc.tipCard}>
           <Text style={sc.tipTitle}>Lập lịch chăm sóc cây 🌿</Text>
@@ -514,12 +876,12 @@ export function CreateScheduleScreen() {
         </View>
 
         {/* ── PHẦN 3: Thời gian ── */}
-        <Text style={sc.sectionLabel}>3. Thời gian bắt đầu & Giờ nhắc</Text>
+        <Text style={sc.sectionLabel}>3. Thời gian bắt đầu, kết thúc & Giờ nhắc</Text>
         <View style={sc.timeRow}>
           <TextInput
             value={startDate}
             onChangeText={setStartDate}
-            placeholder="Ngày (DD/MM/YYYY)"
+            placeholder="Bắt đầu (DD/MM/YYYY)"
             placeholderTextColor={C.mutedText}
             style={[sc.timeInput, { flex: 1 }]}
           />
@@ -531,6 +893,13 @@ export function CreateScheduleScreen() {
             style={[sc.timeInput, { flex: 1 }]}
           />
         </View>
+        <TextInput
+          value={endDate}
+          onChangeText={setEndDate}
+          placeholder="Ngày kết thúc (tùy chọn, DD/MM/YYYY — để trống nếu lặp vô thời hạn)"
+          placeholderTextColor={C.mutedText}
+          style={sc.searchInput}
+        />
 
         {/* ── PHẦN 4: Chu kỳ lặp lại ── */}
         <Text style={sc.sectionLabel}>4. Chu kỳ lặp lại</Text>
@@ -601,8 +970,17 @@ export function CreateScheduleScreen() {
           </View>
         ) : null}
 
-        {/* ── PHẦN 5: Ghi chú ── */}
-        <Text style={sc.sectionLabel}>5. Ghi chú chăm sóc (tùy chọn)</Text>
+        {/* ── PHẦN 5: Tiêu đề & Ghi chú ── */}
+        <Text style={sc.sectionLabel}>5. Tiêu đề lịch (tùy chọn)</Text>
+        <TextInput
+          value={title}
+          onChangeText={setTitle}
+          placeholder="Ví dụ: Tưới đẫm gốc buổi sáng"
+          placeholderTextColor={C.mutedText}
+          style={sc.searchInput}
+        />
+
+        <Text style={sc.sectionLabel}>6. Ghi chú chăm sóc (tùy chọn)</Text>
         <TextInput
           value={note}
           onChangeText={setNote}
@@ -617,12 +995,12 @@ export function CreateScheduleScreen() {
         {/* ── Nút xác nhận ── */}
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Xác nhận tạo lịch chăm sóc"
+          accessibilityLabel={isEditing ? 'Lưu thay đổi lịch chăm sóc' : 'Xác nhận tạo lịch chăm sóc'}
           disabled={saving}
           onPress={() => void handleSave()}
           style={[sc.submitBtn, saving && sc.btnDisabled]}>
           <Text style={sc.submitBtnText}>
-            {saving ? 'Đang lưu lịch...' : '✓  Xác nhận tạo lịch chăm sóc'}
+            {saving ? 'Đang lưu lịch...' : isEditing ? '✓  Lưu thay đổi lịch' : '✓  Xác nhận tạo lịch chăm sóc'}
           </Text>
         </Pressable>
 
@@ -633,22 +1011,6 @@ export function CreateScheduleScreen() {
 }
 
 // ─── ScheduleDetailScreen ─────────────────────────────────────────────────────
-
-const WEEK_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
-
-function getWeekBounds(weekOffset: number): { monday: Date; dates: Date[] } {
-  const today = new Date();
-  const dayOfWeek = today.getDay();
-  const monday = new Date(today);
-  monday.setHours(0, 0, 0, 0);
-  monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) + weekOffset * 7);
-  const dates = WEEK_DAYS.map((_, i) => {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    return d;
-  });
-  return { monday, dates };
-}
 
 export function ScheduleDetailScreen({ scheduleId }: { scheduleId?: string }) {
   const { schedules, loadCalendar, completeTask, skipTask, removeSchedule } = useCareSchedules();
@@ -879,6 +1241,13 @@ export function ScheduleDetailScreen({ scheduleId }: { scheduleId?: string }) {
           <Text style={sc.repeatInfoValue}>{formatTimeShort(entry.timeOfDay)} · {entry.timezone}</Text>
         </View>
 
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push({ pathname: '/schedule/create', params: { scheduleId: entry.id } } as never)}
+          style={sc.editBtn}>
+          <Text style={sc.editBtnText}>Chỉnh sửa lịch</Text>
+        </Pressable>
+
         <Pressable onPress={handleDeleteSchedule} style={sc.deleteBtn}>
           <Text style={sc.deleteBtnText}>Hủy lịch chăm sóc này</Text>
         </Pressable>
@@ -1067,6 +1436,19 @@ const sc = StyleSheet.create({
   repeatInfoCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderRadius: 12, backgroundColor: C.softSurface },
   repeatInfoLabel: { color: C.text, fontFamily: F.semiBold, fontSize: 13 },
   repeatInfoValue: { color: C.primary, fontFamily: F.semiBold, fontSize: 12 },
+  editBtn: { minHeight: 44, borderRadius: 10, backgroundColor: C.softSurface, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  editBtnText: { color: C.forest, fontFamily: F.semiBold, fontSize: 13 },
   deleteBtn: { minHeight: 44, borderRadius: 10, backgroundColor: '#FBDCD7', alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   deleteBtnText: { color: '#B42318', fontFamily: F.semiBold, fontSize: 13 },
+  modeSwitch: { flexDirection: 'row', padding: 4, borderRadius: 10, backgroundColor: '#E6EEE8', gap: 4 },
+  modeBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  modeBtnActive: { backgroundColor: C.primary },
+  modeText: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12 },
+  modeTextActive: { color: '#FFFFFF', fontFamily: F.semiBold },
+  modalBackdrop: { flex: 1, padding: 18, backgroundColor: 'rgba(35, 42, 38, 0.45)', alignItems: 'center', justifyContent: 'center' },
+  modalCard: { width: '100%', maxWidth: 400, padding: 16, borderRadius: 16, backgroundColor: C.surface, gap: 10 },
+  dueNowPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 99, backgroundColor: '#FEF3C7' },
+  dueNowPillText: { color: '#B45309', fontFamily: F.semiBold, fontSize: 10 },
+  upcomingPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 99, backgroundColor: C.softSurface },
+  upcomingPillText: { color: C.secondaryText, fontFamily: F.semiBold, fontSize: 10 },
 });

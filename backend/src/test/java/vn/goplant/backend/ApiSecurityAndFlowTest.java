@@ -4,23 +4,31 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -31,6 +39,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import vn.goplant.backend.auth.VerificationEmailSender;
 import vn.goplant.backend.catalog.PlantCatalogController;
+import vn.goplant.backend.gardens.GardenController;
 
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
@@ -46,6 +55,9 @@ class ApiSecurityAndFlowTest {
 
     @Autowired
     private JwtEncoder jwtEncoder;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     @MockitoBean
     private JdbcTemplate jdbc;
@@ -64,6 +76,7 @@ class ApiSecurityAndFlowTest {
                 .expiresAt(now.plusSeconds(900))
                 .subject(userId.toString())
                 .claim("role", role)
+                .claim("roles", List.of(role))
                 .build();
         return "Bearer " + jwtEncoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
     }
@@ -119,8 +132,8 @@ class ApiSecurityAndFlowTest {
                                 """))
                 .andExpect(status().isBadRequest());
 
-        when(jdbc.queryForObject(contains("SELECT count(*) FROM user_email_addresses"), eq(Integer.class), anyString()))
-                .thenReturn(0);
+        when(jdbc.query(contains("FROM users u"), any(RowMapper.class), anyString()))
+                .thenReturn(List.of());
 
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -130,7 +143,281 @@ class ApiSecurityAndFlowTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.email").value("an@goplant.test"))
                 .andExpect(jsonPath("$.id").isNotEmpty())
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andExpect(jsonPath("$.verificationRequired").value(false));
+    }
+
+    @Test
+    void registerReturnsConflictWithVietnameseMessageForDuplicateEmail() throws Exception {
+        when(jdbc.query(contains("SELECT u.status FROM users u"), any(RowMapper.class), eq("active@goplant.test")))
+                .thenReturn(List.of("active"));
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"displayName":"Nguyen An","email":"active@goplant.test","password":"password123456"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value("Email này đã được đăng ký."));
+
+        when(jdbc.query(contains("SELECT u.status FROM users u"), any(RowMapper.class), eq("pending@goplant.test")))
+                .thenReturn(List.of("pending_verification"));
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"displayName":"Nguyen An","email":"pending@goplant.test","password":"password123456"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value("Email này đã được đăng ký nhưng chưa xác minh. Vui lòng kiểm tra hộp thư hoặc yêu cầu gửi lại email xác minh."));
+    }
+
+    @Test
+    void verifyEmailActivatesPendingAccountAndRejectsInvalidToken() throws Exception {
+        UUID tokenId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID emailId = UUID.randomUUID();
+
+        when(jdbc.query(contains("FROM account_action_tokens t"), any(RowMapper.class), anyString()))
+                .thenReturn(List.of())
+                .thenReturn(List.<Object[]>of(new Object[]{tokenId, userId, emailId}));
+
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"token":"invalid-or-expired-token"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"token":"valid-verification-token-sample"}
+                                """))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void resendVerificationIssuesNewTokenAndEnforcesCooldown() throws Exception {
+        UUID userId = UUID.randomUUID();
+
+        when(jdbc.query(contains("SELECT u.id, u.status FROM users u"), any(RowMapper.class), eq("pending@goplant.test")))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("id", UUID.class)).thenReturn(userId);
+                    when(rs.getString("status")).thenReturn("pending_verification");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+
+        when(jdbc.query(contains("SELECT created_at FROM account_action_tokens"), any(RowMapper.class), eq(userId)))
+                .thenReturn(List.of(java.time.Instant.now().minusSeconds(120)))
+                .thenReturn(List.of(java.time.Instant.now().minusSeconds(10)));
+
+        mockMvc.perform(post("/api/v1/auth/resend-verification")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"pending@goplant.test"}
+                                """))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").isNotEmpty());
+
+        mockMvc.perform(post("/api/v1/auth/resend-verification")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"pending@goplant.test"}
+                                """))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void loginSucceedsWithValidCredentialsAndLocksAfterTooManyFailures() throws Exception {
+        UUID userId = UUID.randomUUID();
+        String encodedPassword = passwordEncoder.encode("correct-password-12");
+
+        when(jdbc.query(contains("SELECT u.id,u.display_name,u.password_hash,u.status"), any(RowMapper.class), eq("login@goplant.test")))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("id", UUID.class)).thenReturn(userId);
+                    when(rs.getString("display_name")).thenReturn("Nguyen An");
+                    when(rs.getString("password_hash")).thenReturn(encodedPassword);
+                    when(rs.getString("status")).thenReturn("active");
+                    when(rs.getString("normalized_email")).thenReturn("login@goplant.test");
+                    when(rs.getString("timezone")).thenReturn("Asia/Ho_Chi_Minh");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+        when(jdbc.query(contains("SELECT r.code FROM roles r JOIN user_roles"), any(RowMapper.class), eq(userId)))
+                .thenReturn(List.of("user"));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"login@goplant.test","password":"correct-password-12"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andExpect(jsonPath("$.user.email").value("login@goplant.test"));
+
+        for (int i = 0; i < 5; i++) {
+            mockMvc.perform(post("/api/v1/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"email":"login@goplant.test","password":"wrong-password-12"}
+                                    """))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"login@goplant.test","password":"correct-password-12"}
+                                """))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void refreshRotatesValidTokenAndRejectsRevokedToken() throws Exception {
+        UUID tokenId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        when(jdbc.query(contains("FROM refresh_tokens rt"), any(RowMapper.class), anyString()))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("id", UUID.class)).thenReturn(tokenId);
+                    when(rs.getObject("user_id", UUID.class)).thenReturn(userId);
+                    when(rs.getTimestamp("expires_at")).thenReturn(java.sql.Timestamp.from(Instant.now().plusSeconds(3600)));
+                    when(rs.getTimestamp("revoked_at")).thenReturn(null);
+                    when(rs.getString("display_name")).thenReturn("Nguyen An");
+                    when(rs.getString("status")).thenReturn("active");
+                    when(rs.getString("timezone")).thenReturn("Asia/Ho_Chi_Minh");
+                    when(rs.getString("normalized_email")).thenReturn("refresh@goplant.test");
+                    return List.of(mapper.mapRow(rs, 0));
+                })
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("id", UUID.class)).thenReturn(tokenId);
+                    when(rs.getObject("user_id", UUID.class)).thenReturn(userId);
+                    when(rs.getTimestamp("expires_at")).thenReturn(java.sql.Timestamp.from(Instant.now().plusSeconds(3600)));
+                    when(rs.getTimestamp("revoked_at")).thenReturn(java.sql.Timestamp.from(Instant.now().minusSeconds(60)));
+                    when(rs.getString("display_name")).thenReturn("Nguyen An");
+                    when(rs.getString("status")).thenReturn("active");
+                    when(rs.getString("timezone")).thenReturn("Asia/Ho_Chi_Minh");
+                    when(rs.getString("normalized_email")).thenReturn("refresh@goplant.test");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+        when(jdbc.query(contains("SELECT r.code FROM roles r JOIN user_roles"), any(RowMapper.class), eq(userId)))
+                .thenReturn(List.of("user"));
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"refreshToken":"valid-refresh-token-value"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andExpect(jsonPath("$.user.email").value("refresh@goplant.test"));
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"refreshToken":"revoked-refresh-token-value"}
+                                """))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void careScheduleEndpointsRequireAuthAndEnforceOwnership() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID foreignPlantId = UUID.randomUUID();
+        UUID foreignTaskId = UUID.randomUUID();
+        String token = bearerToken(userId, "member");
+
+        mockMvc.perform(get("/api/v1/schedules/today")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/plants/{plantId}/schedules", foreignPlantId)).andExpect(status().isUnauthorized());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM user_plants"), eq(Integer.class), eq(foreignPlantId), eq(userId)))
+                .thenReturn(0);
+        when(jdbc.query(contains("FROM care_tasks t"), any(RowMapper.class), eq(foreignTaskId), eq(userId)))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/plants/{plantId}/schedules", foreignPlantId)
+                        .header("Authorization", token))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/complete", foreignTaskId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/skip", foreignTaskId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void careScheduleValidationRejectsInvalidRepeatRulesAndCompletedTask() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID plantId = UUID.randomUUID();
+        UUID scheduleId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        String token = bearerToken(userId, "member");
+
+        when(jdbc.queryForList(contains("SELECT timezone FROM users"), eq(String.class), eq(userId)))
+                .thenReturn(List.of("Asia/Ho_Chi_Minh"));
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM user_plants"), eq(Integer.class), eq(plantId), eq(userId)))
+                .thenReturn(1);
+
+        // DAILY_INTERVAL without frequencyDays -> 400
+        mockMvc.perform(post("/api/v1/plants/{plantId}/schedules", plantId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"taskType":"watering","repeatType":"DAILY_INTERVAL","timeOfDay":"08:00","startDate":"2026-11-18"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        // WEEKLY with empty daysOfWeek -> 400
+        mockMvc.perform(post("/api/v1/plants/{plantId}/schedules", plantId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"taskType":"watering","repeatType":"WEEKLY","daysOfWeek":[],"timeOfDay":"08:00","startDate":"2026-11-18"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        // Already completed/skipped task -> 409 Conflict
+        when(jdbc.query(contains("FROM care_tasks t"), any(RowMapper.class), eq(taskId), eq(userId)))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("care_schedule_id", UUID.class)).thenReturn(scheduleId);
+                    when(rs.getObject("due_date", java.time.LocalDate.class)).thenReturn(java.time.LocalDate.of(2026, 11, 18));
+                    when(rs.getString("status")).thenReturn("completed");
+                    when(rs.getString("timezone")).thenReturn("Asia/Ho_Chi_Minh");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/complete", taskId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isConflict());
+
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/skip", taskId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"note":"Trời mưa"}
+                                """))
+                .andExpect(status().isConflict());
     }
 
     @Test
@@ -177,5 +464,339 @@ class ApiSecurityAndFlowTest {
         mockMvc.perform(delete("/api/v1/gardens/{id}", foreignGardenId)
                         .header("Authorization", memberBearer))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void gardenPhotoEndpointsEnforceAuthOwnershipValidationAndLifecycle() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID gardenId = UUID.randomUUID();
+        UUID foreignGardenId = UUID.randomUUID();
+        String memberBearer = bearerToken(userId, "member");
+
+        ByteArrayOutputStream pngOut = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", pngOut);
+        byte[] pngBytes = pngOut.toByteArray();
+        MockMultipartFile validPng = new MockMultipartFile("file", "garden.png", MediaType.IMAGE_PNG_VALUE, pngBytes);
+        MockMultipartFile invalidFile = new MockMultipartFile("file", "bad.txt", MediaType.TEXT_PLAIN_VALUE, "not-an-image".getBytes());
+
+        mockMvc.perform(get("/api/v1/gardens/{id}/photo", gardenId))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(multipart("/api/v1/gardens/{id}/photo", gardenId)
+                        .file(invalidFile)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isUnsupportedMediaType());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM gardens WHERE id=? AND owner_user_id=?"), eq(Integer.class), eq(foreignGardenId), eq(userId)))
+                .thenReturn(0);
+        mockMvc.perform(multipart("/api/v1/gardens/{id}/photo", foreignGardenId)
+                        .file(validPng)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(delete("/api/v1/gardens/{id}/photo", foreignGardenId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM gardens WHERE id=? AND owner_user_id=?"), eq(Integer.class), eq(gardenId), eq(userId)))
+                .thenReturn(1);
+        mockMvc.perform(multipart("/api/v1/gardens/{id}/photo", gardenId)
+                        .file(validPng)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNoContent());
+
+        when(jdbc.query(contains("FROM garden_photos ph"), any(RowMapper.class), eq(gardenId), eq(userId)))
+                .thenReturn(List.of());
+        mockMvc.perform(get("/api/v1/gardens/{id}/photo", gardenId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(delete("/api/v1/gardens/{id}/photo", gardenId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void plantLifecycleSupportsCreateUpdateSoftDeleteAndDeactivatesSchedules() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID catalogId = UUID.randomUUID();
+        UUID gardenId = UUID.randomUUID();
+        UUID plantId = UUID.randomUUID();
+        String memberBearer = bearerToken(userId, "member");
+        Instant now = Instant.now();
+
+        GardenController.OwnedPlant createdPlant = new GardenController.OwnedPlant(
+                plantId, catalogId, gardenId, "Trầu bà ban công", "Trầu bà lá xẻ", "Monstera deliciosa",
+                "Kệ cửa sổ", java.time.LocalDate.of(2026, 5, 1), "Tưới vừa", now, null);
+        GardenController.OwnedPlant updatedPlant = new GardenController.OwnedPlant(
+                plantId, catalogId, null, "Trầu bà phòng khách", "Trầu bà lá xẻ", "Monstera deliciosa",
+                "Góc sofa", java.time.LocalDate.of(2026, 5, 1), "Ít nắng", now, null);
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM gardens WHERE id=? AND owner_user_id=?"), eq(Integer.class), eq(gardenId), eq(userId)))
+                .thenReturn(1);
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM plant_catalog WHERE id=? AND is_active=true AND publication_status='approved'"), eq(Integer.class), eq(catalogId)))
+                .thenReturn(1);
+        when(jdbc.queryForObject(contains("FROM user_plants p JOIN plant_catalog c"), any(RowMapper.class), any(UUID.class), eq(userId)))
+                .thenReturn(createdPlant);
+
+        mockMvc.perform(post("/api/v1/plants")
+                        .header("Authorization", memberBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "catalogId": "%s",
+                                  "gardenId": "%s",
+                                  "displayName": "Trầu bà ban công",
+                                  "specificLocation": "Kệ cửa sổ",
+                                  "plantedOn": "2026-05-01",
+                                  "note": "Tưới vừa"
+                                }
+                                """.formatted(catalogId, gardenId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.displayName").value("Trầu bà ban công"))
+                .andExpect(jsonPath("$.gardenId").value(gardenId.toString()));
+
+        when(jdbc.update(contains("UPDATE user_plants SET display_name=?"), any(Object[].class))).thenReturn(1);
+        when(jdbc.queryForObject(contains("FROM user_plants p JOIN plant_catalog c"), any(RowMapper.class), eq(plantId), eq(userId)))
+                .thenReturn(updatedPlant);
+
+        mockMvc.perform(put("/api/v1/plants/{id}", plantId)
+                        .header("Authorization", memberBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "displayName": "Trầu bà phòng khách",
+                                  "gardenId": null,
+                                  "specificLocation": "Góc sofa",
+                                  "plantedOn": "2026-05-01",
+                                  "note": "Ít nắng"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayName").value("Trầu bà phòng khách"))
+                .andExpect(jsonPath("$.specificLocation").value("Góc sofa"));
+
+        when(jdbc.update(contains("UPDATE user_plants SET archived_at=now(),updated_at=now()"), eq(plantId), eq(userId)))
+                .thenReturn(1);
+
+        mockMvc.perform(delete("/api/v1/plants/{id}", plantId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNoContent());
+
+        verify(jdbc).update(contains("UPDATE user_plants SET archived_at=now(),updated_at=now()"), eq(plantId), eq(userId));
+        verify(jdbc).update(contains("UPDATE care_schedules SET is_active=false"), eq(plantId), eq(userId));
+        verify(jdbc).update(contains("DELETE FROM care_tasks WHERE user_plant_id=? AND owner_user_id=? AND status='pending'"), eq(plantId), eq(userId));
+    }
+
+    @Test
+    void plantPhotoEndpointsEnforceAuthOwnershipValidationAndLifecycle() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID plantId = UUID.randomUUID();
+        UUID foreignPlantId = UUID.randomUUID();
+        String memberBearer = bearerToken(userId, "member");
+
+        ByteArrayOutputStream pngOut = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", pngOut);
+        MockMultipartFile validPng = new MockMultipartFile("file", "plant.png", MediaType.IMAGE_PNG_VALUE, pngOut.toByteArray());
+        MockMultipartFile invalidFile = new MockMultipartFile("file", "bad.txt", MediaType.TEXT_PLAIN_VALUE, "not-an-image".getBytes());
+
+        mockMvc.perform(get("/api/v1/plants/{id}/photo", plantId))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(multipart("/api/v1/plants/{id}/photo", plantId)
+                        .file(invalidFile)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isUnsupportedMediaType());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM user_plants WHERE id=? AND owner_user_id=? AND archived_at IS NULL"), eq(Integer.class), eq(foreignPlantId), eq(userId)))
+                .thenReturn(0);
+        mockMvc.perform(multipart("/api/v1/plants/{id}/photo", foreignPlantId)
+                        .file(validPng)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(delete("/api/v1/plants/{id}/photo", foreignPlantId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM user_plants WHERE id=? AND owner_user_id=? AND archived_at IS NULL"), eq(Integer.class), eq(plantId), eq(userId)))
+                .thenReturn(1);
+        mockMvc.perform(multipart("/api/v1/plants/{id}/photo", plantId)
+                        .file(validPng)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNoContent());
+
+        when(jdbc.query(contains("FROM user_plant_photos ph"), any(RowMapper.class), eq(plantId), eq(userId)))
+                .thenReturn(List.of());
+        mockMvc.perform(get("/api/v1/plants/{id}/photo", plantId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(delete("/api/v1/plants/{id}/photo", plantId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void catalogFavoritesAndAdminUpdateEnforceAuthRolesAndValidation() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        UUID catalogId = UUID.randomUUID();
+        UUID missingCatalogId = UUID.randomUUID();
+        String memberBearer = bearerToken(userId, "member");
+        String adminBearer = bearerToken(adminId, "admin");
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM plant_catalog WHERE id=? AND is_active=true AND publication_status='approved'"), eq(Integer.class), eq(missingCatalogId)))
+                .thenReturn(0);
+        mockMvc.perform(post("/api/v1/catalog/plants/{id}/favorite", missingCatalogId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM plant_catalog WHERE id=? AND is_active=true AND publication_status='approved'"), eq(Integer.class), eq(catalogId)))
+                .thenReturn(1);
+        mockMvc.perform(post("/api/v1/catalog/plants/{id}/favorite", catalogId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(delete("/api/v1/catalog/plants/{id}/favorite", catalogId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNoContent());
+
+        String updateBody = """
+                {
+                  "commonName": "Trầu bà lá xẻ",
+                  "scientificName": "Monstera deliciosa",
+                  "category": "Cây nội thất",
+                  "difficulty": "Dễ",
+                  "lightRequirement": "Ánh sáng gián tiếp vừa",
+                  "waterFrequencyDays": 5
+                }
+                """;
+        mockMvc.perform(put("/api/v1/admin/catalog/plants/{id}", catalogId)
+                        .header("Authorization", memberBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updateBody))
+                .andExpect(status().isForbidden());
+
+        PlantCatalogController.Plant updatedCatalog = new PlantCatalogController.Plant(
+                catalogId, "Trầu bà lá xẻ", "Monstera deliciosa", "Cây nội thất",
+                "Dễ", "Ánh sáng gián tiếp vừa", 5, null, null, null, null, null);
+        when(jdbc.update(contains("UPDATE plant_catalog"), any(Object[].class))).thenReturn(1);
+        when(jdbc.queryForObject(contains("FROM plant_catalog WHERE id=?"), any(RowMapper.class), eq(catalogId)))
+                .thenReturn(updatedCatalog);
+
+        mockMvc.perform(put("/api/v1/admin/catalog/plants/{id}", catalogId)
+                        .header("Authorization", adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updateBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.commonName").value("Trầu bà lá xẻ"))
+                .andExpect(jsonPath("$.waterFrequencyDays").value(5));
+    }
+
+    @Test
+    void journalEndpointsEnforceAuthPaginationFiltersAndCrossUserIsolation() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID plantId = UUID.randomUUID();
+        UUID foreignJournalId = UUID.randomUUID();
+        String memberBearer = bearerToken(userId, "member");
+
+        mockMvc.perform(get("/api/v1/journals"))
+                .andExpect(status().isUnauthorized());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM plant_journals j JOIN user_plants p"), eq(Long.class), any(Object[].class)))
+                .thenReturn(0L);
+        when(jdbc.query(contains("FROM plant_journals j"), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/journals")
+                        .param("page", "0")
+                        .param("size", "10")
+                        .param("plantId", plantId.toString())
+                        .param("logType", "growth")
+                        .param("healthStatus", "warning")
+                        .param("q", "chồi")
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.items").isArray());
+
+        when(jdbc.query(contains("WHERE j.id=? AND j.owner_user_id=?"), any(RowMapper.class), eq(foreignJournalId), eq(userId)))
+                .thenReturn(List.of());
+        mockMvc.perform(get("/api/v1/journals/{journalId}", foreignJournalId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+
+        when(jdbc.update(contains("DELETE FROM plant_journals WHERE id=? AND owner_user_id=?"), eq(foreignJournalId), eq(userId)))
+                .thenReturn(0);
+        mockMvc.perform(delete("/api/v1/journals/{journalId}", foreignJournalId)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void journalValidationEnforcesLogTypeHealthStatusCareTaskPlantAndMaxPhotos() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID plantId = UUID.randomUUID();
+        UUID wrongCareTaskId = UUID.randomUUID();
+        UUID journalId = UUID.randomUUID();
+        String memberBearer = bearerToken(userId, "member");
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM user_plants WHERE id=? AND owner_user_id=? AND archived_at IS NULL"), eq(Integer.class), eq(plantId), eq(userId)))
+                .thenReturn(1);
+
+        mockMvc.perform(post("/api/v1/plants/{plantId}/journals", plantId)
+                        .header("Authorization", memberBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "logType": "invalid_type",
+                                  "healthStatus": "healthy",
+                                  "note": "Ghi chú"
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/plants/{plantId}/journals", plantId)
+                        .header("Authorization", memberBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "logType": "growth",
+                                  "healthStatus": "unknown_status",
+                                  "note": "Ghi chú"
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM care_tasks WHERE id=? AND owner_user_id=? AND user_plant_id=?"), eq(Integer.class), eq(wrongCareTaskId), eq(userId), eq(plantId)))
+                .thenReturn(0);
+
+        mockMvc.perform(post("/api/v1/plants/{plantId}/journals", plantId)
+                        .header("Authorization", memberBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "logType": "watering",
+                                  "healthStatus": "healthy",
+                                  "note": "Tưới xong",
+                                  "careTaskId": "%s"
+                                }
+                                """.formatted(wrongCareTaskId)))
+                .andExpect(status().isBadRequest());
+
+        ByteArrayOutputStream pngOut = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", pngOut);
+        MockMultipartFile validPng = new MockMultipartFile("file", "journal.png", MediaType.IMAGE_PNG_VALUE, pngOut.toByteArray());
+
+        when(jdbc.queryForObject(contains("FROM plant_journals j"), eq(Integer.class), eq(journalId), eq(userId)))
+                .thenReturn(1);
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM journal_photos WHERE journal_id=? AND owner_user_id=?"), eq(Integer.class), eq(journalId), eq(userId)))
+                .thenReturn(5);
+
+        mockMvc.perform(multipart("/api/v1/journals/{journalId}/photos", journalId)
+                        .file(validPng)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isBadRequest());
     }
 }

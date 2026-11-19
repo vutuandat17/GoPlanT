@@ -119,7 +119,33 @@ export const Alert = {
   ...RN.Alert,
   alert: (title: string, message?: string, buttons?: RN.AlertButton[], options?: RN.AlertOptions) => {
     const language = getCurrentLanguage();
-    RN.Alert.alert(translateText(title, language), message ? translateText(message, language) : undefined, buttons?.map((button) => ({ ...button, text: button.text ? translateText(button.text, language) : undefined })), options);
+    const translatedTitle = translateText(title, language);
+    const translatedMessage = message ? translateText(message, language) : undefined;
+    const translatedButtons = buttons?.map((button) => ({
+      ...button,
+      text: button.text ? translateText(button.text, language) : undefined,
+    }));
+
+    if (RN.Platform.OS === 'web' && typeof globalThis.window !== 'undefined') {
+      const fullText = translatedMessage ? `${translatedTitle}\n\n${translatedMessage}` : translatedTitle;
+      const actionButton = translatedButtons?.find((button) => button.style !== 'cancel');
+      const cancelButton = translatedButtons?.find((button) => button.style === 'cancel');
+      if (translatedButtons && translatedButtons.length > 1 && actionButton && typeof globalThis.window.confirm === 'function') {
+        if (globalThis.window.confirm(fullText)) {
+          actionButton.onPress?.();
+        } else {
+          cancelButton?.onPress?.();
+        }
+        return;
+      }
+      if (typeof globalThis.window.alert === 'function') {
+        globalThis.window.alert(fullText);
+        translatedButtons?.[0]?.onPress?.();
+        return;
+      }
+    }
+
+    RN.Alert.alert(translatedTitle, translatedMessage, translatedButtons, options);
   },
 };
 

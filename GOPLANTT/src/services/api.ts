@@ -66,21 +66,32 @@ async function tryRefreshAccessToken(): Promise<string | null> {
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   if (!apiBaseUrl) throw new ApiError('Chưa cấu hình EXPO_PUBLIC_API_URL.');
 
-  const performFetch = (token?: string | null) =>
-    fetch(`${apiBaseUrl}${path}`, {
-      method: options.method ?? 'GET',
-      headers: {
-        Accept: 'application/json',
-        ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
-    });
+  const performFetch = async (token?: string | null) => {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 15000) : null;
+    try {
+      return await fetch(`${apiBaseUrl}${path}`, {
+        method: options.method ?? 'GET',
+        headers: {
+          Accept: 'application/json',
+          ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+        ...(controller ? { signal: controller.signal } : {}),
+      });
+    } finally {
+      if (timeoutId !== null) clearTimeout(timeoutId);
+    }
+  };
 
   let response: Response;
   try {
     response = await performFetch(options.token);
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new ApiError('Kết nối máy chủ quá thời gian (15 giây). Kiểm tra backend và địa chỉ API.');
+    }
     throw new ApiError('Không kết nối được máy chủ. Kiểm tra backend và địa chỉ API.');
   }
 
@@ -89,7 +100,10 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     if (newAccessToken) {
       try {
         response = await performFetch(newAccessToken);
-      } catch {
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw new ApiError('Kết nối máy chủ quá thời gian (15 giây). Kiểm tra backend và địa chỉ API.');
+        }
         throw new ApiError('Không kết nối được máy chủ. Kiểm tra backend và địa chỉ API.');
       }
     }
@@ -109,7 +123,12 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return response.json() as Promise<T>;
 }
 
-export async function uploadPlantPhoto(plantId: string, token: string, photo: { uri: string; mimeType?: string | null; fileName?: string | null }) {
+async function uploadPhoto(
+  endpoint: string,
+  defaultFileName: string,
+  token: string,
+  photo: { uri: string; mimeType?: string | null; fileName?: string | null },
+) {
   if (!apiBaseUrl) throw new ApiError('Chưa cấu hình EXPO_PUBLIC_API_URL.');
   const mimeType = photo.mimeType ?? (photo.fileName?.toLocaleLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
   if (mimeType !== 'image/jpeg' && mimeType !== 'image/png') {
@@ -117,10 +136,10 @@ export async function uploadPlantPhoto(plantId: string, token: string, photo: { 
   }
   const file = new File(photo.uri);
   const body = new FormData();
-  body.append('file', file, photo.fileName ?? `plant-${plantId}.jpg`);
+  body.append('file', file, photo.fileName ?? defaultFileName);
   let response: Response;
   try {
-    response = await expoFetch(`${apiBaseUrl}/api/v1/plants/${plantId}/photo`, {
+    response = await expoFetch(`${apiBaseUrl}${endpoint}`, {
       method: 'POST', headers: { Accept: 'application/json', Authorization: `Bearer ${token}` }, body,
     });
   } catch (error) {
@@ -135,6 +154,22 @@ export async function uploadPlantPhoto(plantId: string, token: string, photo: { 
     } catch { /* Keep the status-based message when the response has no JSON body. */ }
     throw new ApiError(message, response.status);
   }
+}
+
+export function uploadPlantPhoto(plantId: string, token: string, photo: { uri: string; mimeType?: string | null; fileName?: string | null }) {
+  return uploadPhoto(`/api/v1/plants/${plantId}/photo`, `plant-${plantId}.jpg`, token, photo);
+}
+
+export function uploadGardenPhoto(gardenId: string, token: string, photo: { uri: string; mimeType?: string | null; fileName?: string | null }) {
+  return uploadPhoto(`/api/v1/gardens/${gardenId}/photo`, `garden-${gardenId}.jpg`, token, photo);
+}
+
+export function deleteGardenPhoto(gardenId: string, token: string) {
+  return apiRequest<void>(`/api/v1/gardens/${gardenId}/photo`, { method: 'DELETE', token });
+}
+
+export function getGardenPhotoUri(gardenId: string, photoUpdatedAt?: string | null) {
+  return photoUpdatedAt && apiBaseUrl ? `${apiBaseUrl}/api/v1/gardens/${gardenId}/photo?v=${encodeURIComponent(photoUpdatedAt)}` : null;
 }
 
 export type ApiUser = { id: string; email: string; displayName: string; roles: string[]; timezone?: string };
@@ -176,6 +211,13 @@ export function resetPassword(body: { token: string; newPassword: string }) {
   return apiRequest<void>('/api/v1/auth/reset-password', {
     method: 'POST',
     body,
+  });
+}
+
+export function resendVerificationEmail(email: string) {
+  return apiRequest<{ message: string; verificationToken?: string }>('/api/v1/auth/resend-verification', {
+    method: 'POST',
+    body: { email },
   });
 }
 export type PageResponse<T> = {
@@ -221,9 +263,93 @@ export function fetchOwnedPlants(token: string, params?: { page?: number; size?:
   return apiRequest<PageResponse<ApiOwnedPlant>>(`/api/v1/plants${qs ? `?${qs}` : ''}`, { token });
 }
 export type ApiGarden = {
-  id: string; name: string; locationType: string; locationDetail: string | null; description: string | null;
-  createdAt: string; updatedAt: string;
+  id: string;
+  name: string;
+  locationType: string;
+  locationDetail: string | null;
+  description: string | null;
+  provinceCode?: string | null;
+  provinceName?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  locationSource?: 'province' | 'gps' | null;
+  createdAt: string;
+  updatedAt: string;
+  photoUpdatedAt?: string | null;
 };
+
+export type ApiGardenRequest = {
+  name: string;
+  locationType: string;
+  locationDetail?: string | null;
+  description?: string | null;
+  locationSource?: 'province' | 'gps' | null;
+  provinceCode?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+};
+
+export type ApiProvince = {
+  code: string;
+  name: string;
+  center: string;
+  latitude: number;
+  longitude: number;
+};
+
+export type PlantTemperatureAlert = {
+  plantId: string;
+  displayName: string;
+  temperatureRange: string;
+  minC: number;
+  maxC: number;
+  level: 'too_cold' | 'too_hot';
+};
+
+export type ApiGardenWeather = {
+  gardenId: string;
+  status: 'OK' | 'NO_LOCATION' | 'NOT_CONFIGURED' | 'UNAVAILABLE';
+  stale: boolean;
+  outdoor: boolean;
+  locationSource: 'province' | 'gps' | null;
+  provinceCode: string | null;
+  provinceName: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  locationName: string | null;
+  temperatureC: number | null;
+  feelsLikeC: number | null;
+  tempMinC: number | null;
+  tempMaxC: number | null;
+  humidityPct: number | null;
+  pressureHpa: number | null;
+  windSpeedMs: number | null;
+  cloudsPct: number | null;
+  conditionCode: number | null;
+  conditionMain: string | null;
+  conditionDescription: string | null;
+  iconCode: string | null;
+  observedAt: string | null;
+  fetchedAt: string | null;
+  plantAlerts: PlantTemperatureAlert[];
+};
+
+export function updateGarden(gardenId: string, token: string, body: ApiGardenRequest) {
+  return apiRequest<ApiGarden>(`/api/v1/gardens/${gardenId}`, {
+    method: 'PUT',
+    token,
+    body,
+  });
+}
+
+export function fetchWeatherProvinces() {
+  return apiRequest<ApiProvince[]>('/api/v1/weather/provinces');
+}
+
+export function fetchGardenWeather(gardenId: string, token: string, refresh = false) {
+  const qs = refresh ? '?refresh=true' : '';
+  return apiRequest<ApiGardenWeather>(`/api/v1/gardens/${gardenId}/weather${qs}`, { token });
+}
 export type ApiOwnedPlant = {
   id: string; catalogId: string; gardenId: string | null; displayName: string; commonName: string;
   scientificName: string; specificLocation: string | null; plantedOn: string | null; note: string | null; addedAt: string; photoUpdatedAt: string | null;
@@ -433,8 +559,19 @@ export type ApiJournalPhotoMeta = {
   createdAt: string;
 };
 
-export function fetchJournals(token: string) {
-  return apiRequest<ApiJournalEntry[]>('/api/v1/journals', { token });
+export function fetchJournals(
+  token: string,
+  params?: { page?: number; size?: number; plantId?: string; logType?: JournalLogType; healthStatus?: JournalHealthStatus; q?: string },
+) {
+  const search = new URLSearchParams();
+  if (params?.page !== undefined) search.set('page', String(params.page));
+  if (params?.size !== undefined) search.set('size', String(params.size));
+  if (params?.plantId?.trim()) search.set('plantId', params.plantId.trim());
+  if (params?.logType) search.set('logType', params.logType);
+  if (params?.healthStatus) search.set('healthStatus', params.healthStatus);
+  if (params?.q?.trim()) search.set('q', params.q.trim());
+  const qs = search.toString();
+  return apiRequest<PageResponse<ApiJournalEntry>>(`/api/v1/journals${qs ? `?${qs}` : ''}`, { token });
 }
 
 export function fetchPlantJournals(plantId: string, token: string) {
@@ -501,6 +638,46 @@ export async function uploadJournalPhoto(
 
 export function deleteJournalPhoto(journalId: string, photoId: string, token: string) {
   return apiRequest<void>(`/api/v1/journals/${journalId}/photos/${photoId}`, {
+    method: 'DELETE',
+    token,
+  });
+}
+
+export type BloomStage = 'seedling' | 'budding' | 'flowering' | 'fruiting';
+
+export type ApiGrowthRecord = {
+  id: string;
+  plantId: string;
+  recordedDate: string;
+  heightCm: number | null;
+  leafCount: number | null;
+  bloomStage: BloomStage | null;
+  note: string | null;
+  createdAt: string;
+};
+
+export type ApiGrowthRecordRequest = {
+  recordedDate?: string;
+  heightCm?: number | null;
+  leafCount?: number | null;
+  bloomStage?: BloomStage | null;
+  note?: string | null;
+};
+
+export function fetchPlantGrowthRecords(plantId: string, token: string) {
+  return apiRequest<ApiGrowthRecord[]>(`/api/v1/plants/${plantId}/growth-records`, { token });
+}
+
+export function createPlantGrowthRecord(plantId: string, token: string, body: ApiGrowthRecordRequest) {
+  return apiRequest<ApiGrowthRecord>(`/api/v1/plants/${plantId}/growth-records`, {
+    method: 'POST',
+    token,
+    body,
+  });
+}
+
+export function deletePlantGrowthRecord(recordId: string, token: string) {
+  return apiRequest<void>(`/api/v1/growth-records/${recordId}`, {
     method: 'DELETE',
     token,
   });

@@ -17,11 +17,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import vn.goplant.backend.config.PageResponse;
 import vn.goplant.backend.journal.PlantJournalService.JournalEntry;
 import vn.goplant.backend.journal.PlantJournalService.JournalRequest;
 import vn.goplant.backend.journal.PlantJournalService.JournalUpdateRequest;
@@ -36,8 +38,15 @@ public class PlantJournalController {
     public PlantJournalController(PlantJournalService journals) { this.journals = journals; }
 
     @GetMapping("/journals")
-    public List<JournalEntry> listAll(@AuthenticationPrincipal Jwt jwt) {
-        return journals.listAll(owner(jwt));
+    public PageResponse<JournalEntry> listAll(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) UUID plantId,
+            @RequestParam(required = false) String logType,
+            @RequestParam(required = false) String healthStatus,
+            @RequestParam(required = false) String q) {
+        return journals.listAll(owner(jwt), page, size, plantId, logType, healthStatus, q);
     }
 
     @GetMapping("/plants/{plantId}/journals")
