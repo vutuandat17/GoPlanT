@@ -29,17 +29,25 @@ Tài liệu này hướng dẫn cách thiết lập tính năng **gửi email x�
 docker compose --profile mail up -d
 
 # 2. Lấy mật khẩu PostgreSQL từ container & cấu hình PORT, JWT
+#2.1
+docker compose up -d postgres
+
+#2.2
 $containerId = docker compose ps -q postgres
 if (-not $containerId) { throw 'Không tìm thấy container PostgreSQL.' }
 $pgPasswordSetting = docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' $containerId | Select-String '^POSTGRES_PASSWORD='
+if (-not $pgPasswordSetting) { throw 'Container chưa có POSTGRES_PASSWORD.' }
 $env:DATABASE_PASSWORD = $pgPasswordSetting.Line.Substring('POSTGRES_PASSWORD='.Length)
-$env:PORT = '8082'
 
+#2.3
+$env:PORT = '8082'
 $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
 $bytes = New-Object byte[] 48
 $rng.GetBytes($bytes)
 $env:GOPLANT_JWT_SECRET = [Convert]::ToBase64String($bytes)
 $rng.Dispose()
+
+
 
 # 3. Cấu hình Mailpit & bật bắt buộc xác minh email
 $env:GOPLANT_AUTH_REQUIRE_EMAIL_VERIFICATION = 'true'
