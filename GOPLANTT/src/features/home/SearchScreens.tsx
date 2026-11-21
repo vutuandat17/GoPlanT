@@ -10,6 +10,7 @@ import { useJournals } from '@/features/journal/JournalStore';
 import { useCareSchedules } from '@/features/schedule/CareScheduleStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
 import { apiBaseUrl } from '@/services/api';
+import { safeBack } from '@/services/navigation';
 import { getLatestHealthLabel, matchesPlantFilters, toOwnedFilterPlant, type FilterPlant, type PlantFilterState, ownedFilterGroups, catalogFilterGroups, gardenFilterGroups, vietnameseAlphabet } from '@/features/plants/plantFilters';
 
 type SearchResultItem = FilterPlant & {
@@ -22,7 +23,7 @@ type SearchResultItem = FilterPlant & {
 
 function SearchHeader({ query, onQueryChange, onFilter }: { query: string; onQueryChange: (text: string) => void; onFilter: () => void }) {
   return <View style={ss.header}>
-    <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Quay lại" style={ss.back}><Text style={ss.backText}>‹</Text></Pressable>
+    <Pressable onPress={() => safeBack('/home')} accessibilityRole="button" accessibilityLabel="Quay lại" style={ss.back}><Text style={ss.backText}>‹</Text></Pressable>
     <View style={ss.searchBox}><Text style={ss.searchIcon}>⌕</Text><TextInput value={query} onChangeText={onQueryChange} placeholder="Tìm cây trồng, bệnh lý..." placeholderTextColor={C.mutedText} style={ss.searchInput} returnKeyType="search" /><Pressable onPress={() => onQueryChange('')}><Text style={ss.clear}>×</Text></Pressable></View>
     <Pressable onPress={onFilter} style={ss.filterButton}><Text style={ss.filterGlyph}>☷</Text></Pressable>
   </View>;
@@ -118,14 +119,14 @@ export function FilterScreen() {
   const apply = () => {
     if (context) {
       setFilterState(context, selected);
-      router.back();
+      safeBack('/home');
       return;
     }
     router.replace({ pathname: '/search', params: { query, scope: scope === 'owned' ? 'Trong vườn của tôi' : 'Thư viện & Khám phá', filters: JSON.stringify(selected) } } as never);
   };
 
   return <SafeAreaView style={ss.safe} edges={['top']}>
-    <View style={ss.filterHeader}><Pressable onPress={() => router.back()}><Text style={ss.backText}>‹</Text></Pressable><Text style={ss.filterTitle}>Bộ lọc cây trồng</Text><Pressable onPress={reset}><Text style={ss.link}>Đặt lại</Text></Pressable></View>
+    <View style={ss.filterHeader}><Pressable onPress={() => safeBack('/home')}><Text style={ss.backText}>‹</Text></Pressable><Text style={ss.filterTitle}>Bộ lọc cây trồng</Text><Pressable onPress={reset}><Text style={ss.link}>Đặt lại</Text></Pressable></View>
     <ScrollView contentContainerStyle={ss.filterContent}>
       {!context ? <View style={ss.toggleRow}>{[{ key: 'owned', label: `Cây sở hữu (${ownedPlants.length})` }, { key: 'catalog', label: 'Khám phá & tìm cây' }].map((item) => <Pressable key={item.key} onPress={() => setScope(item.key as 'owned' | 'catalog')} style={[ss.toggleOption, scope === item.key && ss.toggleActive]}><Text style={[ss.toggleText, scope === item.key && ss.toggleActive && ss.toggleTextActive]}>{item.label}</Text></Pressable>)}</View> : null}
       <View style={ss.searchBox}><Text style={ss.searchIcon}>⌕</Text><TextInput value={query} onChangeText={setQuery} placeholder="Tên cây hoặc tên khoa học" placeholderTextColor={C.mutedText} style={ss.searchInput} /></View>

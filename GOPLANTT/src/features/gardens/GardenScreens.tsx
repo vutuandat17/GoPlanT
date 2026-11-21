@@ -6,6 +6,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from '@/components/app-primitives';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { safeBack } from '@/services/navigation';
 import { AccountButton } from '@/features/auth/AccountButton';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { GardenArtwork } from '@/features/gardens/GardenArtwork';
@@ -17,7 +18,7 @@ import { CARE_TASK_META, useCareSchedules } from '@/features/schedule/CareSchedu
 import { ApiError, apiBaseUrl, fetchGardenWeather, fetchWeatherProvinces, getGardenPhotoUri, type ApiGardenWeather, type ApiProvince } from '@/services/api';
 
 function GardenHeader({ title }: { title: string }) {
-  return <View style={g.header}><Pressable onPress={() => router.back()} style={g.back}><Text style={g.backText}>‹</Text></Pressable><Text style={g.headerTitle}>{title}</Text><AccountButton size={29} /></View>;
+  return <View style={g.header}><Pressable onPress={() => safeBack('/gardens')} style={g.back}><Text style={g.backText}>‹</Text></Pressable><Text style={g.headerTitle}>{title}</Text><AccountButton size={29} /></View>;
 }
 
 function ActionButton({ label, secondary = false, onPress }: { label: string; secondary?: boolean; onPress: () => void }) {

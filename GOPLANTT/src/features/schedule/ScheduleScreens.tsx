@@ -5,6 +5,7 @@ import { SafeAreaView } from '@/components/app-primitives';
 import { router, useLocalSearchParams } from 'expo-router';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { safeBack } from '@/services/navigation';
 import { AccountButton } from '@/features/auth/AccountButton';
 import { usePlantData } from '@/features/plants/PlantDataStore';
 import {
@@ -83,7 +84,7 @@ function Header({ title, showCreate }: { title: string; showCreate?: boolean }) 
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Quay lại"
-        onPress={() => router.back()}
+        onPress={() => safeBack('/schedule')}
         style={sc.backBtn}>
         <Text style={sc.backIcon}>‹</Text>
       </Pressable>
@@ -766,13 +767,13 @@ export function CreateScheduleScreen() {
       if (editingSchedule) {
         await updateSchedule(editingSchedule.id, payload);
         Alert.alert('Cập nhật thành công', `Đã lưu thay đổi cho lịch "${title.trim() || CARE_TASK_META[taskType].label}".`, [
-          { text: 'OK', onPress: () => router.back() },
+          { text: 'OK', onPress: () => safeBack('/schedule') },
         ]);
       } else {
         await createSchedule(plantId, payload);
         const label = title.trim() || CARE_TASK_META[taskType].label;
         Alert.alert('Tạo lịch thành công', `Đã tạo lịch "${label}" cho ${selectedPlant?.name ?? ''}.`, [
-          { text: 'OK', onPress: () => router.back() },
+          { text: 'OK', onPress: () => safeBack('/schedule') },
         ]);
       }
     } catch (err) {
@@ -1076,7 +1077,7 @@ export function ScheduleDetailScreen({ scheduleId }: { scheduleId?: string }) {
           onPress: async () => {
             try {
               await removeSchedule(entry.id);
-              router.back();
+              safeBack('/schedule');
             } catch (err) {
               Alert.alert('Lỗi', err instanceof Error ? err.message : 'Không thể hủy lịch.');
             }

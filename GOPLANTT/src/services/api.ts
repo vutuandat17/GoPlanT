@@ -19,7 +19,7 @@ export class ApiError extends Error {
 }
 
 type RequestOptions = {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   token?: string | null;
   body?: unknown;
   skipAuthRefresh?: boolean;
@@ -74,6 +74,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
         method: options.method ?? 'GET',
         headers: {
           Accept: 'application/json',
+          ...(Platform.OS !== 'web' ? { 'X-Client-Platform': Platform.OS } : {}),
           ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
@@ -681,4 +682,199 @@ export function deletePlantGrowthRecord(recordId: string, token: string) {
     method: 'DELETE',
     token,
   });
+}
+
+// ───────────────────────────── Admin User Management ─────────────────────────────
+
+export type AdminUserStatus = 'pending_verification' | 'active' | 'disabled' | 'locked';
+export type AdminAuditAction =
+  | 'LOCK_USER'
+  | 'UNLOCK_USER'
+  | 'DISABLE_USER'
+  | 'ACTIVATE_USER'
+  | 'GRANT_ADMIN'
+  | 'REVOKE_ADMIN'
+  | 'GRANT_MODERATOR'
+  | 'REVOKE_MODERATOR'
+  | 'REVOKE_SESSIONS'
+  | 'RESEND_VERIFICATION';
+
+export type ApiAdminUserSummary = {
+  id: string;
+  email: string;
+  displayName: string;
+  status: AdminUserStatus;
+  timezone: string;
+  roles: string[];
+  emailVerifiedAt: string | null;
+  gardenCount: number;
+  plantCount: number;
+  activeSessionCount: number;
+  lastLoginAt: string | null;
+  lastActiveAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ApiAdminAuditLogEntry = {
+  id: string;
+  actorUserId: string | null;
+  actorEmail: string | null;
+  actorDisplayName: string | null;
+  targetUserId: string;
+  targetEmail: string | null;
+  targetDisplayName: string | null;
+  action: AdminAuditAction;
+  previousValue: string | null;
+  newValue: string | null;
+  reason: string | null;
+  createdAt: string;
+};
+
+export type ApiAdminUserDetail = ApiAdminUserSummary & {
+  recentAuditLogs: ApiAdminAuditLogEntry[];
+};
+
+export type ApiAdminUserStats = {
+  totalUsers: number;
+  activeUsers: number;
+  pendingUsers: number;
+  lockedOrDisabledUsers: number;
+  adminUsers: number;
+  newUsersLast7Days: number;
+  recentActiveUsers7Days: number;
+};
+
+export function fetchAdminUserStats(token: string) {
+  return apiRequest<ApiAdminUserStats>('/api/v1/admin/users/stats', { token });
+}
+
+export function fetchAdminUsers(
+  token: string,
+  params?: { page?: number; size?: number; q?: string; status?: string; role?: string; activity?: string },
+) {
+  const qs = new URLSearchParams();
+  if (params?.page !== undefined) qs.set('page', String(params.page));
+  if (params?.size !== undefined) qs.set('size', String(params.size));
+  if (params?.q?.trim()) qs.set('q', params.q.trim());
+  if (params?.status) qs.set('status', params.status);
+  if (params?.role) qs.set('role', params.role);
+  if (params?.activity) qs.set('activity', params.activity);
+  const query = qs.toString();
+  return apiRequest<PageResponse<ApiAdminUserSummary>>(`/api/v1/admin/users${query ? `?${query}` : ''}`, { token });
+}
+
+export function fetchAdminUserDetail(userId: string, token: string) {
+  return apiRequest<ApiAdminUserDetail>(`/api/v1/admin/users/${userId}`, { token });
+}
+
+export function updateAdminUserStatus(
+  userId: string,
+  token: string,
+  body: { status: 'active' | 'locked' | 'disabled'; reason?: string | null },
+) {
+  return apiRequest<ApiAdminUserDetail>(`/api/v1/admin/users/${userId}/status`, {
+    method: 'PATCH',
+    token,
+    body,
+  });
+}
+
+export function updateAdminUserRole(
+  userId: string,
+  token: string,
+  body: { admin?: boolean; moderator?: boolean; reason?: string | null },
+) {
+  return apiRequest<ApiAdminUserDetail>(`/api/v1/admin/users/${userId}/roles`, {
+    method: 'PUT',
+    token,
+    body,
+  });
+}
+
+export function revokeAdminUserSessions(userId: string, token: string, reason?: string | null) {
+  return apiRequest<ApiAdminUserDetail>(`/api/v1/admin/users/${userId}/revoke-sessions`, {
+    method: 'POST',
+    token,
+    body: reason ? { reason } : {},
+  });
+}
+
+export type ApiAdminResendVerificationResult = {
+  user: ApiAdminUserDetail;
+  message: string;
+  verificationToken: string | null;
+};
+
+export function resendAdminUserVerification(userId: string, token: string, reason?: string | null) {
+  return apiRequest<ApiAdminResendVerificationResult>(`/api/v1/admin/users/${userId}/resend-verification`, {
+    method: 'POST',
+    token,
+    body: reason ? { reason } : {},
+  });
+}
+
+export function fetchAdminAuditLogs(
+  token: string,
+  params?: { page?: number; size?: number; targetUserId?: string; action?: string },
+) {
+  const qs = new URLSearchParams();
+  if (params?.page !== undefined) qs.set('page', String(params.page));
+  if (params?.size !== undefined) qs.set('size', String(params.size));
+  if (params?.targetUserId) qs.set('targetUserId', params.targetUserId);
+  if (params?.action) qs.set('action', params.action);
+  const query = qs.toString();
+  return apiRequest<PageResponse<ApiAdminAuditLogEntry>>(`/api/v1/admin/audit-logs${query ? `?${query}` : ''}`, { token });
+}
+
+// ───────────────────────────── Auth Activity History ─────────────────────────────
+
+export type AuthEventType = 'LOGIN_SUCCESS' | 'LOGIN_FAILED' | 'LOGOUT' | 'ADMIN_REVOKED' | 'PASSWORD_CHANGED';
+
+export type ApiAuthEvent = {
+  id: string;
+  userId: string;
+  userEmail: string | null;
+  userDisplayName: string | null;
+  sessionFamilyId: string | null;
+  eventType: AuthEventType;
+  platform: string | null;
+  deviceLabel: string | null;
+  ipAddress: string | null;
+  detail: string | null;
+  createdAt: string;
+};
+
+export function fetchMyAuthEvents(token: string, params?: { page?: number; size?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.page !== undefined) qs.set('page', String(params.page));
+  if (params?.size !== undefined) qs.set('size', String(params.size));
+  const query = qs.toString();
+  return apiRequest<PageResponse<ApiAuthEvent>>(`/api/v1/auth/me/auth-events${query ? `?${query}` : ''}`, { token });
+}
+
+export function fetchAdminAuthEvents(
+  token: string,
+  params?: { page?: number; size?: number; userId?: string; eventType?: string; q?: string },
+) {
+  const qs = new URLSearchParams();
+  if (params?.page !== undefined) qs.set('page', String(params.page));
+  if (params?.size !== undefined) qs.set('size', String(params.size));
+  if (params?.userId) qs.set('userId', params.userId);
+  if (params?.eventType) qs.set('eventType', params.eventType);
+  if (params?.q?.trim()) qs.set('q', params.q.trim());
+  const query = qs.toString();
+  return apiRequest<PageResponse<ApiAuthEvent>>(`/api/v1/admin/auth-events${query ? `?${query}` : ''}`, { token });
+}
+
+export function fetchAdminUserAuthEvents(
+  userId: string,
+  token: string,
+  params?: { page?: number; size?: number },
+) {
+  const qs = new URLSearchParams();
+  if (params?.page !== undefined) qs.set('page', String(params.page));
+  if (params?.size !== undefined) qs.set('size', String(params.size));
+  const query = qs.toString();
+  return apiRequest<PageResponse<ApiAuthEvent>>(`/api/v1/admin/users/${userId}/auth-events${query ? `?${query}` : ''}`, { token });
 }

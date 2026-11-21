@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -798,5 +799,206 @@ class ApiSecurityAndFlowTest {
                         .file(validPng)
                         .header("Authorization", memberBearer))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void adminUserManagementEnforcesRoleLastAdminGuardAndAuditLogging() throws Exception {
+        UUID adminId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID targetUserId = UUID.randomUUID();
+        String adminBearer = bearerToken(adminId, "admin");
+        String memberBearer = bearerToken(memberId, "member");
+
+        mockMvc.perform(get("/api/v1/admin/users").header("Authorization", memberBearer))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/admin/users/stats").header("Authorization", memberBearer))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/admin/audit-logs").header("Authorization", memberBearer))
+                .andExpect(status().isForbidden());
+
+        when(jdbc.queryForObject(contains("AS total_users"), any(RowMapper.class)))
+                .thenReturn(new vn.goplant.backend.admin.AdminUserService.AdminUserStats(10, 7, 2, 1, 1, 3, 5));
+
+        mockMvc.perform(get("/api/v1/admin/users/stats").header("Authorization", adminBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalUsers").value(10))
+                .andExpect(jsonPath("$.activeUsers").value(7))
+                .andExpect(jsonPath("$.pendingUsers").value(2));
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM users u JOIN user_email_addresses"), eq(Long.class), any(Object[].class)))
+                .thenReturn(0L);
+        when(jdbc.query(contains("FROM users u\nJOIN user_email_addresses"), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/admin/users")
+                        .param("page", "0")
+                        .param("size", "10")
+                        .param("activity", "never_logged_in")
+                        .header("Authorization", adminBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.items").isArray());
+
+        mockMvc.perform(get("/api/v1/admin/users")
+                        .param("activity", "invalid_activity")
+                        .header("Authorization", adminBearer))
+                .andExpect(status().isBadRequest());
+
+        // Self-lock must be rejected.
+        mockMvc.perform(patch("/api/v1/admin/users/{id}/status", adminId)
+                        .header("Authorization", adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"locked","reason":"Self lock"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        // Locking the last active admin must be rejected with 409 Conflict.
+        when(jdbc.queryForList("SELECT status FROM users WHERE id = ? FOR UPDATE", String.class, targetUserId))
+                .thenReturn(List.of("active"));
+        when(jdbc.queryForObject(contains("WHERE ur.user_id = ? AND r.code = ?"), eq(Integer.class), eq(targetUserId), eq("admin")))
+                .thenReturn(1);
+        when(jdbc.queryForObject(contains("WHERE r.code = 'admin' AND u.status = 'active'"), eq(Integer.class)))
+                .thenReturn(1);
+
+        mockMvc.perform(patch("/api/v1/admin/users/{id}/status", targetUserId)
+                        .header("Authorization", adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"locked","reason":"Test lock last admin"}
+                                """))
+                .andExpect(status().isConflict());
+
+        // Revoking admin role from the last active admin must also be rejected with 409 Conflict.
+        mockMvc.perform(put("/api/v1/admin/users/{id}/roles", targetUserId)
+                        .header("Authorization", adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"admin":false,"reason":"Test revoke last admin"}
+                                """))
+                .andExpect(status().isConflict());
+
+        // Auth history endpoints for member and admin.
+        mockMvc.perform(get("/api/v1/auth/me/auth-events"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/admin/auth-events").header("Authorization", memberBearer))
+                .andExpect(status().isForbidden());
+
+        when(jdbc.queryForObject(contains("FROM user_auth_events ev"), eq(Long.class), any(Object[].class)))
+                .thenReturn(0L);
+        when(jdbc.query(contains("FROM user_auth_events ev"), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/auth/me/auth-events")
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isArray());
+
+        mockMvc.perform(get("/api/v1/admin/auth-events")
+                        .param("eventType", "LOGIN_SUCCESS")
+                        .header("Authorization", adminBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isArray());
+
+        mockMvc.perform(get("/api/v1/admin/auth-events")
+                        .param("eventType", "INVALID_EVENT")
+                        .header("Authorization", adminBearer))
+                .andExpect(status().isBadRequest());
+
+        // Resend verification endpoint requires admin and pending_verification status.
+        mockMvc.perform(post("/api/v1/admin/users/{id}/resend-verification", targetUserId)
+                        .header("Authorization", memberBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isForbidden());
+
+        when(jdbc.query(contains("SELECT u.status, e.normalized_email"), any(RowMapper.class), eq(targetUserId)))
+                .thenReturn(List.of());
+        mockMvc.perform(post("/api/v1/admin/users/{id}/resend-verification", targetUserId)
+                        .header("Authorization", adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void lockingUserOrRevokingSessionsImmediatelyInvalidatesAccessToken() throws Exception {
+        UUID adminId = UUID.randomUUID();
+        UUID lockedUserId = UUID.randomUUID();
+        UUID revokedUserId = UUID.randomUUID();
+        String adminBearer = bearerToken(adminId, "admin");
+        String lockedUserBearer = bearerToken(lockedUserId, "user");
+        String revokedUserBearer = bearerToken(revokedUserId, "user");
+
+        when(jdbc.queryForObject(contains("FROM user_auth_events ev"), eq(Long.class), any(Object[].class)))
+                .thenReturn(0L);
+        when(jdbc.query(contains("FROM user_auth_events ev"), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
+        when(jdbc.queryForObject(contains("FROM admin_audit_logs l"), eq(Long.class), any(Object[].class)))
+                .thenReturn(0L);
+        when(jdbc.query(contains("FROM admin_audit_logs l"), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/auth/me/auth-events").header("Authorization", lockedUserBearer))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/auth/me/auth-events").header("Authorization", revokedUserBearer))
+                .andExpect(status().isOk());
+
+        when(jdbc.queryForList("SELECT status FROM users WHERE id = ? FOR UPDATE", String.class, lockedUserId))
+                .thenReturn(List.of("active"));
+        when(jdbc.queryForObject(contains("WHERE ur.user_id = ? AND r.code = ?"), eq(Integer.class), eq(lockedUserId), eq("admin")))
+                .thenReturn(0);
+        when(jdbc.query(contains("WHERE u.id = ?"), any(RowMapper.class), eq(lockedUserId)))
+                .thenReturn(List.of(new vn.goplant.backend.admin.AdminUserService.AdminUserSummary(
+                        lockedUserId, "locked@goplant.vn", "Locked User", "locked", "Asia/Ho_Chi_Minh",
+                        List.of("user"), Instant.now(), 0, 0, 0, null, null, Instant.now(), Instant.now())));
+
+        mockMvc.perform(patch("/api/v1/admin/users/{id}/status", lockedUserId)
+                        .header("Authorization", adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"locked","reason":"Immediate cutoff test"}
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/auth/me/auth-events").header("Authorization", lockedUserBearer))
+                .andExpect(status().isUnauthorized());
+
+        when(jdbc.queryForObject("SELECT count(*) FROM users WHERE id = ?", Integer.class, revokedUserId))
+                .thenReturn(1);
+        when(jdbc.query(contains("WHERE u.id = ?"), any(RowMapper.class), eq(revokedUserId)))
+                .thenReturn(List.of(new vn.goplant.backend.admin.AdminUserService.AdminUserSummary(
+                        revokedUserId, "revoked@goplant.vn", "Revoked User", "active", "Asia/Ho_Chi_Minh",
+                        List.of("user"), Instant.now(), 0, 0, 0, null, null, Instant.now(), Instant.now())));
+
+        mockMvc.perform(post("/api/v1/admin/users/{id}/revoke-sessions", revokedUserId)
+                        .header("Authorization", adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/auth/me/auth-events").header("Authorization", revokedUserBearer))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void moderatorCanAccessCatalogOnlyAndAuthEventRetentionPurgesOldRows() throws Exception {
+        UUID moderatorId = UUID.randomUUID();
+        String moderatorBearer = bearerToken(moderatorId, "moderator");
+
+        mockMvc.perform(get("/api/v1/admin/users").header("Authorization", moderatorBearer))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/v1/admin/catalog/plants")
+                        .header("Authorization", moderatorBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+
+        when(jdbc.update(contains("DELETE FROM user_auth_events WHERE created_at < ?"), any(java.sql.Timestamp.class)))
+                .thenReturn(12);
+        var retentionService = new vn.goplant.backend.auth.AuthEventService(jdbc, 90);
+        org.junit.jupiter.api.Assertions.assertEquals(12, retentionService.purgeExpiredEvents());
     }
 }

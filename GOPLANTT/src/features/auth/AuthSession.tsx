@@ -16,12 +16,12 @@ import {
   saveRefreshToken,
 } from '@/services/tokenStorage';
 
-export type SessionUser = { id: string; email: string; name: string; role: 'admin' | 'user' };
+export type SessionUser = { id: string; email: string; name: string; role: 'admin' | 'moderator' | 'user' };
 const mapApiUser = (user: ApiUser): SessionUser => ({
   id: user.id,
   email: user.email,
   name: user.displayName,
-  role: user.roles.includes('admin') ? 'admin' : 'user',
+  role: user.roles.includes('admin') ? 'admin' : user.roles.includes('moderator') ? 'moderator' : 'user',
 });
 
 type AuthSessionValue = {

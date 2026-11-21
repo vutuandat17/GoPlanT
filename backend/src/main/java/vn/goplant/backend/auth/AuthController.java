@@ -1,5 +1,6 @@
 package vn.goplant.backend.auth;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -12,17 +13,24 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import vn.goplant.backend.config.PageResponse;
+
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
     private final AuthService auth;
-    public AuthController(AuthService auth) { this.auth = auth; }
+    private final AuthEventService authEvents;
+    public AuthController(AuthService auth, AuthEventService authEvents) {
+        this.auth = auth;
+        this.authEvents = authEvents;
+    }
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
     public AuthService.Registration register(@Valid @RequestBody RegisterRequest request) { return auth.register(request.displayName(), request.email(), request.password()); }
@@ -51,18 +59,31 @@ public class AuthController {
                 + "<p>Tài khoản GoPlant đã được kích hoạt. Bạn có thể quay lại ứng dụng và đăng nhập.</p></body></html>";
     }
     @PostMapping("/login")
-    public AuthService.LoginResult login(@Valid @RequestBody LoginRequest request) { return auth.login(request.email(), request.password()); }
+    public AuthService.LoginResult login(
+            @Valid @RequestBody LoginRequest request,
+            @RequestHeader(value = "X-Client-Platform", required = false) String clientPlatform,
+            HttpServletRequest httpRequest) {
+        return auth.login(request.email(), request.password(), AuthEventService.AuthClientInfo.from(httpRequest, clientPlatform));
+    }
     @PostMapping("/refresh")
     public AuthService.LoginResult refresh(@Valid @RequestBody RefreshRequest request) { return auth.refresh(request.refreshToken()); }
     @PostMapping("/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void logout(@RequestBody(required = false) RefreshRequest request) {
-        if (request != null) auth.logout(request.refreshToken());
+    public void logout(
+            @RequestBody(required = false) RefreshRequest request,
+            @RequestHeader(value = "X-Client-Platform", required = false) String clientPlatform,
+            HttpServletRequest httpRequest) {
+        if (request != null) auth.logout(request.refreshToken(), AuthEventService.AuthClientInfo.from(httpRequest, clientPlatform));
     }
     @PostMapping("/change-password")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void changePassword(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody ChangePasswordRequest request) {
-        auth.changePassword(java.util.UUID.fromString(jwt.getSubject()), request.currentPassword(), request.newPassword());
+    public void changePassword(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody ChangePasswordRequest request,
+            @RequestHeader(value = "X-Client-Platform", required = false) String clientPlatform,
+            HttpServletRequest httpRequest) {
+        auth.changePassword(java.util.UUID.fromString(jwt.getSubject()), request.currentPassword(), request.newPassword(),
+                AuthEventService.AuthClientInfo.from(httpRequest, clientPlatform));
     }
     @PostMapping("/forgot-password")
     public AuthService.ForgotPasswordResult forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
@@ -84,16 +105,22 @@ public class AuthController {
     }
     @PostMapping(value = "/reset-password", consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void resetPasswordJson(@Valid @RequestBody ResetPasswordRequest request) {
-        auth.resetPassword(request.token(), request.newPassword());
+    public void resetPasswordJson(
+            @Valid @RequestBody ResetPasswordRequest request,
+            @RequestHeader(value = "X-Client-Platform", required = false) String clientPlatform,
+            HttpServletRequest httpRequest) {
+        auth.resetPassword(request.token(), request.newPassword(), AuthEventService.AuthClientInfo.from(httpRequest, clientPlatform));
     }
     @PostMapping(value = "/reset-password", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE, produces = MediaType.TEXT_HTML_VALUE)
     @ResponseBody
-    public String resetPasswordFormSubmit(@RequestParam String token, @RequestParam String newPassword) {
+    public String resetPasswordFormSubmit(
+            @RequestParam String token,
+            @RequestParam String newPassword,
+            HttpServletRequest httpRequest) {
         if (newPassword == null || newPassword.length() < 12 || newPassword.length() > 72) {
             throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, "Mật khẩu mới cần có từ 12 đến 72 ký tự.");
         }
-        auth.resetPassword(token, newPassword);
+        auth.resetPassword(token, newPassword, AuthEventService.AuthClientInfo.from(httpRequest, "web"));
         return "<!doctype html><html lang=\"vi\"><meta charset=\"utf-8\"><title>Đã đặt lại mật khẩu</title>"
                 + "<body style=\"font:16px system-ui;max-width:460px;margin:10vh auto;padding:24px;color:#173f30\"><h1>Đã cập nhật mật khẩu</h1>"
                 + "<p>Mật khẩu tài khoản GoPlant đã được đặt lại. Bạn có thể quay lại ứng dụng và đăng nhập bằng mật khẩu mới.</p></body></html>";
@@ -101,6 +128,13 @@ public class AuthController {
     @GetMapping("/me")
     public AuthService.UserView me(@AuthenticationPrincipal Jwt jwt) {
         return auth.getUser(java.util.UUID.fromString(jwt.getSubject()));
+    }
+    @GetMapping("/me/auth-events")
+    public PageResponse<AuthEventService.AuthEventView> myAuthEvents(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return authEvents.listForUser(java.util.UUID.fromString(jwt.getSubject()), page, size);
     }
     @PutMapping("/me")
     public AuthService.UserView updateMe(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody ProfileUpdateRequest request) {

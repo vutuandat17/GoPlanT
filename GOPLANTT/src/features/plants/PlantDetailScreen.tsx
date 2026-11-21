@@ -13,6 +13,7 @@ import { useJournals } from '@/features/journal/JournalStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
 import { CARE_TASK_META, formatScheduleRepeat, formatTimeShort, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 import { apiBaseUrl } from '@/services/api';
+import { safeBack } from '@/services/navigation';
 
 const missing = 'Chưa có dữ liệu';
 
@@ -62,7 +63,7 @@ export default function PlantDetailScreen() {
 
   return <SafeAreaView style={d.safe} edges={['top']}>
     <View style={d.header}>
-      <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Quay lại" style={d.back}><Text style={d.backText}>‹</Text></Pressable>
+      <Pressable onPress={() => safeBack('/plants')} accessibilityRole="button" accessibilityLabel="Quay lại" style={d.back}><Text style={d.backText}>‹</Text></Pressable>
       <Text style={d.headerTitle}>Chi tiết cây trồng</Text>
       <Pressable onPress={() => toggleFavorite(plant.id)} accessibilityRole="button" accessibilityLabel={isFavorite ? 'Bỏ yêu thích' : 'Thêm yêu thích'}><Text style={d.heart}>{isFavorite ? '♥' : '♡'}</Text></Pressable>
     </View>
@@ -197,7 +198,7 @@ export default function PlantDetailScreen() {
                   text: 'Xóa cây',
                   style: 'destructive',
                   onPress: () => void removePlant(owned.id)
-                    .then(() => router.back())
+                    .then(() => safeBack('/plants'))
                     .catch((error) => Alert.alert('Không thể xóa cây', error instanceof Error ? error.message : 'Vui lòng thử lại.')),
                 },
               ])}

@@ -7,6 +7,7 @@ import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { usePlantData } from '@/features/plants/PlantDataStore';
 import { apiRequest, type PlantCatalogItem } from '@/services/api';
+import { safeBack } from '@/services/navigation';
 
 type FormField =
   | 'commonName'
@@ -46,8 +47,8 @@ export default function AdminPlantCatalogScreen() {
   const set = (key: FormField, value: string) => setForm((current) => ({ ...current, [key]: value }));
 
   const createPlant = async () => {
-    if (user?.role !== 'admin' || !accessToken) {
-      Alert.alert('Không có quyền', 'Chỉ tài khoản quản trị mới được thêm cây vào danh mục.');
+    if ((user?.role !== 'admin' && user?.role !== 'moderator') || !accessToken) {
+      Alert.alert('Không có quyền', 'Chỉ tài khoản quản trị hoặc kiểm duyệt viên mới được thêm cây vào danh mục.');
       return;
     }
     if (!form.commonName.trim() || !form.scientificName.trim() || !form.category.trim()) {
@@ -97,7 +98,7 @@ export default function AdminPlantCatalogScreen() {
 
   return <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
     <View style={s.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Quay lại" onPress={() => router.back()} style={s.back}><Text style={s.backText}>←</Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Quay lại" onPress={() => safeBack('/account')} style={s.back}><Text style={s.backText}>←</Text></Pressable>
       <Text style={s.title}>Danh mục cây</Text><View style={s.headerSpacer}/>
     </View>
     <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">

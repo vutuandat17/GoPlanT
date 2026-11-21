@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from '@/components/app-primitives';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { safeBack } from '@/services/navigation';
 import { AccountButton } from '@/features/auth/AccountButton';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { JOURNAL_HEALTH_META, JOURNAL_LOG_TYPE_META, useJournals } from '@/features/journal/JournalStore';
@@ -308,7 +309,7 @@ export default function MonitoringDetailScreen() {
   return (
     <SafeAreaView style={m.safe} edges={['top']}>
       <View style={m.header}>
-        <Pressable onPress={() => router.back()}>
+        <Pressable onPress={() => safeBack('/monitoring')}>
           <Text style={m.back}>‹</Text>
         </Pressable>
         <Text style={m.headerTitle}>{isGardenMode ? 'Chỉ số khu vườn' : 'Chỉ số cây trồng'}</Text>

@@ -40,11 +40,12 @@ public class AuthService {
     private final boolean requireEmailVerification;
     private final CareScheduleService careSchedules;
     private final LoginAttemptGuard loginAttempts;
+    private final AuthEventService authEvents;
     private final SecureRandom random = new SecureRandom();
 
     public AuthService(JdbcTemplate jdbc, PasswordEncoder passwords, JwtEncoder jwtEncoder,
                        VerificationEmailSender verificationEmails, CareScheduleService careSchedules,
-                       LoginAttemptGuard loginAttempts,
+                       LoginAttemptGuard loginAttempts, AuthEventService authEvents,
                        @Value("${goplant.jwt.access-token-minutes:15}") int tokenMinutes,
                        @Value("${goplant.jwt.refresh-token-days:30}") int refreshTokenDays,
                        @Value("${goplant.auth.expose-verification-token:false}") boolean exposeVerificationToken,
@@ -55,6 +56,7 @@ public class AuthService {
         }
         this.careSchedules = careSchedules;
         this.loginAttempts = loginAttempts;
+        this.authEvents = authEvents;
         this.jdbc = jdbc;
         this.passwords = passwords;
         this.jwtEncoder = jwtEncoder;
@@ -165,6 +167,11 @@ public class AuthService {
 
     @Transactional
     public LoginResult login(String email, String password) {
+        return login(email, password, AuthEventService.AuthClientInfo.UNKNOWN);
+    }
+
+    @Transactional
+    public LoginResult login(String email, String password, AuthEventService.AuthClientInfo client) {
         String normalized = normalizeEmail(email);
         loginAttempts.checkAllowed(normalized);
         var rows = jdbc.query("""
@@ -175,12 +182,21 @@ public class AuthService {
                 rs.getString("password_hash"), rs.getString("status"), rs.getString("normalized_email"), rs.getString("timezone")), normalized);
         if (rows.isEmpty() || !passwords.matches(password, rows.getFirst().passwordHash())) {
             loginAttempts.recordFailure(normalized);
+            if (!rows.isEmpty()) {
+                authEvents.record(rows.getFirst().id(), null, "LOGIN_FAILED", client, "Sai mật khẩu");
+            }
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Email hoặc mật khẩu không chính xác.");
         }
         Account account = rows.getFirst();
-        if (!"active".equals(account.status())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản chưa được kích hoạt hoặc đã bị khóa.");
+        if (!"active".equals(account.status())) {
+            authEvents.record(account.id(), null, "LOGIN_FAILED", client, "Tài khoản ở trạng thái " + account.status());
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản chưa được kích hoạt hoặc đã bị khóa.");
+        }
         loginAttempts.reset(normalized);
-        String refreshToken = issueRefreshToken(account.id(), null);
+        jdbc.update("UPDATE users SET last_login_at=now(), last_active_at=now() WHERE id=?", account.id());
+        UUID sessionFamilyId = UUID.randomUUID();
+        String refreshToken = issueRefreshToken(account.id(), null, sessionFamilyId);
+        authEvents.record(account.id(), sessionFamilyId, "LOGIN_SUCCESS", client, "Đăng nhập thành công");
         return buildLoginResult(account.id(), account.email(), account.displayName(), account.timezone(), refreshToken);
     }
 
@@ -191,7 +207,7 @@ public class AuthService {
         }
         String hash = sha256(refreshToken.trim());
         var rows = jdbc.query("""
-                SELECT rt.id, rt.user_id, rt.expires_at, rt.revoked_at,
+                SELECT rt.id, rt.user_id, rt.session_family_id, rt.expires_at, rt.revoked_at,
                        u.display_name, u.status, u.timezone, e.normalized_email
                 FROM refresh_tokens rt
                 JOIN users u ON u.id = rt.user_id
@@ -201,6 +217,7 @@ public class AuthService {
                 """, (rs, row) -> new RefreshRow(
                 rs.getObject("id", UUID.class),
                 rs.getObject("user_id", UUID.class),
+                rs.getObject("session_family_id", UUID.class),
                 rs.getTimestamp("expires_at").toInstant(),
                 rs.getTimestamp("revoked_at") == null ? null : rs.getTimestamp("revoked_at").toInstant(),
                 rs.getString("display_name"),
@@ -226,21 +243,41 @@ public class AuthService {
         }
 
         UUID newTokenId = UUID.randomUUID();
-        String newRefreshToken = issueRefreshToken(tokenRow.userId(), newTokenId);
+        UUID sessionFamilyId = tokenRow.sessionFamilyId() != null ? tokenRow.sessionFamilyId() : UUID.randomUUID();
+        String newRefreshToken = issueRefreshToken(tokenRow.userId(), newTokenId, sessionFamilyId);
         jdbc.update("UPDATE refresh_tokens SET revoked_at=now(), replaced_by_token_id=?, last_used_at=now() WHERE id=?",
                 newTokenId, tokenRow.id());
+        touchLastActive(tokenRow.userId());
         return buildLoginResult(tokenRow.userId(), tokenRow.email(), tokenRow.displayName(), tokenRow.timezone(), newRefreshToken);
     }
 
     @Transactional
     public void logout(String refreshToken) {
+        logout(refreshToken, AuthEventService.AuthClientInfo.UNKNOWN);
+    }
+
+    @Transactional
+    public void logout(String refreshToken, AuthEventService.AuthClientInfo client) {
         if (refreshToken == null || refreshToken.isBlank()) return;
-        jdbc.update("UPDATE refresh_tokens SET revoked_at=now() WHERE token_hash=? AND revoked_at IS NULL",
-                sha256(refreshToken.trim()));
+        String hash = sha256(refreshToken.trim());
+        var matches = jdbc.query("""
+                SELECT user_id, session_family_id
+                FROM refresh_tokens
+                WHERE token_hash=? AND revoked_at IS NULL
+                """, (rs, row) -> new UUID[]{rs.getObject("user_id", UUID.class), rs.getObject("session_family_id", UUID.class)}, hash);
+        jdbc.update("UPDATE refresh_tokens SET revoked_at=now() WHERE token_hash=? AND revoked_at IS NULL", hash);
+        if (!matches.isEmpty()) {
+            authEvents.record(matches.getFirst()[0], matches.getFirst()[1], "LOGOUT", client, "Đăng xuất chủ động");
+        }
     }
 
     @Transactional
     public void changePassword(UUID userId, String currentPassword, String newPassword) {
+        changePassword(userId, currentPassword, newPassword, AuthEventService.AuthClientInfo.UNKNOWN);
+    }
+
+    @Transactional
+    public void changePassword(UUID userId, String currentPassword, String newPassword, AuthEventService.AuthClientInfo client) {
         var rows = jdbc.query("SELECT password_hash FROM users WHERE id=? AND status='active' FOR UPDATE",
                 (rs, row) -> rs.getString("password_hash"), userId);
         if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy tài khoản.");
@@ -253,6 +290,7 @@ public class AuthService {
         }
         jdbc.update("UPDATE users SET password_hash=?, updated_at=now() WHERE id=?", passwords.encode(newPassword), userId);
         revokeAllRefreshTokens(userId);
+        authEvents.record(userId, null, "PASSWORD_CHANGED", client, "Đổi mật khẩu tài khoản");
     }
 
     @Transactional
@@ -290,6 +328,11 @@ public class AuthService {
 
     @Transactional
     public void resetPassword(String token, String newPassword) {
+        resetPassword(token, newPassword, AuthEventService.AuthClientInfo.UNKNOWN);
+    }
+
+    @Transactional
+    public void resetPassword(String token, String newPassword, AuthEventService.AuthClientInfo client) {
         if (token == null || token.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Thiếu mã đặt lại mật khẩu.");
         }
@@ -310,6 +353,7 @@ public class AuthService {
         jdbc.update("UPDATE users SET password_hash=?, updated_at=now() WHERE id=?", passwords.encode(newPassword), userId);
         jdbc.update("UPDATE account_action_tokens SET consumed_at=now() WHERE id=?", tokenId);
         revokeAllRefreshTokens(userId);
+        authEvents.record(userId, null, "PASSWORD_CHANGED", client, "Đặt lại mật khẩu qua email");
     }
 
     private LoginResult buildLoginResult(UUID userId, String email, String displayName, String timezone, String refreshToken) {
@@ -323,11 +367,11 @@ public class AuthService {
         return new LoginResult(jwt, refreshToken, "Bearer", tokenMinutes * 60, new UserView(userId, email, displayName, roles, timezone));
     }
 
-    private String issueRefreshToken(UUID userId, UUID explicitId) {
+    private String issueRefreshToken(UUID userId, UUID explicitId, UUID sessionFamilyId) {
         UUID id = explicitId != null ? explicitId : UUID.randomUUID();
         String raw = generateSecureToken();
-        jdbc.update("INSERT INTO refresh_tokens(id,user_id,token_hash,expires_at) VALUES (?,?,?,?)",
-                id, userId, sha256(raw), Timestamp.from(Instant.now().plus(refreshTokenDays, ChronoUnit.DAYS)));
+        jdbc.update("INSERT INTO refresh_tokens(id,user_id,session_family_id,token_hash,expires_at) VALUES (?,?,?,?,?)",
+                id, userId, sessionFamilyId, sha256(raw), Timestamp.from(Instant.now().plus(refreshTokenDays, ChronoUnit.DAYS)));
         return raw;
     }
 
@@ -350,8 +394,17 @@ public class AuthService {
                 rs.getString("display_name"), rs.getString("timezone")), userId);
         if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Account not found");
         UserIdentity identity = rows.getFirst();
+        touchLastActive(userId);
         var roles = jdbc.queryForList("SELECT r.code FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=?", String.class, userId);
         return new UserView(identity.id(), identity.email(), identity.displayName(), roles, identity.timezone());
+    }
+
+    private void touchLastActive(UUID userId) {
+        jdbc.update("""
+                UPDATE users
+                SET last_active_at=now()
+                WHERE id=? AND (last_active_at IS NULL OR last_active_at < now() - interval '5 minutes')
+                """, userId);
     }
 
     /** Updates the account time zone (IANA id, e.g. Asia/Ho_Chi_Minh) and re-times pending care tasks. */
@@ -391,5 +444,5 @@ public class AuthService {
     public record LoginResult(String accessToken, String refreshToken, String tokenType, int expiresIn, UserView user) {}
     private record UserIdentity(UUID id, String email, String displayName, String timezone) {}
     private record Account(UUID id, String displayName, String passwordHash, String status, String email, String timezone) {}
-    private record RefreshRow(UUID id, UUID userId, Instant expiresAt, Instant revokedAt, String displayName, String status, String timezone, String email) {}
+    private record RefreshRow(UUID id, UUID userId, UUID sessionFamilyId, Instant expiresAt, Instant revokedAt, String displayName, String status, String timezone, String email) {}
 }

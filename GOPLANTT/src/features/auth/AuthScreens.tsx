@@ -7,6 +7,7 @@ import type { SvgProps } from 'react-native-svg';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { apiRequest, ApiError, forgotPassword, isApiConfigured, resendVerificationEmail, resetPassword, type ApiUser, type AuthResult } from '@/services/api';
+import { safeBack } from '@/services/navigation';
 import { LEGAL_DOCUMENTS, type LegalDocumentKey } from '@/features/auth/legalDocuments';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import RegisterPot from '@/assets/images/figma/auth/signup/signup-23ac7.svg';
@@ -31,7 +32,7 @@ type IconType = ComponentType<SvgProps>;
 function ScreenHeader({ title }: { title: string }) {
   return (
     <View style={styles.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Quay lại" onPress={() => router.back()} style={styles.headerButton}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Quay lại" onPress={() => safeBack('/')} style={styles.headerButton}>
         <BackIcon width={16} height={16} />
       </Pressable>
       <Text style={styles.headerTitle}>{title}</Text>
@@ -167,7 +168,7 @@ export function RegisterScreen() {
               id: auth.user.id,
               email: auth.user.email,
               name: auth.user.displayName,
-              role: auth.user.roles.includes('admin') ? 'admin' : 'user',
+              role: auth.user.roles.includes('admin') ? 'admin' : auth.user.roles.includes('moderator') ? 'moderator' : 'user',
             },
             auth.accessToken,
             auth.refreshToken,
@@ -509,7 +510,7 @@ export function LoginScreen() {
         });
         const user: ApiUser = result.user;
         setPassword('');
-        await signIn({ id: user.id, email: user.email, name: user.displayName, role: user.roles.includes('admin') ? 'admin' : 'user' }, result.accessToken, result.refreshToken);
+        await signIn({ id: user.id, email: user.email, name: user.displayName, role: user.roles.includes('admin') ? 'admin' : user.roles.includes('moderator') ? 'moderator' : 'user' }, result.accessToken, result.refreshToken);
         router.replace('/home');
         return;
       }

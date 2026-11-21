@@ -7,6 +7,7 @@ import { SafeAreaView } from '@/components/app-primitives';
 import { router } from 'expo-router';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { safeBack } from '@/services/navigation';
 import { AccountButton } from '@/features/auth/AccountButton';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { usePlantData } from '@/features/plants/PlantDataStore';
@@ -54,7 +55,7 @@ function calcPlantAgeDays(plantedAt: string | null | undefined): string {
 function Header({ title }: { title: string }) {
   return (
     <View style={j.header}>
-      <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Quay lại">
+      <Pressable onPress={() => safeBack('/journal')} accessibilityRole="button" accessibilityLabel="Quay lại">
         <Text style={j.back}>‹</Text>
       </Pressable>
       <Text style={j.headerTitle} numberOfLines={1}>{title}</Text>
@@ -383,11 +384,11 @@ function JournalForm({
           Alert.alert(
             'Đã lưu nội dung nhật ký',
             `Đã lưu nội dung nhật ký nhưng ${result.failedPhotoCount} ảnh chưa tải lên được; bạn có thể vào Chỉnh sửa để thử lại.`,
-            [{ text: 'OK', onPress: () => router.back() }],
+            [{ text: 'OK', onPress: () => safeBack('/journal') }],
           );
         } else {
           Alert.alert('Đã cập nhật', 'Bài nhật ký đã được lưu thay đổi.', [
-            { text: 'OK', onPress: () => router.back() },
+            { text: 'OK', onPress: () => safeBack('/journal') },
           ]);
         }
       } else {
@@ -407,11 +408,11 @@ function JournalForm({
           Alert.alert(
             'Đã lưu nội dung nhật ký',
             `Đã lưu nội dung nhật ký nhưng ${result.failedPhotoCount} ảnh chưa tải lên được; bạn có thể vào Chỉnh sửa để thử lại.`,
-            [{ text: 'OK', onPress: () => router.back() }],
+            [{ text: 'OK', onPress: () => safeBack('/journal') }],
           );
         } else {
           Alert.alert('Đã lưu ghi nhận', 'Nhật ký chăm sóc đã được thêm thành công.', [
-            { text: 'OK', onPress: () => router.back() },
+            { text: 'OK', onPress: () => safeBack('/journal') },
           ]);
         }
       }
