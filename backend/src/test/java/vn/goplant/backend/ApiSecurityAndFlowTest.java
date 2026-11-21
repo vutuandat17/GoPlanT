@@ -39,6 +39,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import vn.goplant.backend.auth.VerificationEmailSender;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import vn.goplant.backend.catalog.PlantCatalogController;
 import vn.goplant.backend.gardens.GardenController;
 
@@ -1000,5 +1001,94 @@ class ApiSecurityAndFlowTest {
                 .thenReturn(12);
         var retentionService = new vn.goplant.backend.auth.AuthEventService(jdbc, 90);
         org.junit.jupiter.api.Assertions.assertEquals(12, retentionService.purgeExpiredEvents());
+    }
+
+    @Test
+    void loginDistinguishesPendingVerificationAndLockedAccounts() throws Exception {
+        UUID pendingUserId = UUID.randomUUID();
+        UUID lockedUserId = UUID.randomUUID();
+        String encodedPassword = passwordEncoder.encode("correct-password-12");
+
+        when(jdbc.query(contains("SELECT u.id,u.display_name,u.password_hash,u.status"), any(RowMapper.class), eq("pending-login@goplant.test")))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("id", UUID.class)).thenReturn(pendingUserId);
+                    when(rs.getString("display_name")).thenReturn("Pending User");
+                    when(rs.getString("password_hash")).thenReturn(encodedPassword);
+                    when(rs.getString("status")).thenReturn("pending_verification");
+                    when(rs.getString("normalized_email")).thenReturn("pending-login@goplant.test");
+                    when(rs.getString("timezone")).thenReturn("Asia/Ho_Chi_Minh");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"pending-login@goplant.test","password":"correct-password-12"}
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.detail").value("Tài khoản chưa xác minh email. Vui lòng kiểm tra hộp thư hoặc gửi lại email xác minh."));
+
+        when(jdbc.query(contains("SELECT u.id,u.display_name,u.password_hash,u.status"), any(RowMapper.class), eq("locked-login@goplant.test")))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("id", UUID.class)).thenReturn(lockedUserId);
+                    when(rs.getString("display_name")).thenReturn("Locked User");
+                    when(rs.getString("password_hash")).thenReturn(encodedPassword);
+                    when(rs.getString("status")).thenReturn("locked");
+                    when(rs.getString("normalized_email")).thenReturn("locked-login@goplant.test");
+                    when(rs.getString("timezone")).thenReturn("Asia/Ho_Chi_Minh");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"locked-login@goplant.test","password":"correct-password-12"}
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.detail").value("Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên để được hỗ trợ."));
+    }
+
+    @Test
+    void verifyEmailHtmlPagesRenderConfirmSuccessAndFriendlyErrorsWithDeepLink() throws Exception {
+        String validTokenFormat = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_abcde";
+        UUID tokenId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID emailId = UUID.randomUUID();
+
+        mockMvc.perform(get("/api/v1/auth/verify-email").param("token", "short"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Liên kết xác minh không hợp lệ")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("goplantt://auth/login")));
+
+        mockMvc.perform(get("/api/v1/auth/verify-email").param("token", validTokenFormat))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Xác minh email ngay")));
+
+        when(jdbc.query(contains("FROM account_action_tokens t"), any(RowMapper.class), anyString()))
+                .thenReturn(List.<Object[]>of(new Object[]{tokenId, userId, emailId}))
+                .thenReturn(List.of());
+
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("token", validTokenFormat))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Email đã được xác minh!")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Mở ứng dụng GoPlant")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("goplantt://auth/login")));
+
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("token", validTokenFormat))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Liên kết đã hết hạn hoặc đã được sử dụng")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("goplantt://auth/login")));
     }
 }

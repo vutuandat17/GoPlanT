@@ -5,8 +5,10 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,9 +29,18 @@ import vn.goplant.backend.config.PageResponse;
 public class AuthController {
     private final AuthService auth;
     private final AuthEventService authEvents;
-    public AuthController(AuthService auth, AuthEventService authEvents) {
+    private final String appLoginUrl;
+    private final String webLoginUrl;
+
+    public AuthController(
+            AuthService auth,
+            AuthEventService authEvents,
+            @Value("${goplant.email.app-login-url:goplantt://auth/login}") String appLoginUrl,
+            @Value("${goplant.email.web-login-url:http://localhost:8081/auth/login}") String webLoginUrl) {
         this.auth = auth;
         this.authEvents = authEvents;
+        this.appLoginUrl = appLoginUrl;
+        this.webLoginUrl = webLoginUrl;
     }
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
@@ -41,22 +52,49 @@ public class AuthController {
     public AuthService.ResendVerificationResult resendVerification(@Valid @RequestBody ResendVerificationRequest request) {
         return auth.resendVerification(request.email());
     }
+    private static final MediaType TEXT_HTML_UTF8 = MediaType.parseMediaType("text/html;charset=UTF-8");
+
     @GetMapping(value = "/verify-email", produces = MediaType.TEXT_HTML_VALUE)
-    @ResponseBody
-    public String confirmVerification(@RequestParam String token) {
-        if (!token.matches("^[A-Za-z0-9_-]{40,50}$")) throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid verification token");
-        return "<!doctype html><html lang=\"vi\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Xác minh GoPlant</title>"
-                + "<body style=\"font:16px system-ui;max-width:520px;margin:12vh auto;padding:24px;color:#173f30\"><h1>Xác minh email GoPlant</h1>"
-                + "<p>Nhấn nút bên dưới để xác minh địa chỉ email và kích hoạt tài khoản.</p><form method=\"post\" action=\"/api/v1/auth/verify-email\">"
-                + "<input type=\"hidden\" name=\"token\" value=\"" + token + "\"><button style=\"padding:12px 20px;background:#174f3b;color:white;border:0;border-radius:8px;font-size:16px\">Xác minh email</button></form></body></html>";
+    public ResponseEntity<String> confirmVerification(@RequestParam(required = false) String token) {
+        if (token == null || !token.matches("^[A-Za-z0-9_-]{40,50}$")) {
+            return ResponseEntity.badRequest()
+                    .contentType(TEXT_HTML_UTF8)
+                    .body(AuthHtmlPages.verifyErrorPage(
+                            "Liên kết xác minh không hợp lệ",
+                            "Đường dẫn xác minh email bị thiếu hoặc không đúng định dạng.",
+                            appLoginUrl,
+                            webLoginUrl));
+        }
+        return ResponseEntity.ok()
+                .contentType(TEXT_HTML_UTF8)
+                .body(AuthHtmlPages.verifyConfirmPage(token));
     }
+
     @PostMapping(value = "/verify-email", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE, produces = MediaType.TEXT_HTML_VALUE)
-    @ResponseBody
-    public String verifyFromEmailLink(@RequestParam String token) {
-        auth.verifyEmail(token);
-        return "<!doctype html><html lang=\"vi\"><meta charset=\"utf-8\"><title>Đã xác minh</title>"
-                + "<body style=\"font:16px system-ui;max-width:520px;margin:12vh auto;padding:24px;color:#173f30\"><h1>Email đã xác minh</h1>"
-                + "<p>Tài khoản GoPlant đã được kích hoạt. Bạn có thể quay lại ứng dụng và đăng nhập.</p></body></html>";
+    public ResponseEntity<String> verifyFromEmailLink(@RequestParam(required = false) String token) {
+        if (token == null || token.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .contentType(TEXT_HTML_UTF8)
+                    .body(AuthHtmlPages.verifyErrorPage(
+                            "Liên kết xác minh không hợp lệ",
+                            "Thiếu mã xác minh email.",
+                            appLoginUrl,
+                            webLoginUrl));
+        }
+        try {
+            auth.verifyEmail(token);
+            return ResponseEntity.ok()
+                    .contentType(TEXT_HTML_UTF8)
+                    .body(AuthHtmlPages.verifySuccessPage(appLoginUrl, webLoginUrl));
+        } catch (org.springframework.web.server.ResponseStatusException ex) {
+            return ResponseEntity.status(ex.getStatusCode())
+                    .contentType(TEXT_HTML_UTF8)
+                    .body(AuthHtmlPages.verifyErrorPage(
+                            "Liên kết đã hết hạn hoặc đã được sử dụng",
+                            "Liên kết xác minh email chỉ có hiệu lực một lần trong 24 giờ hoặc tài khoản đã được kích hoạt trước đó.",
+                            appLoginUrl,
+                            webLoginUrl));
+        }
     }
     @PostMapping("/login")
     public AuthService.LoginResult login(

@@ -3,6 +3,21 @@ spring:
     name: goplant-backend
   config:
     import: optional:file:.env[.properties]
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: ${MAIL_SMTP_AUTH:true}
+          starttls:
+            enable: ${MAIL_SMTP_STARTTLS:true}
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
   jackson:
     default-property-inclusion: non_null
   servlet:
@@ -28,6 +43,9 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    mail:
+      enabled: ${MAIL_HEALTH_ENABLED:false}
 goplant:
   jwt:
     # Replace with a random secret of at least 32 bytes outside local development.
@@ -39,9 +57,13 @@ goplant:
   auth:
     expose-verification-token: ${GOPLANT_AUTH_EXPOSE_VERIFICATION_TOKEN:false}
     require-email-verification: ${GOPLANT_AUTH_REQUIRE_EMAIL_VERIFICATION:false}
+    action-token-retention-days: ${GOPLANT_AUTH_ACTION_TOKEN_RETENTION_DAYS:7}
+    pending-user-retention-days: ${GOPLANT_AUTH_PENDING_USER_RETENTION_DAYS:30}
   email:
     from: ${GOPLANT_EMAIL_FROM:no-reply@goplant.local}
     verification-base-url: ${GOPLANT_PUBLIC_API_URL:}
+    app-login-url: ${GOPLANT_APP_LOGIN_URL:goplantt://auth/login}
+    web-login-url: ${GOPLANT_WEB_LOGIN_URL:http://localhost:8081/auth/login}
   weather:
     api-key: ${OPENWEATHER_API_KEY:}
     base-url: ${OPENWEATHER_BASE_URL:https://api.openweathermap.org}

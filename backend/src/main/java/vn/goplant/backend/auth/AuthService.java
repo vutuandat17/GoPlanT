@@ -190,7 +190,15 @@ public class AuthService {
         Account account = rows.getFirst();
         if (!"active".equals(account.status())) {
             authEvents.record(account.id(), null, "LOGIN_FAILED", client, "Tài khoản ở trạng thái " + account.status());
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản chưa được kích hoạt hoặc đã bị khóa.");
+            String message = switch (account.status()) {
+                case "pending_verification" ->
+                        "Tài khoản chưa xác minh email. Vui lòng kiểm tra hộp thư hoặc gửi lại email xác minh.";
+                case "locked" ->
+                        "Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên để được hỗ trợ.";
+                default ->
+                        "Tài khoản đã bị vô hiệu hóa hoặc chưa thể sử dụng.";
+            };
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, message);
         }
         loginAttempts.reset(normalized);
         jdbc.update("UPDATE users SET last_login_at=now(), last_active_at=now() WHERE id=?", account.id());

@@ -67,6 +67,78 @@ mvn spring-boot:run
 
 For local development only, activate the `local` profile and set `GOPLANT_AUTH_EXPOSE_VERIFICATION_TOKEN=true` to return the token from registration instead of sending email. The application refuses to expose tokens under any other profile.
 
+
+### Email Verification: Dev Local (Mailpit) vs. Deploy (SMTP thật)
+
+Backend hỗ trợ đầy đủ cả kiểm thử cục bộ bằng **Mailpit** lẫn gửi thư thật khi **Deploy Production** thông qua các biến môi trường trong `application.yml` (không cần sửa code):
+
+| Tiêu chí | Chạy thử Local với **Mailpit** | Deploy Production với **SMTP thật** |
+|---|---|---|
+| **Mục đích** | Giả lập hộp thư SMTP nội bộ để dev/test luồng gửi mail | Gửi email thật tới hộp thư người dùng (Gmail, Outlook...) |
+| **Nơi xem email** | Web UI nội bộ tại `http://localhost:8025` (không gửi ra Internet) | Hộp thư thật của người dùng cuối |
+| **Dịch vụ sử dụng** | Container `mailpit` trong `compose.yaml` (`profiles: ["mail"]`) | Nhà cung cấp SMTP: Brevo, Resend, SendGrid, Amazon SES hoặc Gmail SMTP |
+| **Bắt buộc khi deploy?** | **Không.** `docker compose up -d` mặc định không bật Mailpit | **Bắt buộc** nếu bật `GOPLANT_AUTH_REQUIRE_EMAIL_VERIFICATION=true` |
+
+#### 1. Cách chạy thử với Mailpit (Dev Local)
+
+Khởi động container Mailpit (cổng SMTP `1025`, Web UI `8025`) cùng PostgreSQL:
+
+```powershell
+docker compose --profile mail up -d
+```
+
+Đặt các biến môi trường sau trước khi chạy `mvn spring-boot:run`:
+
+```powershell
+$env:GOPLANT_AUTH_REQUIRE_EMAIL_VERIFICATION = 'true'
+$env:GOPLANT_AUTH_EXPOSE_VERIFICATION_TOKEN = 'false'
+$env:GOPLANT_PUBLIC_API_URL = 'http://localhost:8082'
+$env:GOPLANT_EMAIL_FROM = 'no-reply@goplant.local'
+
+$env:MAIL_HOST = 'localhost'
+$env:MAIL_PORT = '1025'
+$env:MAIL_USERNAME = ''
+$env:MAIL_PASSWORD = ''
+$env:MAIL_SMTP_AUTH = 'false'
+$env:MAIL_SMTP_STARTTLS = 'false'
+```
+
+Sau khi đăng ký hoặc bấm **Gửi lại email xác minh**, mở trình duyệt tại `http://localhost:8025` để xem email HTML và bấm nút xác minh.
+
+#### 2. Cách chỉnh sửa biến môi trường khi Deploy (SMTP thật)
+
+Khi triển khai lên server thật (Staging/Production), chỉ cần cập nhật biến môi trường hoặc file `backend/.env` sang thông số của nhà cung cấp SMTP thật:
+
+```env
+GOPLANT_AUTH_REQUIRE_EMAIL_VERIFICATION=true
+GOPLANT_AUTH_EXPOSE_VERIFICATION_TOKEN=false
+GOPLANT_PUBLIC_API_URL=https://api.tenmien-cua-ban.com
+GOPLANT_EMAIL_FROM=no-reply@tenmien-cua-ban.com
+GOPLANT_APP_LOGIN_URL=goplantt://auth/login
+GOPLANT_WEB_LOGIN_URL=https://app.tenmien-cua-ban.com/auth/login
+
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=your-email@gmail.com
+MAIL_PASSWORD=your-app-password-or-smtp-api-key
+MAIL_SMTP_AUTH=true
+MAIL_SMTP_STARTTLS=true
+```
+
+**Bảng ý nghĩa các biến môi trường Email & Xác thực:**
+
+| Biến môi trường | Mặc định | Ý nghĩa |
+|---|---|---|
+| `GOPLANT_AUTH_REQUIRE_EMAIL_VERIFICATION` | `false` | `true`: tài khoản mới ở trạng thái `pending_verification` và bắt buộc xác minh email trước khi đăng nhập |
+| `GOPLANT_AUTH_EXPOSE_VERIFICATION_TOKEN` | `false` | Chỉ bật `true` khi chạy profile `local` để trả token trực tiếp trong response API; luôn giữ `false` khi deploy |
+| `GOPLANT_PUBLIC_API_URL` | *(rỗng)* | URL công khai của Backend dùng để tạo link xác minh/đặt lại mật khẩu trong email |
+| `GOPLANT_EMAIL_FROM` | `no-reply@goplant.local` | Địa chỉ người gửi hiển thị trên email |
+| `GOPLANT_APP_LOGIN_URL` | `goplantt://auth/login` | Deep link trên nút **"Mở ứng dụng GoPlant"** sau khi xác minh email thành công |
+| `GOPLANT_WEB_LOGIN_URL` | `http://localhost:8081/auth/login` | Link nút **"Đăng nhập trên trình duyệt"** trên trang kết quả xác minh |
+| `MAIL_HOST`, `MAIL_PORT` | *(rỗng)* / `587` | Địa chỉ và cổng máy chủ SMTP (`1025` cho Mailpit, `587` cho STARTTLS) |
+| `MAIL_USERNAME`, `MAIL_PASSWORD` | *(rỗng)* | Tài khoản và mật khẩu/App Password/API key SMTP (`false` auth khi dùng Mailpit) |
+| `MAIL_SMTP_AUTH`, `MAIL_SMTP_STARTTLS` | `true` / `true` | Bật xác thực SMTP và mã hóa STARTTLS (đặt `false` khi test với Mailpit local) |
+
 ```http
 POST /api/v1/auth/register
 Content-Type: application/json

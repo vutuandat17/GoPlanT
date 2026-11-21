@@ -1,4 +1,4 @@
-import { useMemo, useState, type ComponentType } from 'react';
+import { useEffect, useMemo, useState, type ComponentType } from 'react';
 import { ActivityIndicator } from 'react-native';
 import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
 import { router } from 'expo-router';
@@ -7,7 +7,6 @@ import type { SvgProps } from 'react-native-svg';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { apiRequest, ApiError, forgotPassword, isApiConfigured, resendVerificationEmail, resetPassword, type ApiUser, type AuthResult } from '@/services/api';
-import { safeBack } from '@/services/navigation';
 import { LEGAL_DOCUMENTS, type LegalDocumentKey } from '@/features/auth/legalDocuments';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import RegisterPot from '@/assets/images/figma/auth/signup/signup-23ac7.svg';
@@ -19,7 +18,6 @@ import LockIcon from '@/assets/images/figma/auth/signup/signup-ce71f.svg';
 import EyeIcon from '@/assets/images/figma/auth/signup/signup-289be.svg';
 import ShieldIcon from '@/assets/images/figma/auth/signup/signup-a7ee7.svg';
 import RegisterActionIcon from '@/assets/images/figma/auth/signup/signup-c0ac2.svg';
-import BackIcon from '@/assets/images/figma/auth/signup/signup-9c8d3.svg';
 import ProfileIcon from '@/assets/images/figma/auth/signup/signup-59e02.svg';
 import LoginPlant from '@/assets/images/figma/auth/login/login-c77aa.svg';
 import LoginLeaf from '@/assets/images/figma/auth/login/login-e636a.svg';
@@ -32,9 +30,7 @@ type IconType = ComponentType<SvgProps>;
 function ScreenHeader({ title }: { title: string }) {
   return (
     <View style={styles.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Quay lại" onPress={() => safeBack('/')} style={styles.headerButton}>
-        <BackIcon width={16} height={16} />
-      </Pressable>
+      <View style={styles.headerButton} />
       <Text style={styles.headerTitle}>{title}</Text>
       <View style={[styles.headerButton, styles.profileButton]}>
         <ProfileIcon width={16} height={16} />
@@ -422,6 +418,16 @@ export function LoginScreen() {
   const [resetNewPassword, setResetNewPassword] = useState('');
   const [resetStatus, setResetStatus] = useState('');
   const [resetBusy, setResetBusy] = useState(false);
+  const [canResendVerification, setCanResendVerification] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
+  const [resendNotice, setResendNotice] = useState('');
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setTimeout(() => setResendCooldown((prev) => Math.max(0, prev - 1)), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
 
   const loginPasswordStrength = useMemo(() => {
     if (!password) return 0;
@@ -501,6 +507,8 @@ export function LoginScreen() {
       return;
     }
     setError('');
+    setCanResendVerification(false);
+    setResendNotice('');
     setIsSubmitting(true);
     try {
       if (isApiConfigured) {
@@ -520,9 +528,41 @@ export function LoginScreen() {
       }
       setError('Không thể kết nối máy chủ. Vui lòng thử lại.');
     } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : 'Không thể hoàn tất đăng nhập. Vui lòng thử lại.');
+      const message = requestError instanceof ApiError ? requestError.message : 'Không thể hoàn tất đăng nhập. Vui lòng thử lại.';
+      setError(message);
+      if (requestError instanceof ApiError && requestError.status === 403 && message.includes('chưa xác minh')) {
+        setCanResendVerification(true);
+      }
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleLoginResendVerification = async () => {
+    const normalizedEmail = account.trim();
+    if (!normalizedEmail || resendingVerification || resendCooldown > 0) return;
+    setResendingVerification(true);
+    setResendNotice('');
+    try {
+      const result = await resendVerificationEmail(normalizedEmail);
+      if (result.verificationToken) {
+        await apiRequest<void>('/api/v1/auth/verify-email', { method: 'POST', body: { token: result.verificationToken } });
+        setError('');
+        setCanResendVerification(false);
+        setResendNotice('Email đã được xác minh trong môi trường phát triển. Bạn có thể bấm Đăng nhập ngay.');
+      } else {
+        setError('');
+        setResendCooldown(60);
+        setResendNotice(result.message || 'Liên kết xác minh mới đã được gửi tới email của bạn.');
+      }
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Không thể gửi lại email xác minh.';
+      setError(message);
+      if (err instanceof ApiError && err.status === 429 && resendCooldown <= 0) {
+        setResendCooldown(60);
+      }
+    } finally {
+      setResendingVerification(false);
     }
   };
 
@@ -546,7 +586,7 @@ export function LoginScreen() {
             <View style={styles.labelRow}><Text style={styles.loginFieldLabel}>Email</Text><Text style={styles.required}>*</Text></View>
             <View style={styles.loginInput}>
               <LoginUser width={17} height={17} />
-              <TextInput value={account} onChangeText={(value) => { setAccount(value); setError(''); }} placeholder="Ví dụ: an@example.com" placeholderTextColor={C.mutedText} style={styles.loginInputText} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" editable={!isSubmitting} />
+              <TextInput value={account} onChangeText={(value) => { setAccount(value); setError(''); setCanResendVerification(false); setResendNotice(''); }} placeholder="Ví dụ: an@example.com" placeholderTextColor={C.mutedText} style={styles.loginInputText} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" editable={!isSubmitting} />
             </View>
           </View>
           <View style={styles.loginField}>
@@ -621,6 +661,29 @@ export function LoginScreen() {
             <View style={styles.submitErrorBanner} accessibilityRole="alert">
               <Text style={styles.submitErrorText}>{error}</Text>
             </View>
+          ) : null}
+          {resendNotice ? (
+            <View style={styles.resendNoticeBanner}>
+              <Text style={styles.resendNoticeText}>{resendNotice}</Text>
+            </View>
+          ) : null}
+          {canResendVerification ? (
+            <Pressable
+              disabled={resendingVerification || resendCooldown > 0}
+              onPress={() => void handleLoginResendVerification()}
+              style={({ pressed }) => [
+                styles.resendBtn,
+                (resendingVerification || resendCooldown > 0) && styles.resendBtnDisabled,
+                pressed && !resendingVerification && resendCooldown <= 0 && styles.pressed,
+              ]}>
+              <Text style={styles.resendBtnText}>
+                {resendingVerification
+                  ? 'Đang gửi lại email xác minh...'
+                  : resendCooldown > 0
+                    ? `Gửi lại email xác minh (${resendCooldown}s)`
+                    : 'Gửi lại email xác minh'}
+              </Text>
+            </Pressable>
           ) : null}
           <Pressable
             disabled={isSubmitting}
@@ -732,6 +795,11 @@ const styles = StyleSheet.create({
   resetStatus: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11, lineHeight: 16 },
   loginSubmit: { height: 48, borderRadius: 16, backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, elevation: 2 },
   loginSubmitDisabled: { opacity: 0.65, elevation: 0 },
+  resendBtn: { minHeight: 42, borderRadius: 10, backgroundColor: '#E3F0E7', borderWidth: 1, borderColor: '#BDDAC6', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  resendBtnText: { color: C.forest, fontFamily: F.semiBold, fontSize: 13, lineHeight: 18 },
+  resendBtnDisabled: { opacity: 0.6 },
+  resendNoticeBanner: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, backgroundColor: '#E5F4EA', borderWidth: 1, borderColor: '#B8DEC4' },
+  resendNoticeText: { color: C.forest, fontFamily: F.semiBold, fontSize: 12, lineHeight: 17 },
   loginSubmitLabel: { color: C.surface, fontFamily: F.semiBold, fontSize: 14, lineHeight: 20 },
   loginSubmitIcon: { position: 'absolute', right: 10, width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: 6 },
   successHint: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: -6 },
