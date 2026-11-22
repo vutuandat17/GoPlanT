@@ -16,12 +16,19 @@ import {
   saveRefreshToken,
 } from '@/services/tokenStorage';
 
-export type SessionUser = { id: string; email: string; name: string; role: 'admin' | 'moderator' | 'user' };
+export type SessionUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: 'admin' | 'moderator' | 'user';
+  avatarUpdatedAt?: string | null;
+};
 const mapApiUser = (user: ApiUser): SessionUser => ({
   id: user.id,
   email: user.email,
   name: user.displayName,
   role: user.roles.includes('admin') ? 'admin' : user.roles.includes('moderator') ? 'moderator' : 'user',
+  avatarUpdatedAt: user.avatarUpdatedAt ?? null,
 });
 
 type AuthSessionValue = {
@@ -31,6 +38,7 @@ type AuthSessionValue = {
   signIn: (user: SessionUser, token?: string, refreshToken?: string) => Promise<void>;
   signOut: () => Promise<void>;
   updateDisplayName: (displayName: string) => Promise<void>;
+  updateUserAvatar: (avatarUpdatedAt: string | null) => void;
 };
 
 const AuthSessionContext = createContext<AuthSessionValue | null>(null);
@@ -120,6 +128,9 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         method: 'PUT', token: accessToken, body: { displayName },
       });
       setUser(mapApiUser(updatedUser));
+    },
+    updateUserAvatar: (avatarUpdatedAt: string | null) => {
+      setUser((current) => (current ? { ...current, avatarUpdatedAt } : current));
     },
   }), [user, accessToken, isReady]);
 

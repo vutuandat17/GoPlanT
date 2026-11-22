@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
+import { pickOrCaptureOptimizedImage } from '@/services/imagePicker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from '@/components/app-primitives';
 
@@ -36,17 +36,16 @@ export function GardenDetailScreen() {
 
   const replaceGardenPhoto = async () => {
     if (!garden) return;
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Cần quyền truy cập ảnh', 'Cho phép GoPlant truy cập thư viện ảnh để chọn ảnh khu vườn.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [16, 9], quality: 0.85 });
-    if (result.canceled || !result.assets[0]) return;
+    const picked = await pickOrCaptureOptimizedImage({
+      aspect: [16, 9],
+      maxWidth: 1600,
+      quality: 0.8,
+      title: 'Cập nhật ảnh khu vườn',
+    });
+    if (!picked) return;
     setUploadingPhoto(true);
     try {
-      const asset = result.assets[0];
-      await updateGardenPhoto(garden.id, { uri: asset.uri, mimeType: asset.mimeType, fileName: asset.fileName });
+      await updateGardenPhoto(garden.id, picked);
       Alert.alert('Đã cập nhật ảnh', 'Ảnh bìa khu vườn đã được lưu.');
     } catch (error) {
       Alert.alert('Không tải được ảnh', error instanceof Error ? error.message : 'Vui lòng thử ảnh JPEG hoặc PNG dưới 5 MB.');

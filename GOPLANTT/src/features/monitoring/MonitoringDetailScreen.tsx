@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
+import { AuthorizedImage } from '@/components/AuthorizedImage';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from '@/components/app-primitives';
 
@@ -495,11 +496,9 @@ export default function MonitoringDetailScreen() {
                     <View style={m.compareRow}>
                       <View style={m.compareCol}>
                         {photoComparison.initialPhotoUri ? (
-                          <Image
-                            source={{
-                              uri: photoComparison.initialPhotoUri,
-                              headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-                            }}
+                          <AuthorizedImage
+                            uri={photoComparison.initialPhotoUri}
+                            accessToken={accessToken}
                             style={m.compareImg}
                           />
                         ) : (
@@ -512,11 +511,9 @@ export default function MonitoringDetailScreen() {
                       </View>
                       <View style={m.compareCol}>
                         {photoComparison.currentPhotoUri ? (
-                          <Image
-                            source={{
-                              uri: photoComparison.currentPhotoUri,
-                              headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-                            }}
+                          <AuthorizedImage
+                            uri={photoComparison.currentPhotoUri}
+                            accessToken={accessToken}
                             style={m.compareImg}
                           />
                         ) : (
@@ -585,12 +582,10 @@ export default function MonitoringDetailScreen() {
                     {entry.photoIds.length > 0 ? (
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={m.photoRow}>
                         {entry.photoIds.map((photoId) => (
-                          <Image
+                          <AuthorizedImage
                             key={photoId}
-                            source={{
-                              uri: `${apiBaseUrl}/api/v1/journals/${entry.id}/photos/${photoId}`,
-                              headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-                            }}
+                            uri={`${apiBaseUrl}/api/v1/journals/${entry.id}/photos/${photoId}`}
+                            accessToken={accessToken}
                             style={m.evidencePhoto}
                           />
                         ))}

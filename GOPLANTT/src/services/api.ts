@@ -124,24 +124,55 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return response.json() as Promise<T>;
 }
 
-async function uploadPhoto(
-  endpoint: string,
+async function buildPhotoFormData(
   defaultFileName: string,
-  token: string,
   photo: { uri: string; mimeType?: string | null; fileName?: string | null },
-) {
-  if (!apiBaseUrl) throw new ApiError('Chưa cấu hình EXPO_PUBLIC_API_URL.');
-  const mimeType = photo.mimeType ?? (photo.fileName?.toLocaleLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
+): Promise<FormData> {
+  const fileName = photo.fileName ?? defaultFileName;
+  const body = new FormData();
+  if (Platform.OS === 'web') {
+    let blob: Blob;
+    try {
+      const res = await fetch(photo.uri);
+      blob = await res.blob();
+    } catch (error) {
+      const reason = error instanceof Error && error.message ? ` (${error.message})` : '';
+      throw new ApiError(`Không thể đọc dữ liệu ảnh từ trình duyệt${reason}.`);
+    }
+    const inferredMime = photo.mimeType
+      ?? (blob.type === 'image/png' || fileName.toLocaleLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
+    if (inferredMime !== 'image/jpeg' && inferredMime !== 'image/png') {
+      throw new ApiError('Ảnh cần ở định dạng JPEG hoặc PNG.');
+    }
+    const typedBlob = blob.type === inferredMime ? blob : new Blob([blob], { type: inferredMime });
+    body.append('file', typedBlob, fileName);
+    return body;
+  }
+
+  const mimeType = photo.mimeType ?? (fileName.toLocaleLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
   if (mimeType !== 'image/jpeg' && mimeType !== 'image/png') {
     throw new ApiError('Ảnh cần ở định dạng JPEG hoặc PNG.');
   }
   const file = new File(photo.uri);
-  const body = new FormData();
-  body.append('file', file, photo.fileName ?? defaultFileName);
+  body.append('file', file, fileName);
+  return body;
+}
+
+async function sendMultipartPhoto<T>(
+  endpoint: string,
+  defaultFileName: string,
+  token: string,
+  photo: { uri: string; mimeType?: string | null; fileName?: string | null },
+  parseResponse: (response: Response) => Promise<T>,
+): Promise<T> {
+  if (!apiBaseUrl) throw new ApiError('Chưa cấu hình EXPO_PUBLIC_API_URL.');
+  const body = await buildPhotoFormData(defaultFileName, photo);
   let response: Response;
   try {
     response = await expoFetch(`${apiBaseUrl}${endpoint}`, {
-      method: 'POST', headers: { Accept: 'application/json', Authorization: `Bearer ${token}` }, body,
+      method: 'POST',
+      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      body,
     });
   } catch (error) {
     const reason = error instanceof Error && error.message ? ` Chi tiết mạng: ${error.message}` : '';
@@ -155,6 +186,16 @@ async function uploadPhoto(
     } catch { /* Keep the status-based message when the response has no JSON body. */ }
     throw new ApiError(message, response.status);
   }
+  return parseResponse(response);
+}
+
+async function uploadPhoto(
+  endpoint: string,
+  defaultFileName: string,
+  token: string,
+  photo: { uri: string; mimeType?: string | null; fileName?: string | null },
+) {
+  await sendMultipartPhoto<void>(endpoint, defaultFileName, token, photo, async () => undefined);
 }
 
 export function uploadPlantPhoto(plantId: string, token: string, photo: { uri: string; mimeType?: string | null; fileName?: string | null }) {
@@ -173,7 +214,41 @@ export function getGardenPhotoUri(gardenId: string, photoUpdatedAt?: string | nu
   return photoUpdatedAt && apiBaseUrl ? `${apiBaseUrl}/api/v1/gardens/${gardenId}/photo?v=${encodeURIComponent(photoUpdatedAt)}` : null;
 }
 
-export type ApiUser = { id: string; email: string; displayName: string; roles: string[]; timezone?: string };
+export type ApiUser = {
+  id: string;
+  email: string;
+  displayName: string;
+  roles: string[];
+  timezone?: string;
+  avatarUpdatedAt?: string | null;
+};
+
+export function getMyAvatarUri(avatarUpdatedAt?: string | null) {
+  return avatarUpdatedAt && apiBaseUrl ? `${apiBaseUrl}/api/v1/auth/me/avatar?v=${encodeURIComponent(avatarUpdatedAt)}` : null;
+}
+
+export function getAdminUserAvatarUri(userId: string, avatarUpdatedAt?: string | null) {
+  return avatarUpdatedAt && apiBaseUrl
+    ? `${apiBaseUrl}/api/v1/admin/users/${userId}/avatar?v=${encodeURIComponent(avatarUpdatedAt)}`
+    : null;
+}
+
+export function uploadMyAvatar(
+  token: string,
+  photo: { uri: string; mimeType?: string | null; fileName?: string | null },
+): Promise<ApiUser> {
+  return sendMultipartPhoto<ApiUser>(
+    '/api/v1/auth/me/avatar',
+    'avatar.jpg',
+    token,
+    photo,
+    (response) => response.json() as Promise<ApiUser>,
+  );
+}
+
+export function deleteMyAvatar(token: string) {
+  return apiRequest<void>('/api/v1/auth/me/avatar', { method: 'DELETE', token });
+}
 export type AuthResult = { accessToken: string; refreshToken?: string; tokenType: string; expiresIn: number; user: ApiUser };
 export type ForgotPasswordResult = { resetToken?: string | null; message: string };
 
@@ -602,39 +677,18 @@ export function deleteJournalEntry(journalId: string, token: string) {
   });
 }
 
-export async function uploadJournalPhoto(
+export function uploadJournalPhoto(
   journalId: string,
   token: string,
   photo: { uri: string; mimeType?: string | null; fileName?: string | null },
 ): Promise<ApiJournalPhotoMeta> {
-  if (!apiBaseUrl) throw new ApiError('Chưa cấu hình EXPO_PUBLIC_API_URL.');
-  const mimeType = photo.mimeType ?? (photo.fileName?.toLocaleLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
-  if (mimeType !== 'image/jpeg' && mimeType !== 'image/png') {
-    throw new ApiError('Ảnh cần ở định dạng JPEG hoặc PNG.');
-  }
-  const file = new File(photo.uri);
-  const body = new FormData();
-  body.append('file', file, photo.fileName ?? `journal-${journalId}.jpg`);
-  let response: Response;
-  try {
-    response = await expoFetch(`${apiBaseUrl}/api/v1/journals/${journalId}/photos`, {
-      method: 'POST',
-      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-      body,
-    });
-  } catch (error) {
-    const reason = error instanceof Error && error.message ? ` Chi tiết mạng: ${error.message}` : '';
-    throw new ApiError(`Không gửi được ảnh nhật ký tới ${apiBaseUrl}.${reason}`);
-  }
-  if (!response.ok) {
-    let message = `Không tải được ảnh (${response.status}).`;
-    try {
-      const payload = await response.json() as { detail?: string; message?: string; title?: string };
-      message = payload.detail ?? payload.message ?? payload.title ?? message;
-    } catch { /* ignore */ }
-    throw new ApiError(message, response.status);
-  }
-  return response.json() as Promise<ApiJournalPhotoMeta>;
+  return sendMultipartPhoto<ApiJournalPhotoMeta>(
+    `/api/v1/journals/${journalId}/photos`,
+    `journal-${journalId}.jpg`,
+    token,
+    photo,
+    (response) => response.json() as Promise<ApiJournalPhotoMeta>,
+  );
 }
 
 export function deleteJournalPhoto(journalId: string, photoId: string, token: string) {
@@ -715,6 +769,7 @@ export type ApiAdminUserSummary = {
   lastActiveAt: string | null;
   createdAt: string;
   updatedAt: string;
+  avatarUpdatedAt?: string | null;
 };
 
 export type ApiAdminAuditLogEntry = {

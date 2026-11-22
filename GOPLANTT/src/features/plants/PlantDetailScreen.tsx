@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from '@/components/app-primitives';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from '@/components/app-primitives';
-import * as ImagePicker from 'expo-image-picker';
+
+import { pickOrCaptureOptimizedImage } from '@/services/imagePicker';
 import { Linking } from 'react-native';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
@@ -42,17 +43,16 @@ export default function PlantDetailScreen() {
 
   const replacePhoto = async () => {
     if (!owned) return;
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Cần quyền truy cập ảnh', 'Cho phép GoPlant truy cập thư viện ảnh để chọn ảnh cây.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [4, 3], quality: 0.85 });
-    if (result.canceled || !result.assets[0]) return;
+    const picked = await pickOrCaptureOptimizedImage({
+      aspect: [4, 3],
+      maxWidth: 1600,
+      quality: 0.8,
+      title: 'Cập nhật ảnh cây trồng',
+    });
+    if (!picked) return;
     setUploadingPhoto(true);
     try {
-      const asset = result.assets[0];
-      await updatePlantPhoto(owned.id, { uri: asset.uri, mimeType: asset.mimeType, fileName: asset.fileName });
+      await updatePlantPhoto(owned.id, picked);
       Alert.alert('Đã cập nhật ảnh', 'Ảnh mới đang được dùng thay ảnh mặc định của cây này.');
     } catch (error) {
       Alert.alert('Không tải được ảnh', error instanceof Error ? error.message : 'Vui lòng thử ảnh JPEG hoặc PNG dưới 5 MB.');

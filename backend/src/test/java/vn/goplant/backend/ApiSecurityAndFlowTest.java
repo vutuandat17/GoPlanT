@@ -953,7 +953,7 @@ class ApiSecurityAndFlowTest {
         when(jdbc.query(contains("WHERE u.id = ?"), any(RowMapper.class), eq(lockedUserId)))
                 .thenReturn(List.of(new vn.goplant.backend.admin.AdminUserService.AdminUserSummary(
                         lockedUserId, "locked@goplant.vn", "Locked User", "locked", "Asia/Ho_Chi_Minh",
-                        List.of("user"), Instant.now(), 0, 0, 0, null, null, Instant.now(), Instant.now())));
+                        List.of("user"), Instant.now(), 0, 0, 0, null, null, Instant.now(), Instant.now(), null)));
 
         mockMvc.perform(patch("/api/v1/admin/users/{id}/status", lockedUserId)
                         .header("Authorization", adminBearer)
@@ -971,7 +971,7 @@ class ApiSecurityAndFlowTest {
         when(jdbc.query(contains("WHERE u.id = ?"), any(RowMapper.class), eq(revokedUserId)))
                 .thenReturn(List.of(new vn.goplant.backend.admin.AdminUserService.AdminUserSummary(
                         revokedUserId, "revoked@goplant.vn", "Revoked User", "active", "Asia/Ho_Chi_Minh",
-                        List.of("user"), Instant.now(), 0, 0, 0, null, null, Instant.now(), Instant.now())));
+                        List.of("user"), Instant.now(), 0, 0, 0, null, null, Instant.now(), Instant.now(), null)));
 
         mockMvc.perform(post("/api/v1/admin/users/{id}/revoke-sessions", revokedUserId)
                         .header("Authorization", adminBearer)
@@ -1226,5 +1226,63 @@ class ApiSecurityAndFlowTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Liên kết đã hết hạn hoặc đã được sử dụng")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("goplantt://auth/login")));
+    }
+
+    @Test
+    void userAvatarUploadFetchDeleteAndAdminView() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        String userBearer = bearerToken(userId, "user");
+        String adminBearer = bearerToken(adminId, "admin");
+
+        ByteArrayOutputStream pngOut = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB), "png", pngOut);
+        byte[] pngBytes = pngOut.toByteArray();
+        MockMultipartFile validPng = new MockMultipartFile("file", "avatar.png", MediaType.IMAGE_PNG_VALUE, pngBytes);
+
+        Instant now = Instant.now();
+        when(jdbc.query(contains("SELECT u.id,u.display_name,u.timezone"), any(RowMapper.class), eq(userId)))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("id", UUID.class)).thenReturn(userId);
+                    when(rs.getString("normalized_email")).thenReturn("avatar@goplant.test");
+                    when(rs.getString("display_name")).thenReturn("Avatar User");
+                    when(rs.getString("timezone")).thenReturn("Asia/Ho_Chi_Minh");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+        when(jdbc.queryForList("SELECT r.code FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=?", String.class, userId))
+                .thenReturn(List.of("user"));
+        when(jdbc.queryForList("SELECT updated_at FROM user_avatars WHERE user_id = ?", java.sql.Timestamp.class, userId))
+                .thenReturn(List.of(java.sql.Timestamp.from(now)));
+
+        mockMvc.perform(multipart("/api/v1/auth/me/avatar")
+                        .file(validPng)
+                        .header("Authorization", userBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.avatarUpdatedAt").isNotEmpty());
+
+        when(jdbc.query(contains("SELECT content_type, image_bytes FROM user_avatars"), any(RowMapper.class), eq(userId)))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getString("content_type")).thenReturn("image/png");
+                    when(rs.getBytes("image_bytes")).thenReturn(pngBytes);
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+
+        mockMvc.perform(get("/api/v1/auth/me/avatar").header("Authorization", userBearer))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.IMAGE_PNG));
+
+        mockMvc.perform(get("/api/v1/admin/users/{id}/avatar", userId).header("Authorization", userBearer))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/v1/admin/users/{id}/avatar", userId).header("Authorization", adminBearer))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.IMAGE_PNG));
+
+        mockMvc.perform(delete("/api/v1/auth/me/avatar").header("Authorization", userBearer))
+                .andExpect(status().isNoContent());
     }
 }

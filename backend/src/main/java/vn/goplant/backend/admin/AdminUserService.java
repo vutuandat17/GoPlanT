@@ -46,6 +46,7 @@ public class AdminUserService {
                    u.last_active_at,
                    u.created_at,
                    u.updated_at,
+                   ua.updated_at AS avatar_updated_at,
                    COALESCE((
                        SELECT array_agg(r.code ORDER BY r.code)
                        FROM user_roles ur
@@ -57,6 +58,7 @@ public class AdminUserService {
                    (SELECT count(*) FROM refresh_tokens rt WHERE rt.user_id = u.id AND rt.revoked_at IS NULL AND rt.expires_at > now()) AS active_session_count
             FROM users u
             JOIN user_email_addresses e ON e.user_id = u.id AND e.address_type = 'primary'
+            LEFT JOIN user_avatars ua ON ua.user_id = u.id
             """;
 
     private static final RowMapper<AdminUserSummary> SUMMARY_MAPPER = (rs, row) -> new AdminUserSummary(
@@ -73,7 +75,8 @@ public class AdminUserService {
             toInstant(rs.getTimestamp("last_login_at")),
             toInstant(rs.getTimestamp("last_active_at")),
             toInstant(rs.getTimestamp("created_at")),
-            toInstant(rs.getTimestamp("updated_at"))
+            toInstant(rs.getTimestamp("updated_at")),
+            toInstant(rs.getTimestamp("avatar_updated_at"))
     );
 
     private static final RowMapper<AuditLogEntry> AUDIT_MAPPER = (rs, row) -> new AuditLogEntry(
@@ -211,6 +214,7 @@ public class AdminUserService {
                 summary.lastActiveAt(),
                 summary.createdAt(),
                 summary.updatedAt(),
+                summary.avatarUpdatedAt(),
                 recentLogs
         );
     }
@@ -535,7 +539,8 @@ public class AdminUserService {
             Instant lastLoginAt,
             Instant lastActiveAt,
             Instant createdAt,
-            Instant updatedAt) {}
+            Instant updatedAt,
+            Instant avatarUpdatedAt) {}
 
     public record AdminUserDetail(
             UUID id,
@@ -552,6 +557,7 @@ public class AdminUserService {
             Instant lastActiveAt,
             Instant createdAt,
             Instant updatedAt,
+            Instant avatarUpdatedAt,
             List<AuditLogEntry> recentAuditLogs) {}
 
     public record AuditLogEntry(

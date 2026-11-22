@@ -165,6 +165,7 @@ export function RegisterScreen() {
               email: auth.user.email,
               name: auth.user.displayName,
               role: auth.user.roles.includes('admin') ? 'admin' : auth.user.roles.includes('moderator') ? 'moderator' : 'user',
+              avatarUpdatedAt: auth.user.avatarUpdatedAt ?? null,
             },
             auth.accessToken,
             auth.refreshToken,
@@ -536,7 +537,7 @@ export function LoginScreen() {
         });
         const user: ApiUser = result.user;
         setPassword('');
-        await signIn({ id: user.id, email: user.email, name: user.displayName, role: user.roles.includes('admin') ? 'admin' : user.roles.includes('moderator') ? 'moderator' : 'user' }, result.accessToken, result.refreshToken);
+        await signIn({ id: user.id, email: user.email, name: user.displayName, role: user.roles.includes('admin') ? 'admin' : user.roles.includes('moderator') ? 'moderator' : 'user', avatarUpdatedAt: user.avatarUpdatedAt ?? null }, result.accessToken, result.refreshToken);
         router.replace('/home');
         return;
       }

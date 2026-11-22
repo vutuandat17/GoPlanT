@@ -13,6 +13,7 @@ import {
   View,
 } from '@/components/app-primitives';
 
+import { UserAvatar } from '@/components/UserAvatar';
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { safeBack } from '@/services/navigation';
@@ -20,6 +21,7 @@ import {
   fetchAdminUserDetail,
   fetchAdminUserStats,
   fetchAdminUsers,
+  getAdminUserAvatarUri,
   resendAdminUserVerification,
   revokeAdminUserSessions,
   sendAdminUserPasswordReset,
@@ -523,9 +525,12 @@ export default function AdminUsersScreen() {
             return (
               <Pressable key={item.id} onPress={() => void openDetail(item.id)} style={s.userCard}>
                 <View style={s.userTop}>
-                  <View style={s.avatar}>
-                    <Text style={s.avatarText}>{item.displayName.trim().charAt(0).toUpperCase() || 'G'}</Text>
-                  </View>
+                  <UserAvatar
+                    name={item.displayName}
+                    avatarUri={getAdminUserAvatarUri(item.id, item.avatarUpdatedAt)}
+                    accessToken={accessToken}
+                    size={42}
+                  />
                   <View style={s.flex}>
                     <Text style={s.userTitle} numberOfLines={1}>
                       {item.displayName}{isSelf ? ' (Bạn)' : ''}

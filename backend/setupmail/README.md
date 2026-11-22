@@ -63,7 +63,7 @@ $env:MAIL_SMTP_AUTH = 'false'
 $env:MAIL_SMTP_STARTTLS = 'false'
 
 # 4. Khởi động Backend
-& "C:\tools\apache-maven-3.10.0\bin\mvn.cmd" spring-boot:run
+& "C:\tools\apache-maven-3.10.0\bin\mvn.cmd" spring-boot:run ( tùy ae lưu ở đâu )
 ```
 
 *(Nếu `mvn` đã có sẵn trong `PATH`, có thể thay bước 4 bằng `mvn spring-boot:run`.)*

@@ -397,7 +397,8 @@ public class AuthService {
                 .claim("email", email).claim("name", displayName).claim("roles", roles).build();
         var header = JwsHeader.with(org.springframework.security.oauth2.jose.jws.MacAlgorithm.HS256).build();
         String jwt = jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
-        return new LoginResult(jwt, refreshToken, "Bearer", tokenMinutes * 60, new UserView(userId, email, displayName, roles, timezone));
+        Instant avatarUpdatedAt = findAvatarUpdatedAt(userId);
+        return new LoginResult(jwt, refreshToken, "Bearer", tokenMinutes * 60, new UserView(userId, email, displayName, roles, timezone, avatarUpdatedAt));
     }
 
     private String issueRefreshToken(UUID userId, UUID explicitId, UUID sessionFamilyId) {
@@ -429,7 +430,12 @@ public class AuthService {
         UserIdentity identity = rows.getFirst();
         touchLastActive(userId);
         var roles = jdbc.queryForList("SELECT r.code FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=?", String.class, userId);
-        return new UserView(identity.id(), identity.email(), identity.displayName(), roles, identity.timezone());
+        return new UserView(identity.id(), identity.email(), identity.displayName(), roles, identity.timezone(), findAvatarUpdatedAt(userId));
+    }
+
+    private Instant findAvatarUpdatedAt(UUID userId) {
+        var rows = jdbc.queryForList("SELECT updated_at FROM user_avatars WHERE user_id = ?", Timestamp.class, userId);
+        return rows.isEmpty() || rows.getFirst() == null ? null : rows.getFirst().toInstant();
     }
 
     private void touchLastActive(UUID userId) {
@@ -473,7 +479,7 @@ public class AuthService {
 
     public record Registration(UUID id, String email, String verificationToken, String message, boolean verificationRequired) {}
     public record ForgotPasswordResult(String resetToken, String message) {}
-    public record UserView(UUID id, String email, String displayName, java.util.List<String> roles, String timezone) {}
+    public record UserView(UUID id, String email, String displayName, java.util.List<String> roles, String timezone, Instant avatarUpdatedAt) {}
     public record LoginResult(String accessToken, String refreshToken, String tokenType, int expiresIn, UserView user) {}
     private record UserIdentity(UUID id, String email, String displayName, String timezone) {}
     private record Account(UUID id, String displayName, String passwordHash, String status, String email, String timezone) {}
