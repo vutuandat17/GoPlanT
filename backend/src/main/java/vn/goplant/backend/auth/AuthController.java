@@ -128,18 +128,19 @@ public class AuthController {
         return auth.forgotPassword(request.email());
     }
     @GetMapping(value = "/reset-password", produces = MediaType.TEXT_HTML_VALUE)
-    @ResponseBody
-    public String resetPasswordForm(@RequestParam String token) {
-        if (!token.matches("^[A-Za-z0-9_-]{40,50}$")) {
-            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, "Liên kết đặt lại mật khẩu không hợp lệ.");
+    public ResponseEntity<String> resetPasswordForm(@RequestParam(required = false) String token) {
+        if (token == null || !token.matches("^[A-Za-z0-9_-]{40,50}$")) {
+            return ResponseEntity.badRequest()
+                    .contentType(TEXT_HTML_UTF8)
+                    .body(AuthHtmlPages.resetPasswordErrorPage(
+                            "Liên kết đặt lại mật khẩu không hợp lệ",
+                            "Đường dẫn đặt lại mật khẩu bị thiếu hoặc không đúng định dạng.",
+                            appLoginUrl,
+                            webLoginUrl));
         }
-        return "<!doctype html><html lang=\"vi\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Đặt lại mật khẩu GoPlant</title>"
-                + "<body style=\"font:16px system-ui;max-width:460px;margin:10vh auto;padding:24px;color:#173f30\"><h1>Đặt lại mật khẩu GoPlant</h1>"
-                + "<p>Nhập mật khẩu mới (tối thiểu 12 ký tự) cho tài khoản của bạn.</p>"
-                + "<form method=\"post\" action=\"/api/v1/auth/reset-password\" style=\"display:flex;flex-direction:column;gap:12px\">"
-                + "<input type=\"hidden\" name=\"token\" value=\"" + token + "\">"
-                + "<input type=\"password\" name=\"newPassword\" minlength=\"12\" maxlength=\"72\" required placeholder=\"Mật khẩu mới (12-72 ký tự)\" style=\"padding:12px;border:1px solid #c9ddd0;border-radius:8px;font-size:15px\">"
-                + "<button style=\"padding:12px 20px;background:#174f3b;color:white;border:0;border-radius:8px;font-size:16px\">Cập nhật mật khẩu</button></form></body></html>";
+        return ResponseEntity.ok()
+                .contentType(TEXT_HTML_UTF8)
+                .body(AuthHtmlPages.resetPasswordFormPage(token, null));
     }
     @PostMapping(value = "/reset-password", consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -150,18 +151,50 @@ public class AuthController {
         auth.resetPassword(request.token(), request.newPassword(), AuthEventService.AuthClientInfo.from(httpRequest, clientPlatform));
     }
     @PostMapping(value = "/reset-password", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE, produces = MediaType.TEXT_HTML_VALUE)
-    @ResponseBody
-    public String resetPasswordFormSubmit(
-            @RequestParam String token,
-            @RequestParam String newPassword,
+    public ResponseEntity<String> resetPasswordFormSubmit(
+            @RequestParam(required = false) String token,
+            @RequestParam(required = false) String newPassword,
+            @RequestParam(required = false) String confirmPassword,
             HttpServletRequest httpRequest) {
-        if (newPassword == null || newPassword.length() < 12 || newPassword.length() > 72) {
-            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, "Mật khẩu mới cần có từ 12 đến 72 ký tự.");
+        if (token == null || token.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .contentType(TEXT_HTML_UTF8)
+                    .body(AuthHtmlPages.resetPasswordErrorPage(
+                            "Liên kết đặt lại mật khẩu không hợp lệ",
+                            "Thiếu mã đặt lại mật khẩu.",
+                            appLoginUrl,
+                            webLoginUrl));
         }
-        auth.resetPassword(token, newPassword, AuthEventService.AuthClientInfo.from(httpRequest, "web"));
-        return "<!doctype html><html lang=\"vi\"><meta charset=\"utf-8\"><title>Đã đặt lại mật khẩu</title>"
-                + "<body style=\"font:16px system-ui;max-width:460px;margin:10vh auto;padding:24px;color:#173f30\"><h1>Đã cập nhật mật khẩu</h1>"
-                + "<p>Mật khẩu tài khoản GoPlant đã được đặt lại. Bạn có thể quay lại ứng dụng và đăng nhập bằng mật khẩu mới.</p></body></html>";
+        if (newPassword == null || newPassword.length() < 12 || newPassword.length() > 72) {
+            return ResponseEntity.badRequest()
+                    .contentType(TEXT_HTML_UTF8)
+                    .body(AuthHtmlPages.resetPasswordFormPage(token, "Mật khẩu mới cần có từ 12 đến 72 ký tự."));
+        }
+        if (confirmPassword != null && !newPassword.equals(confirmPassword)) {
+            return ResponseEntity.badRequest()
+                    .contentType(TEXT_HTML_UTF8)
+                    .body(AuthHtmlPages.resetPasswordFormPage(token, "Mật khẩu mới và xác nhận mật khẩu chưa khớp."));
+        }
+        try {
+            auth.resetPassword(token, newPassword, AuthEventService.AuthClientInfo.from(httpRequest, "web"));
+            return ResponseEntity.ok()
+                    .contentType(TEXT_HTML_UTF8)
+                    .body(AuthHtmlPages.resetPasswordSuccessPage(appLoginUrl, webLoginUrl));
+        } catch (org.springframework.web.server.ResponseStatusException ex) {
+            String reason = ex.getReason();
+            if (reason != null && reason.contains("khác mật khẩu hiện tại")) {
+                return ResponseEntity.badRequest()
+                        .contentType(TEXT_HTML_UTF8)
+                        .body(AuthHtmlPages.resetPasswordFormPage(token, reason));
+            }
+            return ResponseEntity.status(ex.getStatusCode())
+                    .contentType(TEXT_HTML_UTF8)
+                    .body(AuthHtmlPages.resetPasswordErrorPage(
+                            "Liên kết đã hết hạn hoặc đã được sử dụng",
+                            "Liên kết đặt lại mật khẩu chỉ có hiệu lực một lần trong 60 phút hoặc đã được sử dụng trước đó.",
+                            appLoginUrl,
+                            webLoginUrl));
+        }
     }
     @GetMapping("/me")
     public AuthService.UserView me(@AuthenticationPrincipal Jwt jwt) {

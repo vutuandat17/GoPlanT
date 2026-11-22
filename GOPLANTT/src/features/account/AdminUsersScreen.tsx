@@ -22,6 +22,7 @@ import {
   fetchAdminUsers,
   resendAdminUserVerification,
   revokeAdminUserSessions,
+  sendAdminUserPasswordReset,
   updateAdminUserRole,
   updateAdminUserStatus,
   type AdminAuditAction,
@@ -49,6 +50,7 @@ const ACTION_LABELS: Record<AdminAuditAction, string> = {
   REVOKE_MODERATOR: 'Thu hồi quyền Moderator',
   REVOKE_SESSIONS: 'Thu hồi phiên đăng nhập',
   RESEND_VERIFICATION: 'Gửi lại email xác minh',
+  SEND_PASSWORD_RESET: 'Gửi email đặt lại mật khẩu',
 };
 
 const STATUS_FILTERS: { key: '' | AdminUserStatus; label: string }[] = [
@@ -334,6 +336,33 @@ export default function AdminUsersScreen() {
               Alert.alert('Đã gửi lại xác minh', `${res.message}${extraToken}`);
             } catch (err) {
               Alert.alert('Không thể gửi lại email', err instanceof Error ? err.message : 'Vui lòng thử lại.');
+            } finally {
+              setActionBusy(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const confirmSendPasswordReset = (target: ApiAdminUserDetail) => {
+    if (!accessToken) return;
+    Alert.alert(
+      'Gửi email đặt lại mật khẩu',
+      `Tạo liên kết đặt lại mật khẩu mới (hiệu lực 60 phút) và gửi tới ${target.email}?`,
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Gửi email',
+          onPress: async () => {
+            setActionBusy(true);
+            try {
+              const res = await sendAdminUserPasswordReset(target.id, accessToken, reason.trim() || null);
+              applyUpdate(res.user);
+              const extraToken = res.resetToken ? `\n\nMã đặt lại (dev): ${res.resetToken}` : '';
+              Alert.alert('Đã gửi yêu cầu đặt lại mật khẩu', `${res.message}${extraToken}`);
+            } catch (err) {
+              Alert.alert('Không thể gửi email', err instanceof Error ? err.message : 'Vui lòng thử lại.');
             } finally {
               setActionBusy(false);
             }
@@ -651,6 +680,12 @@ export default function AdminUsersScreen() {
 
                   {detail.id !== user.id && detail.status === 'active' ? (
                     <>
+                      <Pressable
+                        disabled={actionBusy}
+                        onPress={() => confirmSendPasswordReset(detail)}
+                        style={[s.actionBtn, s.softAction]}>
+                        <Text style={s.softActionText}>✉ Gửi đặt lại mật khẩu</Text>
+                      </Pressable>
                       <Pressable
                         disabled={actionBusy}
                         onPress={() => confirmStatusChange(detail, 'locked', 'Khóa tài khoản', `Khóa tài khoản ${detail.email} và thu hồi mọi phiên đăng nhập?`)}

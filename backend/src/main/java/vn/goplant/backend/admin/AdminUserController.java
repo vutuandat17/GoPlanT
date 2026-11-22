@@ -90,6 +90,14 @@ public class AdminUserController {
         return adminUsers.resendVerification(actor(jwt), id, request == null ? null : request.reason());
     }
 
+    @PostMapping("/users/{id}/send-password-reset")
+    public AdminUserService.AdminPasswordResetResponse sendPasswordReset(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID id,
+            @Valid @RequestBody(required = false) RevokeSessionsRequest request) {
+        return adminUsers.sendPasswordReset(actor(jwt), id, request == null ? null : request.reason());
+    }
+
     @GetMapping("/audit-logs")
     public PageResponse<AuditLogEntry> listAuditLogs(
             @RequestParam(defaultValue = "0") int page,

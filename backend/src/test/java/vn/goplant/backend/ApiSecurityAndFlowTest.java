@@ -1091,4 +1091,140 @@ class ApiSecurityAndFlowTest {
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Liên kết đã hết hạn hoặc đã được sử dụng")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("goplantt://auth/login")));
     }
+
+    @Test
+    void passwordResetEnforcesRateLimitOldPasswordCheckAndImmediateTokenCutoff() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID tokenId = UUID.randomUUID();
+        String userBearer = bearerToken(userId, "user");
+        String currentHash = passwordEncoder.encode("old-secret-password-12");
+
+        when(jdbc.queryForObject(contains("FROM user_auth_events ev"), eq(Long.class), any(Object[].class)))
+                .thenReturn(0L);
+        when(jdbc.query(contains("FROM user_auth_events ev"), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/auth/me/auth-events").header("Authorization", userBearer))
+                .andExpect(status().isOk());
+
+        // Rate-limit 60s on forgot-password
+        when(jdbc.query(contains("WHERE e.normalized_email = ? AND u.status = 'active'"), any(RowMapper.class), eq("reset-guard@goplant.test")))
+                .thenReturn(List.of(userId));
+        when(jdbc.query(contains("WHERE user_id = ? AND purpose = 'PASSWORD_RESET'"), any(RowMapper.class), eq(userId)))
+                .thenReturn(List.of(Instant.now().minusSeconds(10)));
+
+        mockMvc.perform(post("/api/v1/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"reset-guard@goplant.test"}
+                                """))
+                .andExpect(status().isTooManyRequests());
+
+        // Reject reusing current password & accept new password with immediate access token cutoff
+        when(jdbc.query(contains("SELECT t.id AS token_id, t.user_id, u.password_hash"), any(RowMapper.class), anyString()))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("token_id", UUID.class)).thenReturn(tokenId);
+                    when(rs.getObject("user_id", UUID.class)).thenReturn(userId);
+                    when(rs.getString("password_hash")).thenReturn(currentHash);
+                    when(rs.getString("normalized_email")).thenReturn("reset-guard@goplant.test");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"token":"valid-reset-token-value-1234567890","newPassword":"old-secret-password-12"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"token":"valid-reset-token-value-1234567890","newPassword":"brand-new-secret-pass-99"}
+                                """))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/auth/me/auth-events").header("Authorization", userBearer))
+                .andExpect(status().isUnauthorized());
+
+        // Admin send-password-reset authorization & validation
+        String otherMemberBearer = bearerToken(UUID.randomUUID(), "user");
+        mockMvc.perform(post("/api/v1/admin/users/{id}/send-password-reset", userId)
+                        .header("Authorization", otherMemberBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isForbidden());
+
+        UUID adminId = UUID.randomUUID();
+        String adminBearer = bearerToken(adminId, "admin");
+        when(jdbc.query(contains("SELECT u.status, e.normalized_email"), any(RowMapper.class), eq(userId)))
+                .thenReturn(List.of());
+        mockMvc.perform(post("/api/v1/admin/users/{id}/send-password-reset", userId)
+                        .header("Authorization", adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void resetPasswordHtmlPagesRenderFormValidationSuccessAndDeepLink() throws Exception {
+        String validTokenFormat = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_reset";
+        UUID tokenId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        String oldHash = passwordEncoder.encode("existing-password-12");
+
+        mockMvc.perform(get("/api/v1/auth/reset-password").param("token", "short"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Liên kết đặt lại mật khẩu không hợp lệ")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("goplantt://auth/login")));
+
+        mockMvc.perform(get("/api/v1/auth/reset-password").param("token", validTokenFormat))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("confirmPassword")));
+
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("token", validTokenFormat)
+                        .param("newPassword", "new-password-12345")
+                        .param("confirmPassword", "different-password-123"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("chưa khớp")));
+
+        when(jdbc.query(contains("SELECT t.id AS token_id, t.user_id, u.password_hash"), any(RowMapper.class), anyString()))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("token_id", UUID.class)).thenReturn(tokenId);
+                    when(rs.getObject("user_id", UUID.class)).thenReturn(userId);
+                    when(rs.getString("password_hash")).thenReturn(oldHash);
+                    when(rs.getString("normalized_email")).thenReturn("html-reset@goplant.test");
+                    return List.of(mapper.mapRow(rs, 0));
+                })
+                .thenReturn(List.of());
+
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("token", validTokenFormat)
+                        .param("newPassword", "brand-new-password-123")
+                        .param("confirmPassword", "brand-new-password-123"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Đã đặt lại mật khẩu!")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("goplantt://auth/login")));
+
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("token", validTokenFormat)
+                        .param("newPassword", "brand-new-password-123")
+                        .param("confirmPassword", "brand-new-password-123"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Liên kết đã hết hạn hoặc đã được sử dụng")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("goplantt://auth/login")));
+    }
 }

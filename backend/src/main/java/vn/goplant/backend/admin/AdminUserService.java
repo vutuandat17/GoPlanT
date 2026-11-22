@@ -374,6 +374,26 @@ public class AdminUserService {
         return new AdminResendVerificationResponse(getUser(targetUserId), result.message(), result.verificationToken());
     }
 
+    @Transactional
+    public AdminPasswordResetResponse sendPasswordReset(UUID actorUserId, UUID targetUserId, String reason) {
+        var rows = jdbc.query("""
+                SELECT u.status, e.normalized_email
+                FROM users u
+                JOIN user_email_addresses e ON e.user_id = u.id AND e.address_type = 'primary'
+                WHERE u.id = ?
+                """, (rs, row) -> new UserEmailStatusRow(rs.getString("status"), rs.getString("normalized_email")), targetUserId);
+        if (rows.isEmpty()) {
+            throw notFound("Không tìm thấy tài khoản người dùng.");
+        }
+        UserEmailStatusRow target = rows.getFirst();
+        if (!"active".equals(target.status())) {
+            throw badRequest("Chỉ có thể gửi email đặt lại mật khẩu cho tài khoản đang ở trạng thái hoạt động.");
+        }
+        AuthService.ForgotPasswordResult result = authService.forgotPassword(target.email());
+        insertAuditLog(actorUserId, targetUserId, "SEND_PASSWORD_RESET", null, target.email(), reason);
+        return new AdminPasswordResetResponse(getUser(targetUserId), result.message(), result.resetToken());
+    }
+
     public PageResponse<AuditLogEntry> listAuditLogs(int page, int size, UUID targetUserId, String action) {
         int safePage = PageResponse.normalizePage(page);
         int safeSize = PageResponse.normalizeSize(size);
@@ -554,4 +574,9 @@ public class AdminUserService {
             AdminUserDetail user,
             String message,
             String verificationToken) {}
+
+    public record AdminPasswordResetResponse(
+            AdminUserDetail user,
+            String message,
+            String resetToken) {}
 }

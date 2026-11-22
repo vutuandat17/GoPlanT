@@ -29,6 +29,7 @@ const AUDIT_ACTION_META: Record<AdminAuditAction, { label: string; bg: string; f
   REVOKE_MODERATOR: { label: 'Thu hồi Moderator', bg: '#FFEDD5', fg: '#9A3412' },
   REVOKE_SESSIONS: { label: 'Thu hồi phiên', bg: '#E0F2FE', fg: '#0369A1' },
   RESEND_VERIFICATION: { label: 'Gửi lại xác minh', bg: '#F3E8FF', fg: '#6B21A8' },
+  SEND_PASSWORD_RESET: { label: 'Gửi đặt lại MK', bg: '#FEF3C7', fg: '#92400E' },
 };
 
 const ACTION_FILTERS: { key: '' | AdminAuditAction; label: string }[] = [
@@ -43,6 +44,7 @@ const ACTION_FILTERS: { key: '' | AdminAuditAction; label: string }[] = [
   { key: 'REVOKE_MODERATOR', label: 'Thu hồi Moderator' },
   { key: 'REVOKE_SESSIONS', label: 'Thu hồi phiên' },
   { key: 'RESEND_VERIFICATION', label: 'Gửi lại xác minh' },
+  { key: 'SEND_PASSWORD_RESET', label: 'Gửi đặt lại MK' },
 ];
 
 function formatDateTimeVi(iso: string | null | undefined) {

@@ -697,7 +697,8 @@ export type AdminAuditAction =
   | 'GRANT_MODERATOR'
   | 'REVOKE_MODERATOR'
   | 'REVOKE_SESSIONS'
-  | 'RESEND_VERIFICATION';
+  | 'RESEND_VERIFICATION'
+  | 'SEND_PASSWORD_RESET';
 
 export type ApiAdminUserSummary = {
   id: string;
@@ -808,6 +809,20 @@ export type ApiAdminResendVerificationResult = {
 
 export function resendAdminUserVerification(userId: string, token: string, reason?: string | null) {
   return apiRequest<ApiAdminResendVerificationResult>(`/api/v1/admin/users/${userId}/resend-verification`, {
+    method: 'POST',
+    token,
+    body: reason ? { reason } : {},
+  });
+}
+
+export type ApiAdminSendPasswordResetResult = {
+  user: ApiAdminUserDetail;
+  message: string;
+  resetToken: string | null;
+};
+
+export function sendAdminUserPasswordReset(userId: string, token: string, reason?: string | null) {
+  return apiRequest<ApiAdminSendPasswordResetResult>(`/api/v1/admin/users/${userId}/send-password-reset`, {
     method: 'POST',
     token,
     body: reason ? { reason } : {},

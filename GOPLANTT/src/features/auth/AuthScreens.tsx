@@ -418,6 +418,8 @@ export function LoginScreen() {
   const [resetNewPassword, setResetNewPassword] = useState('');
   const [resetStatus, setResetStatus] = useState('');
   const [resetBusy, setResetBusy] = useState(false);
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [resetCooldown, setResetCooldown] = useState(0);
   const [canResendVerification, setCanResendVerification] = useState(false);
   const [resendingVerification, setResendingVerification] = useState(false);
   const [resendNotice, setResendNotice] = useState('');
@@ -428,6 +430,12 @@ export function LoginScreen() {
     const timer = setTimeout(() => setResendCooldown((prev) => Math.max(0, prev - 1)), 1000);
     return () => clearTimeout(timer);
   }, [resendCooldown]);
+
+  useEffect(() => {
+    if (resetCooldown <= 0) return;
+    const timer = setTimeout(() => setResetCooldown((prev) => Math.max(0, prev - 1)), 1000);
+    return () => clearTimeout(timer);
+  }, [resetCooldown]);
 
   const loginPasswordStrength = useMemo(() => {
     if (!password) return 0;
@@ -448,6 +456,7 @@ export function LoginScreen() {
   }, [resetNewPassword]);
 
   const handleSendReset = async () => {
+    if (resetBusy || resetCooldown > 0) return;
     const email = (resetEmail || account).trim();
     if (!email) {
       setResetStatus('Vui lòng nhập email để nhận mã đặt lại mật khẩu.');
@@ -458,9 +467,13 @@ export function LoginScreen() {
     try {
       const res = await forgotPassword(email);
       if (res.resetToken) setResetToken(res.resetToken);
+      setResetCooldown(60);
       setResetStatus(res.message);
     } catch (err) {
       setResetStatus(err instanceof Error ? err.message : 'Không thể gửi yêu cầu đặt lại mật khẩu.');
+      if (err instanceof ApiError && err.status === 429 && resetCooldown <= 0) {
+        setResetCooldown(60);
+      }
     } finally {
       setResetBusy(false);
     }
@@ -475,6 +488,10 @@ export function LoginScreen() {
       setResetStatus('Mật khẩu mới cần có từ 12 đến 72 ký tự.');
       return;
     }
+    if (resetNewPassword !== resetConfirmPassword) {
+      setResetStatus('Mật khẩu mới và xác nhận mật khẩu chưa khớp.');
+      return;
+    }
     setResetBusy(true);
     setResetStatus('');
     try {
@@ -482,6 +499,7 @@ export function LoginScreen() {
       setShowResetPanel(false);
       setResetToken('');
       setResetNewPassword('');
+      setResetConfirmPassword('');
       Alert.alert('Đặt lại mật khẩu thành công', 'Bạn có thể đăng nhập bằng mật khẩu mới.');
     } catch (err) {
       setResetStatus(err instanceof Error ? err.message : 'Không thể đặt lại mật khẩu.');
@@ -625,8 +643,17 @@ export function LoginScreen() {
                 keyboardType="email-address"
                 style={styles.resetInput}
               />
-              <Pressable disabled={resetBusy} onPress={() => void handleSendReset()} style={styles.resetSecondaryBtn}>
-                <Text style={styles.resetSecondaryText}>{resetBusy ? 'Đang gửi...' : 'Gửi mã / liên kết qua email'}</Text>
+              <Pressable
+                disabled={resetBusy || resetCooldown > 0}
+                onPress={() => void handleSendReset()}
+                style={[styles.resetSecondaryBtn, (resetBusy || resetCooldown > 0) && styles.resendBtnDisabled]}>
+                <Text style={styles.resetSecondaryText}>
+                  {resetBusy
+                    ? 'Đang gửi...'
+                    : resetCooldown > 0
+                      ? `Gửi lại mã / liên kết (${resetCooldown}s)`
+                      : 'Gửi mã / liên kết qua email'}
+                </Text>
               </Pressable>
               <TextInput
                 value={resetToken}
@@ -640,6 +667,14 @@ export function LoginScreen() {
                 value={resetNewPassword}
                 onChangeText={setResetNewPassword}
                 placeholder="Mật khẩu mới (12–72 ký tự)"
+                placeholderTextColor={C.mutedText}
+                secureTextEntry
+                style={styles.resetInput}
+              />
+              <TextInput
+                value={resetConfirmPassword}
+                onChangeText={setResetConfirmPassword}
+                placeholder="Nhập lại mật khẩu mới"
                 placeholderTextColor={C.mutedText}
                 secureTextEntry
                 style={styles.resetInput}
