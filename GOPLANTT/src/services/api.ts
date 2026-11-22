@@ -166,20 +166,35 @@ async function sendMultipartPhoto<T>(
   parseResponse: (response: Response) => Promise<T>,
 ): Promise<T> {
   if (!apiBaseUrl) throw new ApiError('Chưa cấu hình EXPO_PUBLIC_API_URL.');
-  const body = await buildPhotoFormData(defaultFileName, photo);
-  let response: Response;
-  try {
-    response = await expoFetch(`${apiBaseUrl}${endpoint}`, {
-      method: 'POST',
-      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-      body,
-    });
-  } catch (error) {
-    const reason = error instanceof Error && error.message ? ` Chi tiết mạng: ${error.message}` : '';
-    throw new ApiError(`Không gửi được yêu cầu tải ảnh tới ${apiBaseUrl}. Kiểm tra URL API của ứng dụng và kết nối mạng.${reason}`);
+
+  const performUpload = async (bearerToken: string) => {
+    const body = await buildPhotoFormData(defaultFileName, photo);
+    try {
+      return await expoFetch(`${apiBaseUrl}${endpoint}`, {
+        method: 'POST',
+        headers: { Accept: 'application/json', Authorization: `Bearer ${bearerToken}` },
+        body,
+      });
+    } catch (error) {
+      const reason = error instanceof Error && error.message ? ` Chi tiết mạng: ${error.message}` : '';
+      throw new ApiError(`Không gửi được yêu cầu tải ảnh tới ${apiBaseUrl}. Kiểm tra URL API của ứng dụng và kết nối mạng.${reason}`);
+    }
+  };
+
+  let response = await performUpload(token);
+
+  if (response.status === 401 && token) {
+    const newAccessToken = await tryRefreshAccessToken();
+    if (newAccessToken) {
+      response = await performUpload(newAccessToken);
+    }
   }
+
   if (!response.ok) {
-    let message = `Không tải được ảnh (${response.status}).`;
+    let message =
+      response.status === 401
+        ? 'Phiên đăng nhập đã hết hạn hoặc chưa hợp lệ. Vui lòng đăng nhập lại.'
+        : `Không tải được ảnh (${response.status}).`;
     try {
       const payload = await response.json() as { detail?: string; message?: string; title?: string };
       message = payload.detail ?? payload.message ?? payload.title ?? message;
