@@ -170,6 +170,15 @@ export function translateText(value: string, language: AppLanguage): string {
   if (match) return `${match[1]} / ${match[2]} ${Number(match[2]) === 1 ? 'area' : 'areas'}`;
   match = value.match(/^Chào buổi sáng, (.+) 🌱$/);
   if (match) return `Good morning, ${match[1]} 🌱`;
+  match = value.match(/^Chào buổi trưa, (.+) ☀️$/);
+  if (match) return `Good afternoon, ${match[1]} ☀️`;
+  match = value.match(/^Chào buổi chiều, (.+) 🌤️$/);
+  if (match) return `Good afternoon, ${match[1]} 🌤️`;
+  match = value.match(/^Chào buổi tối, (.+) 🌙$/);
+  if (match) return `Good evening, ${match[1]} 🌙`;
+  if (value === 'Kiểm tra độ ẩm đất và che nắng nhẹ cho cây nhé!') return 'Check soil moisture and give your plants gentle shade!';
+  if (value === 'Buổi chiều mát mẻ rất hợp để tưới nước cho vườn!') return 'A cool afternoon is a great time to water your garden!';
+  if (value === 'Cùng nhìn lại tình trạng khu vườn sau một ngày nhé!') return 'Let’s review your garden’s condition after the day!';
   match = value.match(/^Nhập tên cây để tìm trong thư viện (\d+) loại\. Danh sách chỉ hiện kết quả phù hợp\.$/);
   if (match) return `Search the ${match[1]} plant types in the library. Only matching results are shown.`;
   match = value.match(/^Nhập tên cây để tìm trong danh sách (\d+) cây của bạn\.$/);

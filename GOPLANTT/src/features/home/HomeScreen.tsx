@@ -22,6 +22,45 @@ function SectionTitle({ title, trailing }: { title: string; trailing?: string })
   );
 }
 
+function getTimeBasedGreeting(now: Date): {
+  prefix: string;
+  emoji: string;
+  subtitle: string;
+  badgeGlyph: string;
+} {
+  const hour = now.getHours();
+  if (hour >= 5 && hour < 11) {
+    return {
+      prefix: 'Chào buổi sáng',
+      emoji: '🌱',
+      subtitle: 'Hôm nay là thời điểm lý tưởng để chăm vườn nhỏ!',
+      badgeGlyph: '☼',
+    };
+  }
+  if (hour >= 11 && hour < 14) {
+    return {
+      prefix: 'Chào buổi trưa',
+      emoji: '☀️',
+      subtitle: 'Kiểm tra độ ẩm đất và che nắng nhẹ cho cây nhé!',
+      badgeGlyph: '☼',
+    };
+  }
+  if (hour >= 14 && hour < 18) {
+    return {
+      prefix: 'Chào buổi chiều',
+      emoji: '🌤️',
+      subtitle: 'Buổi chiều mát mẻ rất hợp để tưới nước cho vườn!',
+      badgeGlyph: '⛅',
+    };
+  }
+  return {
+    prefix: 'Chào buổi tối',
+    emoji: '🌙',
+    subtitle: 'Cùng nhìn lại tình trạng khu vườn sau một ngày nhé!',
+    badgeGlyph: '☾',
+  };
+}
+
 export default function HomeScreen() {
   const { user, accessToken } = useAuthSession();
   const { catalog, gardens, ownedPlants, isLoading, apiError, filterStates } = usePlantData();
@@ -69,6 +108,12 @@ export default function HomeScreen() {
   const nextTaskMeta = nextTask ? (CARE_TASK_META[nextTask.taskType] ?? CARE_TASK_META.other) : null;
 
   const navigate = (route: string) => router.push(route as never);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  const greetingMeta = getTimeBasedGreeting(now);
   const discoveries = catalog.filter((plant) => {
     const nameAndCategory = `${plant.name} ${plant.category}`.toLocaleLowerCase();
     const categoryMatch = category === 'Tất cả'
@@ -85,10 +130,10 @@ export default function HomeScreen() {
       <ScrollView style={styles.contentScroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.greetingRow}>
           <View style={styles.greetingCopy}>
-            <Text style={styles.greeting}>Chào buổi sáng, {user?.name ?? 'bạn'} 🌱</Text>
-            <Text style={styles.subtitle}>Hôm nay là thời điểm lý tưởng để chăm vườn nhỏ!</Text>
+            <Text style={styles.greeting}>{greetingMeta.prefix}, {user?.name ?? 'bạn'} {greetingMeta.emoji}</Text>
+            <Text style={styles.subtitle}>{greetingMeta.subtitle}</Text>
           </View>
-          <View style={styles.sunBadge}><Text style={styles.sun}>☼</Text></View>
+          <View style={styles.sunBadge}><Text style={styles.sun}>{greetingMeta.badgeGlyph}</Text></View>
         </View>
 
         <View style={styles.weatherCard}>
