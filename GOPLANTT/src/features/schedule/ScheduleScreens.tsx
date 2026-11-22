@@ -126,6 +126,32 @@ function getWeekBounds(weekOffset: number): { monday: Date; dates: Date[] } {
   return { monday, dates };
 }
 
+function getWeekOffsetForIsoDate(targetIso: string): number {
+  const match = targetIso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return 0;
+  const target = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const today = new Date();
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const todayMonday = new Date(todayMidnight);
+  todayMonday.setDate(todayMidnight.getDate() - ((todayMidnight.getDay() + 6) % 7));
+  const targetMonday = new Date(target);
+  targetMonday.setDate(target.getDate() - ((target.getDay() + 6) % 7));
+  return Math.round((targetMonday.getTime() - todayMonday.getTime()) / (7 * 24 * 60 * 60 * 1000));
+}
+
+function formatDateTimeViLocal(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return '—';
+  return parsed.toLocaleString('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 // ─── ScheduleListScreen ───────────────────────────────────────────────────────
 
 export function ScheduleListScreen() {
@@ -143,6 +169,9 @@ export function ScheduleListScreen() {
   const [noteModal, setNoteModal] = useState<{ task: ApiCareTask; action: 'complete' | 'skip' } | null>(null);
   const [noteInput, setNoteInput] = useState('');
   const [journalPromptTask, setJournalPromptTask] = useState<ApiCareTask | null>(null);
+  const [detailTask, setDetailTask] = useState<ApiCareTask | null>(null);
+  const [todayCollapsed, setTodayCollapsed] = useState(false);
+  const [schedulesCollapsed, setSchedulesCollapsed] = useState(false);
 
   const plantGardenMap = useMemo(() => {
     const map = new Map<string, string | null>();
@@ -183,6 +212,8 @@ export function ScheduleListScreen() {
   const pendingToday = todayTasks.filter(
     (t) => t.status === 'pending' && (activeFilter === 'all' || t.taskType === activeFilter) && matchesGarden(t.plantId),
   );
+  const overduePendingTasks = pendingToday.filter((t) => t.overdue);
+  const todayDuePendingTasks = pendingToday.filter((t) => !t.overdue);
   const selectedDayTasks = calendarTasks.filter(
     (t) => t.dueDate === selectedIso && (activeFilter === 'all' || t.taskType === activeFilter) && matchesGarden(t.plantId),
   );
@@ -213,6 +244,54 @@ export function ScheduleListScreen() {
   const openNoteModal = (task: ApiCareTask, action: 'complete' | 'skip') => {
     setNoteInput('');
     setNoteModal({ task, action });
+  };
+
+  const renderPendingTaskCard = (task: ApiCareTask) => {
+    const meta = CARE_TASK_META[task.taskType] ?? CARE_TASK_META.other;
+    const busy = busyTaskId === task.id;
+    const localTime = formatDueTimeLocal(task.dueAt);
+    const dueMs = Date.parse(task.dueAt);
+    const isTimeReached = Number.isFinite(dueMs) && dueMs <= Date.now();
+    return (
+      <View key={task.id} style={[sc.todayTaskCard, task.overdue && sc.todayTaskOverdue]}>
+        <View style={[sc.taskIconBox, { backgroundColor: meta.color }]}>
+          <Text style={sc.taskIconEmoji}>{meta.emoji}</Text>
+        </View>
+        <View style={sc.taskCopy}>
+          <View style={sc.taskTopRow}>
+            <Text style={sc.taskTitle} numberOfLines={1}>{task.title || meta.label}</Text>
+            {task.overdue ? (
+              <View style={sc.overduePill}>
+                <Text style={sc.overduePillText}>Quá hạn ({formatDateVi(task.dueDate)})</Text>
+              </View>
+            ) : isTimeReached ? (
+              <View style={sc.dueNowPill}>
+                <Text style={sc.dueNowPillText}>Đến giờ · {localTime}</Text>
+              </View>
+            ) : (
+              <View style={sc.upcomingPill}>
+                <Text style={sc.upcomingPillText}>Sắp tới · {localTime}</Text>
+              </View>
+            )}
+          </View>
+          <Text style={sc.taskPlant} numberOfLines={1}>🌱 {task.plantName}</Text>
+          <View style={sc.taskActions}>
+            <Pressable
+              disabled={busy}
+              onPress={() => openNoteModal(task, 'complete')}
+              style={[sc.actionDoneBtn, busy && sc.btnDisabled]}>
+              <Text style={sc.actionDoneText}>{busy ? '...' : '✓ Hoàn thành'}</Text>
+            </Pressable>
+            <Pressable
+              disabled={busy}
+              onPress={() => openNoteModal(task, 'skip')}
+              style={[sc.actionSkipBtn, busy && sc.btnDisabled]}>
+              <Text style={sc.actionSkipText}>Bỏ qua</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    );
   };
 
   return (
@@ -276,61 +355,46 @@ export function ScheduleListScreen() {
 
         {error ? <Text style={sc.errorText}>{error}</Text> : null}
 
-        {/* ── Việc cần làm hôm nay ── */}
-        {pendingToday.length > 0 ? (
+        {/* ── Thông báo tổng hợp công việc quá hạn → chuyển sang Lịch tuần tổng hợp ── */}
+        {overduePendingTasks.length > 0 ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Xem các công việc quá hạn trong Lịch tuần tổng hợp"
+            onPress={() => {
+              const targetTask = overduePendingTasks[overduePendingTasks.length - 1] ?? overduePendingTasks[0];
+              if (targetTask?.dueDate) {
+                setWeekOffset(getWeekOffsetForIsoDate(targetTask.dueDate));
+                setSelectedIso(targetTask.dueDate);
+              }
+              setViewMode('calendar');
+            }}
+            style={sc.overdueBanner}>
+            <Text style={sc.overdueBannerIcon}>⚠️</Text>
+            <View style={sc.overdueBannerBody}>
+              <Text style={sc.overdueBannerTitle}>
+                Có {overduePendingTasks.length} công việc quá hạn từ những ngày trước
+              </Text>
+              <Text style={sc.overdueBannerSub}>
+                Bấm để kiểm tra và xử lý trong Lịch tuần tổng hợp ›
+              </Text>
+            </View>
+          </Pressable>
+        ) : null}
+
+        {/* ── Việc cần làm hôm nay / Sắp tới (tách riêng, có nút thu gọn) ── */}
+        {todayDuePendingTasks.length > 0 ? (
           <View style={sc.todayBlock}>
             <View style={sc.sectionHeader}>
-              <Text style={sc.sectionTitle}>Cần chăm sóc hôm nay</Text>
-              <Text style={sc.sectionHint}>{pendingToday.length} việc chờ</Text>
+              <Text style={sc.sectionTitle}>
+                Cần chăm sóc hôm nay ({todayDuePendingTasks.length})
+              </Text>
+              <Pressable onPress={() => setTodayCollapsed((v) => !v)} style={sc.collapseBtn}>
+                <Text style={sc.collapseBtnText}>
+                  {todayCollapsed ? 'Mở rộng ▾' : 'Thu gọn ▴'}
+                </Text>
+              </Pressable>
             </View>
-            {pendingToday.map((task) => {
-              const meta = CARE_TASK_META[task.taskType] ?? CARE_TASK_META.other;
-              const busy = busyTaskId === task.id;
-              const localTime = formatDueTimeLocal(task.dueAt);
-              const dueMs = Date.parse(task.dueAt);
-              const isTimeReached = Number.isFinite(dueMs) && dueMs <= Date.now();
-              return (
-                <View key={task.id} style={[sc.todayTaskCard, task.overdue && sc.todayTaskOverdue]}>
-                  <View style={[sc.taskIconBox, { backgroundColor: meta.color }]}>
-                    <Text style={sc.taskIconEmoji}>{meta.emoji}</Text>
-                  </View>
-                  <View style={sc.taskCopy}>
-                    <View style={sc.taskTopRow}>
-                      <Text style={sc.taskTitle} numberOfLines={1}>{task.title || meta.label}</Text>
-                      {task.overdue ? (
-                        <View style={sc.overduePill}>
-                          <Text style={sc.overduePillText}>Quá hạn ({formatDateVi(task.dueDate)})</Text>
-                        </View>
-                      ) : isTimeReached ? (
-                        <View style={sc.dueNowPill}>
-                          <Text style={sc.dueNowPillText}>Đến giờ · {localTime}</Text>
-                        </View>
-                      ) : (
-                        <View style={sc.upcomingPill}>
-                          <Text style={sc.upcomingPillText}>Sắp tới · {localTime}</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={sc.taskPlant} numberOfLines={1}>🌱 {task.plantName}</Text>
-                    <View style={sc.taskActions}>
-                      <Pressable
-                        disabled={busy}
-                        onPress={() => void executeTaskAction(task, 'complete')}
-                        onLongPress={() => openNoteModal(task, 'complete')}
-                        style={[sc.actionDoneBtn, busy && sc.btnDisabled]}>
-                        <Text style={sc.actionDoneText}>{busy ? '...' : '✓ Hoàn thành'}</Text>
-                      </Pressable>
-                      <Pressable
-                        disabled={busy}
-                        onPress={() => openNoteModal(task, 'skip')}
-                        style={[sc.actionSkipBtn, busy && sc.btnDisabled]}>
-                        <Text style={sc.actionSkipText}>Bỏ qua</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                </View>
-              );
-            })}
+            {!todayCollapsed ? todayDuePendingTasks.map(renderPendingTaskCard) : null}
           </View>
         ) : null}
 
@@ -407,6 +471,14 @@ export function ScheduleListScreen() {
                 const hasTask = calendarTasks.some(
                   (t) => t.dueDate === iso && (activeFilter === 'all' || t.taskType === activeFilter) && matchesGarden(t.plantId),
                 );
+                const hasOverdueTask = calendarTasks.some(
+                  (t) =>
+                    t.dueDate === iso &&
+                    t.status === 'pending' &&
+                    (t.overdue || t.dueDate < todayIso) &&
+                    (activeFilter === 'all' || t.taskType === activeFilter) &&
+                    matchesGarden(t.plantId),
+                );
                 return (
                   <Pressable
                     key={iso}
@@ -415,8 +487,9 @@ export function ScheduleListScreen() {
                     <Text style={[sc.dayLabel, active && sc.dayLabelActive]}>{WEEK_DAYS[i]}</Text>
                     <Text style={[sc.dayDate, active && sc.dayDateActive]}>{d.getDate()}</Text>
                     <View style={sc.dayDotRow}>
-                      {isToday ? <View style={[sc.todayDot, active && sc.todayDotActive]} /> : null}
-                      {hasTask && !isToday ? <View style={[sc.taskDot, active && sc.todayDotActive]} /> : null}
+                      {hasOverdueTask ? <View style={[sc.overdueDot, active && sc.todayDotActive]} /> : null}
+                      {isToday && !hasOverdueTask ? <View style={[sc.todayDot, active && sc.todayDotActive]} /> : null}
+                      {hasTask && !isToday && !hasOverdueTask ? <View style={[sc.taskDot, active && sc.todayDotActive]} /> : null}
                     </View>
                   </Pressable>
                 );
@@ -438,34 +511,42 @@ export function ScheduleListScreen() {
               selectedDayTasks.map((task) => {
                 const meta = CARE_TASK_META[task.taskType] ?? CARE_TASK_META.other;
                 const busy = busyTaskId === task.id;
+                const isOverdueItem = task.status === 'pending' && (task.overdue || task.dueDate < todayIso);
                 return (
-                  <View key={task.id} style={[sc.timelineCard, task.overdue && sc.timelineCardUrgent]}>
+                  <Pressable
+                    key={task.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Xem chi tiết công việc ${task.title || meta.label}`}
+                    onPress={() => setDetailTask(task)}
+                    style={[sc.timelineCard, isOverdueItem && sc.timelineCardUrgent]}>
                     <View style={sc.timelineTop}>
                       <Text style={sc.timelineTime}>{meta.emoji} {formatDueTimeLocal(task.dueAt)}</Text>
-                      <Text style={sc.sectionHint}>
-                        {task.status === 'completed' ? '✓ Đã xong' : task.status === 'skipped' ? 'Đã bỏ qua' : task.overdue ? 'Quá hạn' : 'Chờ làm'}
+                      <Text style={[sc.sectionHint, isOverdueItem && { color: '#C53030', fontFamily: F.semiBold }]}>
+                        {task.status === 'completed' ? '✓ Đã xong' : task.status === 'skipped' ? 'Đã bỏ qua' : isOverdueItem ? 'Quá hạn' : 'Chờ làm'}
                       </Text>
                     </View>
                     <Text style={sc.timelineTitle}>{task.title || meta.label} · {task.plantName}</Text>
-                    {task.note ? <Text style={sc.timelineDesc}>{task.note}</Text> : null}
-                    {task.status === 'pending' ? (
-                      <View style={sc.taskActions}>
-                        <Pressable
-                          disabled={busy}
-                          onPress={() => void executeTaskAction(task, 'complete')}
-                          onLongPress={() => openNoteModal(task, 'complete')}
-                          style={[sc.actionDoneBtn, busy && sc.btnDisabled]}>
-                          <Text style={sc.actionDoneText}>{busy ? '...' : '✓ Hoàn thành'}</Text>
-                        </Pressable>
-                        <Pressable
-                          disabled={busy}
-                          onPress={() => openNoteModal(task, 'skip')}
-                          style={[sc.actionSkipBtn, busy && sc.btnDisabled]}>
-                          <Text style={sc.actionSkipText}>Bỏ qua</Text>
-                        </Pressable>
-                      </View>
-                    ) : null}
-                  </View>
+                    {task.note ? <Text style={sc.timelineDesc} numberOfLines={2}>📝 {task.note}</Text> : null}
+                    <View style={sc.timelineFootRow}>
+                      {task.status === 'pending' ? (
+                        <View style={sc.taskActions}>
+                          <Pressable
+                            disabled={busy}
+                            onPress={() => openNoteModal(task, 'complete')}
+                            style={[sc.actionDoneBtn, busy && sc.btnDisabled]}>
+                            <Text style={sc.actionDoneText}>{busy ? '...' : '✓ Hoàn thành'}</Text>
+                          </Pressable>
+                          <Pressable
+                            disabled={busy}
+                            onPress={() => openNoteModal(task, 'skip')}
+                            style={[sc.actionSkipBtn, busy && sc.btnDisabled]}>
+                            <Text style={sc.actionSkipText}>Bỏ qua</Text>
+                          </Pressable>
+                        </View>
+                      ) : <View />}
+                      <Text style={sc.timelineHintLink}>Chi tiết ›</Text>
+                    </View>
+                  </Pressable>
                 );
               })
             )}
@@ -474,11 +555,16 @@ export function ScheduleListScreen() {
           <>
             {/* ── Danh sách lịch ── */}
         <View style={sc.sectionHeader}>
-          <Text style={sc.sectionTitle}>Lịch định kỳ của bạn</Text>
-          <Text style={sc.sectionHint}>{filteredSchedules.length} lịch</Text>
+          <Text style={sc.sectionTitle}>Lịch định kỳ của bạn ({filteredSchedules.length})</Text>
+          <Pressable onPress={() => setSchedulesCollapsed((v) => !v)} style={sc.collapseBtn}>
+            <Text style={sc.collapseBtnText}>
+              {schedulesCollapsed ? 'Mở rộng ▾' : 'Thu gọn ▴'}
+            </Text>
+          </Pressable>
         </View>
 
-        {isLoading && schedules.length === 0 ? (
+        {!schedulesCollapsed ? (
+          isLoading && schedules.length === 0 ? (
           <View style={sc.loadingWrap}>
             <ActivityIndicator color={C.primary} />
             <Text style={sc.hintText}>Đang tải lịch chăm sóc...</Text>
@@ -529,7 +615,8 @@ export function ScheduleListScreen() {
               </Pressable>
             );
           })
-        )}
+        )
+        ) : null}
           </>
         )}
 
@@ -607,6 +694,100 @@ export function ScheduleListScreen() {
                 <Text style={sc.actionDoneText}>Ghi nhận vào nhật ký</Text>
               </Pressable>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal chi tiết công việc trong Lịch tuần tổng hợp */}
+      <Modal visible={Boolean(detailTask)} transparent animationType="fade" onRequestClose={() => setDetailTask(null)}>
+        <View style={sc.modalBackdrop}>
+          <View style={sc.modalCard}>
+            {detailTask ? (() => {
+              const meta = CARE_TASK_META[detailTask.taskType] ?? CARE_TASK_META.other;
+              const isOverdueItem = detailTask.status === 'pending' && (detailTask.overdue || detailTask.dueDate < todayIso);
+              const statusLabel =
+                detailTask.status === 'completed'
+                  ? '✓ Đã hoàn thành'
+                  : detailTask.status === 'skipped'
+                    ? 'Đã bỏ qua'
+                    : isOverdueItem
+                      ? 'Quá hạn'
+                      : 'Chờ thực hiện';
+              return (
+                <>
+                  <Text style={sc.sectionTitle}>
+                    {meta.emoji} {detailTask.title || meta.label}
+                  </Text>
+                  <Text style={sc.taskPlant}>🌱 {detailTask.plantName}</Text>
+                  <View style={sc.detailMetaBox}>
+                    <View style={sc.detailMetaRow}>
+                      <Text style={sc.detailMetaLabel}>Ngày dự kiến</Text>
+                      <Text style={sc.detailMetaVal}>
+                        {formatDateVi(detailTask.dueDate)} · {formatDueTimeLocal(detailTask.dueAt)}
+                      </Text>
+                    </View>
+                    <View style={sc.detailMetaRow}>
+                      <Text style={sc.detailMetaLabel}>Trạng thái</Text>
+                      <Text style={[sc.detailMetaVal, isOverdueItem && { color: '#C53030' }]}>{statusLabel}</Text>
+                    </View>
+                    {detailTask.status === 'completed' && detailTask.completedAt ? (
+                      <View style={sc.detailMetaRow}>
+                        <Text style={sc.detailMetaLabel}>Hoàn thành lúc</Text>
+                        <Text style={sc.detailMetaVal}>{formatDateTimeViLocal(detailTask.completedAt)}</Text>
+                      </View>
+                    ) : null}
+                    {detailTask.status === 'skipped' && detailTask.skippedAt ? (
+                      <View style={sc.detailMetaRow}>
+                        <Text style={sc.detailMetaLabel}>Bỏ qua lúc</Text>
+                        <Text style={sc.detailMetaVal}>{formatDateTimeViLocal(detailTask.skippedAt)}</Text>
+                      </View>
+                    ) : null}
+                    <View style={sc.detailNoteBlock}>
+                      <Text style={sc.detailMetaLabel}>Ghi chú thực hiện</Text>
+                      <Text style={sc.detailNoteVal}>
+                        {detailTask.note ? detailTask.note : 'Chưa có ghi chú.'}
+                      </Text>
+                    </View>
+                  </View>
+                  {detailTask.status === 'pending' ? (
+                    <View style={sc.taskActions}>
+                      <Pressable
+                        onPress={() => {
+                          const target = detailTask;
+                          setDetailTask(null);
+                          openNoteModal(target, 'complete');
+                        }}
+                        style={sc.actionDoneBtn}>
+                        <Text style={sc.actionDoneText}>✓ Hoàn thành</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          const target = detailTask;
+                          setDetailTask(null);
+                          openNoteModal(target, 'skip');
+                        }}
+                        style={sc.actionSkipBtn}>
+                        <Text style={sc.actionSkipText}>Bỏ qua</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
+                  <View style={sc.taskActions}>
+                    <Pressable
+                      onPress={() => {
+                        const scheduleId = detailTask.scheduleId;
+                        setDetailTask(null);
+                        router.push({ pathname: '/schedule/detail', params: { scheduleId } } as never);
+                      }}
+                      style={sc.actionSkipBtn}>
+                      <Text style={sc.actionSkipText}>Xem lịch định kỳ ›</Text>
+                    </Pressable>
+                    <Pressable onPress={() => setDetailTask(null)} style={sc.actionDoneBtn}>
+                      <Text style={sc.actionDoneText}>Đóng</Text>
+                    </Pressable>
+                  </View>
+                </>
+              );
+            })() : null}
           </View>
         </View>
       </Modal>
@@ -1296,6 +1477,20 @@ const sc = StyleSheet.create({
   refreshText: { color: C.primary, fontFamily: F.semiBold, fontSize: 11 },
 
   todayBlock: { gap: 8 },
+  overdueBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 13, borderRadius: 14, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' },
+  overdueBannerIcon: { fontSize: 20 },
+  overdueBannerBody: { flex: 1, gap: 2 },
+  overdueBannerTitle: { color: '#991B1B', fontFamily: F.semiBold, fontSize: 13 },
+  overdueBannerSub: { color: '#B91C1C', fontFamily: F.regular, fontSize: 11 },
+  overdueDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#E53E3E' },
+  timelineFootRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
+  timelineHintLink: { color: C.primary, fontFamily: F.semiBold, fontSize: 11 },
+  detailMetaBox: { padding: 12, borderRadius: 12, backgroundColor: C.softSurface, gap: 8 },
+  detailMetaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  detailMetaLabel: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12 },
+  detailMetaVal: { color: C.text, fontFamily: F.semiBold, fontSize: 12 },
+  detailNoteBlock: { gap: 4, paddingTop: 4, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#D6E4DA' },
+  detailNoteVal: { color: C.text, fontFamily: F.regular, fontSize: 13, lineHeight: 19 },
   todayTaskCard: { flexDirection: 'row', padding: 12, borderRadius: 14, backgroundColor: C.surface, gap: 10, borderLeftWidth: 3, borderLeftColor: C.primary },
   todayTaskOverdue: { borderLeftColor: '#E53E3E', backgroundColor: '#FFF9F9' },
   taskIconBox: { width: 42, height: 42, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
@@ -1323,6 +1518,8 @@ const sc = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
   sectionTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14, lineHeight: 20 },
   sectionHint: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11 },
+  collapseBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99, backgroundColor: C.softSurface },
+  collapseBtnText: { color: C.forest, fontFamily: F.semiBold, fontSize: 11 },
 
   scheduleCard: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 14, backgroundColor: C.surface, gap: 10, shadowColor: '#000', shadowOpacity: 0.04, shadowOffset: { width: 0, height: 1 }, shadowRadius: 2, elevation: 1 },
   scheduleCardIcon: { width: 48, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
