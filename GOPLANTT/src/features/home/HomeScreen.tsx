@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
 import { router } from 'expo-router';
 
@@ -22,6 +22,17 @@ function SectionTitle({ title, trailing }: { title: string; trailing?: string })
   );
 }
 
+function getWeatherEmoji(conditionMain?: string | null): string {
+  const main = conditionMain?.toLocaleLowerCase() ?? '';
+  if (main.includes('thunder')) return '⛈️';
+  if (main.includes('rain') || main.includes('drizzle')) return '🌧️';
+  if (main.includes('snow')) return '❄️';
+  if (main.includes('mist') || main.includes('fog') || main.includes('haze') || main.includes('smoke')) return '🌫️';
+  if (main.includes('cloud')) return '⛅';
+  if (main.includes('clear')) return '☀️';
+  return '🌤️';
+}
+
 function getTimeBasedGreeting(now: Date): {
   prefix: string;
   emoji: string;
@@ -34,7 +45,7 @@ function getTimeBasedGreeting(now: Date): {
       prefix: 'Chào buổi sáng',
       emoji: '🌱',
       subtitle: 'Hôm nay là thời điểm lý tưởng để chăm vườn nhỏ!',
-      badgeGlyph: '☼',
+      badgeGlyph: '☀️',
     };
   }
   if (hour >= 11 && hour < 14) {
@@ -42,7 +53,7 @@ function getTimeBasedGreeting(now: Date): {
       prefix: 'Chào buổi trưa',
       emoji: '☀️',
       subtitle: 'Kiểm tra độ ẩm đất và che nắng nhẹ cho cây nhé!',
-      badgeGlyph: '☼',
+      badgeGlyph: '🌞',
     };
   }
   if (hour >= 14 && hour < 18) {
@@ -50,20 +61,20 @@ function getTimeBasedGreeting(now: Date): {
       prefix: 'Chào buổi chiều',
       emoji: '🌤️',
       subtitle: 'Buổi chiều mát mẻ rất hợp để tưới nước cho vườn!',
-      badgeGlyph: '⛅',
+      badgeGlyph: '🌤️',
     };
   }
   return {
     prefix: 'Chào buổi tối',
     emoji: '🌙',
     subtitle: 'Cùng nhìn lại tình trạng khu vườn sau một ngày nhé!',
-    badgeGlyph: '☾',
+    badgeGlyph: '🌙',
   };
 }
 
 export default function HomeScreen() {
   const { user, accessToken } = useAuthSession();
-  const { catalog, gardens, ownedPlants, isLoading, apiError, filterStates } = usePlantData();
+  const { catalog, gardens, ownedPlants, favorites, isLoading, apiError, filterStates } = usePlantData();
   const { schedules, todayTasks, todaySummary, completeTask } = useCareSchedules();
   const [category, setCategory] = useState(categories[0]);
   const [query, setQuery] = useState('');
@@ -114,7 +125,9 @@ export default function HomeScreen() {
     return () => clearInterval(timer);
   }, []);
   const greetingMeta = getTimeBasedGreeting(now);
+  const ownedCatalogIds = useMemo(() => new Set(ownedPlants.map((plant) => plant.catalogId)), [ownedPlants]);
   const discoveries = catalog.filter((plant) => {
+    if (ownedCatalogIds.has(plant.id)) return false;
     const nameAndCategory = `${plant.name} ${plant.category}`.toLocaleLowerCase();
     const categoryMatch = category === 'Tất cả'
       || category === 'Cây ăn quả' && /ăn quả|trái cây/.test(nameAndCategory)
@@ -124,6 +137,20 @@ export default function HomeScreen() {
       || category === 'Cây gia vị' && /gia vị/.test(nameAndCategory);
     return categoryMatch && matchesPlantFilters(plant, filterStates.home ?? {});
   });
+  const featuredPlants = useMemo(() => {
+    const shuffle = <T,>(items: T[]) => {
+      const copy = [...items];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    };
+    const unfavorited = shuffle(discoveries.filter((plant) => !favorites.includes(plant.id)));
+    const favorited = shuffle(discoveries.filter((plant) => favorites.includes(plant.id)));
+    return [...unfavorited, ...favorited].slice(0, 2);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalog, ownedCatalogIds, favorites, category, filterStates.home]);
 
   return (
     <TabScreenTransition>
@@ -149,7 +176,7 @@ export default function HomeScreen() {
               }
             }}
             style={styles.weatherMain}>
-            <View style={[styles.roundIcon, { backgroundColor: '#E1F3E8' }]}><Text>☼</Text></View>
+            <View style={[styles.roundIcon, { backgroundColor: '#E1F3E8' }]}><Text style={styles.weatherEmoji}>{getWeatherEmoji(weather?.conditionMain)}</Text></View>
             <View style={styles.flexCopy}>
               <Text style={styles.cardTitle} numberOfLines={1}>
                 {weatherGarden ? `Thời tiết · ${weatherGarden.name}` : 'Thông tin thời tiết'}
@@ -159,7 +186,7 @@ export default function HomeScreen() {
                   ? weatherLoading && !weather
                     ? 'Đang cập nhật thời tiết...'
                     : weather && weather.temperatureC != null
-                      ? `${weather.conditionDescription || weather.conditionMain || 'Ngoài trời'}${weather.humidityPct != null ? ` · Độ ẩm ${weather.humidityPct}%` : ''}${weather.plantAlerts.length > 0 ? ` · ⚠ ${weather.plantAlerts.length} cây cần chú ý` : ''}`
+                      ? `${weather.conditionDescription || weather.conditionMain || 'Ngoài trời'}${weather.humidityPct != null ? ` · 💧 ${weather.humidityPct}%` : ''}${weather.plantAlerts.length > 0 ? ` · ⚠️ ${weather.plantAlerts.length} cây cần chú ý` : ''}`
                       : 'Chưa lấy được dữ liệu thời tiết.'
                   : gardens.length > 0
                     ? 'Chưa thiết lập vị trí cho khu vườn.'
@@ -242,7 +269,7 @@ export default function HomeScreen() {
           style={styles.scheduleBanner}>
           <View style={styles.scheduleBannerLeft}>
             <View style={styles.scheduleBannerIcon}>
-              <Text style={styles.scheduleBannerIconGlyph}>◷</Text>
+              <Text style={styles.scheduleBannerIconGlyph}>📅</Text>
             </View>
             <View style={styles.scheduleBannerCopy}>
               <Text style={styles.scheduleBannerTitle}>Lập lịch chăm sóc cây trồng</Text>
@@ -293,10 +320,10 @@ export default function HomeScreen() {
 
         <View style={styles.shortcuts}>
           {[
-            ['♧', 'Quản lý cây', '#E8EFEB', '/plants'],
-            ['▦', 'Quản lý vườn', C.brightMint, '/gardens'],
-            ['▤', 'Nhật ký', C.peach, '/journal'],
-            ['♧', 'Sâu bệnh', '#FAD8D3', '/monitoring'],
+            ['🪴', 'Quản lý cây', '#E8EFEB', '/plants'],
+            ['🏡', 'Quản lý vườn', C.brightMint, '/gardens'],
+            ['📝', 'Nhật ký', C.peach, '/journal'],
+            ['🐞', 'Sâu bệnh', '#FAD8D3', '/monitoring'],
           ].map(([icon, label, color, route]) => (
             <Pressable key={label} onPress={() => navigate(route)} style={styles.shortcut}>
               <View style={[styles.shortcutIcon, { backgroundColor: color }]}><Text style={styles.shortcutGlyph}>{icon}</Text></View>
@@ -304,6 +331,29 @@ export default function HomeScreen() {
             </Pressable>
           ))}
         </View>
+
+        <View style={styles.exploreTitleRow}>
+          <Text style={styles.sectionTitle}>Các cây nổi bật</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Khám phá ngay" onPress={() => router.push({ pathname: '/search', params: { query: '' } } as never)} style={styles.exploreAll}>
+            <Text style={styles.featuredCta}>Khám phá ngay</Text>
+            <Text style={styles.exploreArrow}>›</Text>
+          </Pressable>
+        </View>
+        {featuredPlants.map((plant) => {
+          const shortInfo = plant.overview || plant.morphology || (plant.light && plant.water ? `Ánh sáng: ${plant.light} • Tưới: ${plant.water}` : plant.scientificName);
+          return (
+            <Pressable key={plant.id} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name } } as never)} style={styles.suggestionCard}>
+              <PlantArtwork category={plant.category} style={styles.suggestionPlantArtwork} />
+              <View style={styles.flexCopy}>
+                <View style={styles.featuredHeaderRow}>
+                  <Text style={styles.cardTitle} numberOfLines={1}>{plant.name}</Text>
+                  <Text style={styles.featuredCategory}>{plant.category}</Text>
+                </View>
+                <Text style={styles.bodyText} numberOfLines={2}>{shortInfo}</Text>
+              </View>
+            </Pressable>
+          );
+        })}
 
         <SectionTitle title="Vườn của bạn" trailing={`${gardens.length} khu vực`} />
         {gardens.map((garden) => <Pressable key={garden.id} onPress={() => router.push({ pathname: '/garden-detail', params: { gardenId: garden.id } } as never)} style={styles.suggestionCard}><Text style={styles.plantEmoji}>⌂</Text><View style={styles.flexCopy}><Text style={styles.cardTitle}>{garden.name}</Text><Text style={styles.bodyText}>{garden.locationDetail || garden.locationType}</Text></View></Pressable>)}
@@ -323,8 +373,6 @@ export default function HomeScreen() {
         </View> : null}
         {apiError ? <Text style={styles.bodyText}>{apiError}</Text> : null}
         {isLoading ? <Text style={styles.bodyText}>Đang tải dữ liệu…</Text> : null}
-        <View style={styles.exploreTitleRow}><Text style={styles.sectionTitle}>Khám phá cây</Text><Pressable accessibilityRole="button" accessibilityLabel="Xem tất cả các loại cây" onPress={() => router.push({ pathname: '/search', params: { query: '' } } as never)} style={styles.exploreAll}><Text style={styles.sectionTrailing}>{catalog.length} cây</Text><Text style={styles.exploreArrow}>›</Text></Pressable></View>
-        {discoveries.slice(0, 4).map((plant) => <Pressable key={plant.id} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name } } as never)} style={styles.suggestionCard}><PlantArtwork category={plant.category} style={styles.suggestionPlantArtwork}/><View style={styles.flexCopy}><Text style={styles.cardTitle}>{plant.name}</Text><Text style={styles.bodyText}>{plant.scientificName} • {plant.category}</Text></View></Pressable>)}
       </ScrollView>
     </TabScreenTransition>
   );
@@ -343,6 +391,7 @@ const styles = StyleSheet.create({
   weatherMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   taskMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
   roundIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  weatherEmoji: { fontSize: 19, lineHeight: 23 },
   flexCopy: { flex: 1, gap: 2 },
   cardTitle: { color: C.text, fontFamily: F.semiBold, fontSize: 14, lineHeight: 19 },
   secondary: { color: C.secondaryText, fontFamily: F.regular },
@@ -425,4 +474,7 @@ const styles = StyleSheet.create({
   myScheduleBannerIconGlyph: { color: C.forest, fontFamily: F.bold, fontSize: 20, lineHeight: 24 },
   myScheduleBannerCta: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: C.softSurface, borderWidth: 1, borderColor: '#CBE3D3', marginLeft: 8 },
   myScheduleBannerCtaText: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 },
+  featuredCta: { color: C.primary, fontFamily: F.semiBold, fontSize: 12 },
+  featuredHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
+  featuredCategory: { overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 99, backgroundColor: '#E1F3E8', color: C.forest, fontFamily: F.semiBold, fontSize: 10 },
 });

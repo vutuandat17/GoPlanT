@@ -17,6 +17,17 @@ import { usePlantData, type OwnedPlant } from '@/features/plants/PlantDataStore'
 import { CARE_TASK_META, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 import { ApiError, apiBaseUrl, fetchGardenWeather, fetchWeatherProvinces, getGardenPhotoUri, type ApiGardenWeather, type ApiProvince } from '@/services/api';
 
+function getWeatherEmoji(conditionMain?: string | null): string {
+  const main = conditionMain?.toLocaleLowerCase() ?? '';
+  if (main.includes('thunder')) return '⛈️';
+  if (main.includes('rain') || main.includes('drizzle')) return '🌧️';
+  if (main.includes('snow')) return '❄️';
+  if (main.includes('mist') || main.includes('fog') || main.includes('haze') || main.includes('smoke')) return '🌫️';
+  if (main.includes('cloud')) return '⛅';
+  if (main.includes('clear')) return '☀️';
+  return '🌤️';
+}
+
 function GardenHeader({ title }: { title: string }) {
   return <View style={g.header}><Pressable onPress={() => safeBack('/gardens')} style={g.back}><Text style={g.backText}>‹</Text></Pressable><Text style={g.headerTitle}>{title}</Text><AccountButton size={29} /></View>;
 }
@@ -235,6 +246,7 @@ export function GardenDetailScreen() {
         ) : weather && weather.temperatureC != null ? (
           <>
             <View style={g.weatherTop}>
+              <Text style={g.weatherIcon}>{getWeatherEmoji(weather.conditionMain)}</Text>
               <Text style={g.weatherTemp}>{Math.round(weather.temperatureC)}°C</Text>
               <View style={g.plantCopy}>
                 <Text style={g.plantName}>{weather.conditionDescription || weather.conditionMain || 'Thời tiết hiện tại'}</Text>
@@ -245,15 +257,15 @@ export function GardenDetailScreen() {
               </View>
             </View>
             <View style={g.metrics}>
-              <View style={g.metric}><Text style={g.metricValue}>{weather.humidityPct != null ? `${weather.humidityPct}%` : '—'}</Text><Text style={g.body}>Độ ẩm</Text></View>
-              <View style={g.metric}><Text style={g.metricValue}>{weather.windSpeedMs != null ? `${weather.windSpeedMs} m/s` : '—'}</Text><Text style={g.body}>Gió</Text></View>
-              <View style={g.metric}><Text style={g.metricValue}>{weather.cloudsPct != null ? `${weather.cloudsPct}%` : '—'}</Text><Text style={g.body}>Mây che</Text></View>
+              <View style={g.metric}><Text style={g.metricValue}>{weather.humidityPct != null ? `${weather.humidityPct}%` : '—'}</Text><Text style={g.body}>💧 Độ ẩm</Text></View>
+              <View style={g.metric}><Text style={g.metricValue}>{weather.windSpeedMs != null ? `${weather.windSpeedMs} m/s` : '—'}</Text><Text style={g.body}>💨 Gió</Text></View>
+              <View style={g.metric}><Text style={g.metricValue}>{weather.cloudsPct != null ? `${weather.cloudsPct}%` : '—'}</Text><Text style={g.body}>☁️ Mây che</Text></View>
             </View>
             {!weather.outdoor ? <Text style={g.note}>Đây là nhiệt độ ngoài trời tham khảo; khu vườn trong nhà/nhà kính có thể chênh lệch.</Text> : null}
             {weather.stale ? <Text style={g.note}>Đang hiển thị dữ liệu lưu gần nhất do chưa làm mới được từ OpenWeatherMap.</Text> : null}
             {weather.plantAlerts.length > 0 ? (
               <View style={g.alertBox}>
-                <Text style={g.alertTitle}>Cảnh báo ngưỡng nhiệt độ ({weather.plantAlerts.length} cây)</Text>
+                <Text style={g.alertTitle}>⚠️ Cảnh báo ngưỡng nhiệt độ ({weather.plantAlerts.length} cây)</Text>
                 {weather.plantAlerts.map((alert) => (
                   <Text key={alert.plantId} style={g.alertText}>
                     • {alert.displayName}: {alert.level === 'too_hot' ? 'Đang nóng hơn' : 'Đang lạnh hơn'} ngưỡng khuyến nghị ({alert.temperatureRange})
@@ -567,6 +579,7 @@ const g = StyleSheet.create({
   content: { padding: 13, gap: 9, paddingBottom: 24 }, hero: { height: 180, borderRadius: 15, backgroundColor: '#DCEDE0', alignItems: 'center', justifyContent: 'center' }, heroPlant: { color: '#508664', fontSize: 64 }, heroLabel: { color: C.forest, fontFamily: F.bold, fontSize: 10, letterSpacing: 1 }, title: { color: C.forest, fontFamily: F.bold, fontSize: 19 }, body: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11, lineHeight: 17 }, metrics: { flexDirection: 'row', gap: 7 }, metric: { flex: 1, padding: 9, borderRadius: 11, backgroundColor: C.surface }, metricValue: { color: C.forest, fontFamily: F.bold, fontSize: 15 }, card: { padding: 11, borderRadius: 14, backgroundColor: C.surface, gap: 8 }, sectionTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 }, row: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'space-between' }, link: { color: C.primary, fontFamily: F.semiBold, fontSize: 11 }, icon: { color: C.forest, fontSize: 16 }, time: { color: C.primary, fontFamily: F.semiBold, fontSize: 10 }, plantCard: { minHeight: 66, padding: 8, borderRadius: 12, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 9 }, selectedPlant: { borderWidth: 1, borderColor: C.primary, backgroundColor: '#E5F4E9' }, plantImage: { width: 46, height: 46, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: C.softSurface }, plantEmoji: { fontSize: 22 }, plantCopy: { flex: 1 }, plantName: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 }, action: { minHeight: 44, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, actionText: { color: C.surface, fontFamily: F.semiBold, fontSize: 12 }, actionSecondary: { backgroundColor: C.softSurface }, actionTextSecondary: { color: C.forest }, note: { color: C.mutedText, fontFamily: F.regular, fontSize: 9, textAlign: 'center' },
   tip: { padding: 12, borderRadius: 12, backgroundColor: C.softSurface, gap: 4 }, label: { color: C.text, fontFamily: F.semiBold, fontSize: 12, marginTop: 4 }, required: { color: C.terracotta }, input: { minHeight: 44, paddingHorizontal: 12, borderRadius: 9, backgroundColor: C.surface, color: C.text, fontFamily: F.regular, fontSize: 12 }, inputError: { borderWidth: 1, borderColor: '#C62828' }, multiline: { height: 80, textAlignVertical: 'top', paddingTop: 10 }, choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, choice: { paddingHorizontal: 10, paddingVertical: 9, borderRadius: 9, backgroundColor: C.surface }, choiceActive: { borderWidth: 1, borderColor: C.primary, backgroundColor: '#E0F2E6' }, heroSmall: { height: 100, borderRadius: 12, backgroundColor: '#E0EEE3', alignItems: 'center', justifyContent: 'center' }, error: { color: '#B42318', fontFamily: F.regular, fontSize: 11 },
   weatherTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  weatherIcon: { fontSize: 30, lineHeight: 36 },
   weatherTemp: { color: C.forest, fontFamily: F.bold, fontSize: 28 },
   alertBox: { padding: 10, borderRadius: 10, backgroundColor: C.peach, gap: 4 },
   alertTitle: { color: C.terracotta, fontFamily: F.bold, fontSize: 11 },

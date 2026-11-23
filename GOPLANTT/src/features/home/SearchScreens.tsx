@@ -16,6 +16,8 @@ import { getLatestHealthLabel, matchesPlantFilters, toOwnedFilterPlant, type Fil
 type SearchResultItem = FilterPlant & {
   owned: boolean;
   ownedId?: string;
+  catalogId?: string;
+  gardenName?: string;
   latin: string;
   detail: string;
   photoUri?: string | null;
@@ -31,15 +33,15 @@ function SearchHeader({ query, onQueryChange, onFilter }: { query: string; onQue
 
 function SearchResult({ item, accessToken, onAdd, onFavorite }: { item: SearchResultItem; accessToken: string | null; onAdd: () => void; onFavorite: () => void }) {
   return <View style={ss.resultCard}>
-    <View style={ss.resultTop}><PlantArtwork category={item.category} photoUri={item.photoUri} accessToken={accessToken} style={ss.resultImage}/><View style={ss.resultCopy}><Text style={ss.resultName}>{item.name}</Text><Text style={ss.latin}>{item.latin}</Text><Text style={ss.body}>{item.owned ? `⌖ ${item.location}` : `${item.category} • Thư viện mẫu`}</Text></View><Pressable accessibilityRole="button" accessibilityLabel={item.isFavorite ? 'Bỏ yêu thích' : 'Yêu thích'} onPress={onFavorite}><Text style={ss.favorite}>{item.isFavorite ? '♥' : '♡'}</Text></Pressable></View>
-    <Text style={ss.statusLine}>{item.owned ? 'Tình trạng: Chưa đánh giá • Không có lịch chăm sóc' : 'Một số thông tin sinh trưởng chưa có dữ liệu trong thư viện mẫu.'}</Text>
-    <View style={ss.actions}><Pressable onPress={() => router.push({ pathname: '/plant-detail', params: { name: item.name, ...(item.ownedId ? { ownedId: item.ownedId } : {}) } } as never)} style={[ss.action, ss.actionLight]}><Text style={ss.actionLightText}>Xem chi tiết</Text></Pressable>{!item.owned ? <Pressable onPress={onAdd} style={ss.action}><Text style={ss.actionText}>＋ Thêm vào cây của tôi</Text></Pressable> : null}</View>
+    <View style={ss.resultTop}><PlantArtwork category={item.category} photoUri={item.photoUri} accessToken={accessToken} style={ss.resultImage}/><View style={ss.resultCopy}><Text style={ss.resultName}>{item.name}</Text><Text style={ss.latin}>{item.latin}</Text><Text style={ss.body}>{item.owned ? `Đang sở hữu • Vườn: ${item.gardenName}${item.location ? ` (${item.location})` : ''}` : `${item.category} • Thư viện mẫu`}</Text></View><Pressable accessibilityRole="button" accessibilityLabel={item.isFavorite ? 'Bỏ yêu thích' : 'Yêu thích'} onPress={onFavorite}><Text style={ss.favorite}>{item.isFavorite ? '♥' : '♡'}</Text></Pressable></View>
+    <Text style={ss.statusLine}>{item.owned ? 'Đang trồng trong vườn của bạn • Bấm "Tiếp tục trồng" để trồng thêm' : 'Một số thông tin sinh trưởng chưa có dữ liệu trong thư viện mẫu.'}</Text>
+    <View style={ss.actions}><Pressable onPress={() => router.push({ pathname: '/plant-detail', params: { name: item.name, ...(item.ownedId ? { ownedId: item.ownedId } : {}) } } as never)} style={[ss.action, ss.actionLight]}><Text style={ss.actionLightText}>Xem chi tiết</Text></Pressable><Pressable onPress={onAdd} style={ss.action}><Text style={ss.actionText}>{item.owned ? '＋ Tiếp tục trồng' : '＋ Thêm vào cây của tôi'}</Text></Pressable></View>
   </View>;
 }
 
 export function SearchScreen() {
   const params = useLocalSearchParams<{ query?: string }>();
-  const { catalog, ownedPlants, favorites, toggleFavorite } = usePlantData();
+  const { catalog, ownedPlants, gardens, favorites, toggleFavorite } = usePlantData();
   const { journals } = useJournals();
   const { todayTasks, schedules } = useCareSchedules();
   const { accessToken } = useAuthSession();
@@ -50,35 +52,46 @@ export function SearchScreen() {
     try { return JSON.parse(Array.isArray(filtersParam) ? filtersParam[0] : filtersParam ?? '{}') as PlantFilterState; }
     catch { return {}; }
   }, [filtersParam]);
+  const ownedCatalogIds = useMemo(() => new Set(ownedPlants.map((plant) => plant.catalogId)), [ownedPlants]);
   const rows = useMemo<SearchResultItem[]>(() => [
     ...ownedPlants.map((plant) => ({
       ...toOwnedFilterPlant(plant, journals, todayTasks, schedules, favorites.includes(plant.catalogId)),
       latin: plant.scientificName,
       owned: true,
       ownedId: plant.id,
+      catalogId: plant.catalogId,
+      gardenName: gardens.find((garden) => garden.id === plant.gardenId)?.name ?? 'Chưa phân vườn',
       detail: getLatestHealthLabel(plant.id, journals),
       photoUri: plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null,
     })),
     ...catalog.map((plant) => ({ ...plant, latin: plant.scientificName, owned: false, detail: 'Thông tin từ danh mục cây', isFavorite: favorites.includes(plant.id) })),
-  ], [ownedPlants, catalog, favorites, journals, todayTasks, schedules]);
+  ], [ownedPlants, gardens, catalog, favorites, journals, todayTasks, schedules]);
+  const favoriteCount = useMemo(() => rows.filter((item) => Boolean(item.isFavorite) && (item.owned || !ownedCatalogIds.has(item.id))).length, [rows, ownedCatalogIds]);
+  const relatedKeywords = useMemo(() => [...new Set(catalog.map((plant) => plant.name).filter(Boolean))].slice(0, 4), [catalog]);
   const list = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
-    return rows.filter((item) => {
-      const inScope = scope === 'Tất cả' || (scope === 'Trong vườn của tôi' ? item.owned : !item.owned);
+    const isSearching = normalized.length > 0;
+    const filtered = rows.filter((item) => {
+      const inScope = scope === 'Tất cả'
+        ? (isSearching ? (item.owned || !ownedCatalogIds.has(item.id)) : (!item.owned && !ownedCatalogIds.has(item.id)))
+        : scope === 'Trong vườn của tôi'
+          ? item.owned
+          : Boolean(item.isFavorite) && (item.owned || !ownedCatalogIds.has(item.id));
       const matchesQuery = !normalized || `${item.name} ${item.latin}`.toLocaleLowerCase().includes(normalized);
       return inScope && matchesQuery && matchesPlantFilters(item, filters);
     });
-  }, [query, scope, rows, filters]);
+    const priority = (item: SearchResultItem) => (item.owned ? 2 : item.isFavorite ? 1 : 0);
+    return filtered.sort((a, b) => priority(a) - priority(b));
+  }, [query, scope, rows, ownedCatalogIds, filters]);
   const openFilter = () => router.push({ pathname: '/filter', params: { query, scope, filters: JSON.stringify(filters) } } as never);
 
   return <SafeAreaView style={ss.safe} edges={['top']}>
     <SearchHeader query={query} onQueryChange={setQuery} onFilter={openFilter} />
     <ScrollView contentContainerStyle={ss.content} keyboardShouldPersistTaps="handled">
       <Text style={ss.kicker}>⌕ Đang tìm kiếm cho từ khóa: <Text style={ss.bold}>“{query || 'cây trồng'}”</Text></Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={ss.pills}>{['Tất cả', 'Trong vườn của tôi', 'Thư viện & Khám phá'].map((item) => { const count = item === 'Tất cả' ? rows.length : item === 'Trong vườn của tôi' ? ownedPlants.length : catalog.length; return <Pressable key={item} onPress={() => setScope(item)} style={[ss.scope, scope === item && ss.scopeActive]}><Text style={[ss.scopeText, scope === item && ss.scopeTextActive]}>{item}  {count}</Text></Pressable>; })}</ScrollView>
-      <Text style={ss.kicker}>GỢI Ý TỪ KHÓA LIÊN QUAN</Text>
-      <View style={ss.suggestions}>{['Lá xẻ (Monstera)', 'Cẩm thạch', 'Thanh xuân', 'Trầu bà để bàn'].map((item) => <Pressable key={item} onPress={() => setQuery(item.split(' ')[0])} style={ss.suggestion}><Text style={ss.body}>⌕  {item}</Text></Pressable>)}</View>
-      {list.length ? <><View style={ss.sectionRow}><Text style={ss.sectionTitle}>{scope === 'Thư viện & Khám phá' ? 'Thư viện thực vật' : scope === 'Trong vườn của tôi' ? 'Cây đang sở hữu' : 'Cây trồng phù hợp'}</Text><Text style={ss.body}>{list.length} kết quả</Text></View>{list.map((item) => <SearchResult key={`${item.ownedId ?? item.id}`} item={item} accessToken={accessToken} onAdd={() => router.push({ pathname: '/garden/add-plant', params: { plantId: item.id } } as never)} onFavorite={() => toggleFavorite(item.id)} />)}</> : <View style={ss.emptyCard}><View style={ss.emptyIcon}><Text style={ss.emptyPlant}>♧</Text></View><Text style={ss.emptyTitle}>Không tìm thấy kết quả phù hợp</Text><Text style={ss.queryText}>“{query}”</Text><Text style={ss.bodyCenter}>Thử xóa bộ lọc hoặc tìm bằng tên thường gọi.</Text><Pressable onPress={openFilter} style={ss.action}><Text style={ss.actionText}>Mở bộ lọc</Text></Pressable></View>}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={ss.pills}>{['Tất cả', 'Trong vườn của tôi', 'Cây yêu thích'].map((item) => { const label = item === 'Tất cả' ? item : item === 'Trong vườn của tôi' ? `${item}  ${ownedPlants.length}` : `${item}  ${favoriteCount}`; return <Pressable key={item} onPress={() => setScope(item)} style={[ss.scope, scope === item && ss.scopeActive]}><Text style={[ss.scopeText, scope === item && ss.scopeTextActive]}>{label}</Text></Pressable>; })}</ScrollView>
+      {relatedKeywords.length > 0 ? <><Text style={ss.kicker}>GỢI Ý TỪ KHÓA LIÊN QUAN</Text><View style={ss.suggestions}>{relatedKeywords.map((item) => <Pressable key={item} onPress={() => setQuery(item)} style={ss.suggestion}><Text style={ss.body}>⌕  {item}</Text></Pressable>)}</View></> : null}
+      {list.length ? <><View style={ss.sectionRow}><Text style={ss.sectionTitle}>{scope === 'Cây yêu thích' ? 'Cây yêu thích của bạn' : scope === 'Trong vườn của tôi' ? 'Cây đang sở hữu' : 'Cây trồng phù hợp'}</Text><Text style={ss.body}>{list.length} kết quả</Text></View>{list.map((item) => <SearchResult key={`${item.ownedId ?? item.id}`} item={item} accessToken={accessToken} onAdd={() => router.push({ pathname: '/garden/add-plant', params: { plantId: item.catalogId ?? item.id } } as never)} onFavorite={() => toggleFavorite(item.catalogId ?? item.id)} />)}</> : <View style={ss.emptyCard}><View style={ss.emptyIcon}><Text style={ss.emptyPlant}>♧</Text></View><Text style={ss.emptyTitle}>Không tìm thấy kết quả phù hợp</Text><Text style={ss.queryText}>“{query}”</Text><Text style={ss.bodyCenter}>Thử xóa bộ lọc hoặc tìm bằng tên thường gọi.</Text><Pressable onPress={openFilter} style={ss.action}><Text style={ss.actionText}>Mở bộ lọc</Text></Pressable></View>}
     </ScrollView>
   </SafeAreaView>;
 }
