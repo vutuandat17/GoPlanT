@@ -28,8 +28,8 @@ function getWeatherEmoji(conditionMain?: string | null): string {
   return '🌤️';
 }
 
-function GardenHeader({ title }: { title: string }) {
-  return <View style={g.header}><Pressable onPress={() => safeBack('/gardens')} style={g.back}><Text style={g.backText}>‹</Text></Pressable><Text style={g.headerTitle}>{title}</Text><AccountButton size={29} /></View>;
+function GardenHeader({ title, onBack }: { title: string; onBack?: () => void }) {
+  return <View style={g.header}><Pressable onPress={onBack ?? (() => safeBack('/gardens'))} style={g.back}><Text style={g.backText}>‹</Text></Pressable><Text style={g.headerTitle}>{title}</Text><AccountButton size={29} /></View>;
 }
 
 function ActionButton({ label, secondary = false, onPress }: { label: string; secondary?: boolean; onPress: () => void }) {
@@ -151,7 +151,7 @@ export function GardenDetailScreen() {
       ? `GPS (${garden.latitude.toFixed(3)}, ${garden.longitude.toFixed(3)})`
       : null;
 
-  return <SafeAreaView style={g.safe} edges={['top']}><GardenHeader title="Chi tiết khu vườn"/><ScrollView contentContainerStyle={g.content}>
+  return <SafeAreaView style={g.safe} edges={['top']}><GardenHeader title="Chi tiết khu vườn" onBack={() => router.replace('/gardens' as never)}/><ScrollView contentContainerStyle={g.content}>
     {!garden ? <View style={g.card}><Text style={g.sectionTitle}>Không tìm thấy khu vườn</Text><Text style={g.body}>Danh sách có thể đã thay đổi hoặc khu vườn đã bị xóa.</Text><ActionButton label="Về danh sách vườn" onPress={() => router.replace('/gardens' as never)}/></View> : <>
       <GardenArtwork
         locationType={garden.locationType}

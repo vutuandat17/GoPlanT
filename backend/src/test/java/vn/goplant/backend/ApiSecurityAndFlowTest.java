@@ -105,7 +105,8 @@ class ApiSecurityAndFlowTest {
                 "Nhựa cây có thể gây kích ứng nếu nuốt phải.",
                 "Cây nhiệt đới lá xẻ đặc trưng.",
                 "Trung Mỹ và Nam Mỹ",
-                "Lá lớn xẻ thùy sâu.");
+                "Lá lớn xẻ thùy sâu.",
+                null, null, null, null, null, null, null, null, null);
 
         when(jdbc.queryForObject(contains("SELECT count(*) FROM plant_catalog"), eq(Long.class), any(Object[].class)))
                 .thenReturn(1L);
@@ -680,7 +681,8 @@ class ApiSecurityAndFlowTest {
 
         PlantCatalogController.Plant updatedCatalog = new PlantCatalogController.Plant(
                 catalogId, "Trầu bà lá xẻ", "Monstera deliciosa", "Cây nội thất",
-                "Dễ", "Ánh sáng gián tiếp vừa", 5, null, null, null, null, null);
+                "Dễ", "Ánh sáng gián tiếp vừa", 5, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null);
         when(jdbc.update(contains("UPDATE plant_catalog"), any(Object[].class))).thenReturn(1);
         when(jdbc.queryForObject(contains("FROM plant_catalog WHERE id=?"), any(RowMapper.class), eq(catalogId)))
                 .thenReturn(updatedCatalog);

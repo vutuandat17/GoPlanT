@@ -332,6 +332,15 @@ export type PlantCatalogItem = {
   overview?: string | null;
   origin?: string | null;
   morphology?: string | null;
+  lifespan?: string | null;
+  floweringSeason?: string | null;
+  humidity?: string | null;
+  medium?: string | null;
+  drainage?: string | null;
+  matureSize?: string | null;
+  growthRate?: string | null;
+  soilPh?: string | null;
+  nutrition?: string | null;
 };
 
 export function fetchCatalogPlants(params?: { page?: number; size?: number; q?: string; category?: string }) {

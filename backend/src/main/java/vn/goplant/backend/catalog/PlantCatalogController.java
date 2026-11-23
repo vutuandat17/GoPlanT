@@ -32,7 +32,8 @@ public class PlantCatalogController {
 
     private static final String PLANT_COLUMNS = """
             id,common_name,scientific_name,category,difficulty,light_requirement,
-            water_frequency_days,temperature_range,toxicity_warning,overview,origin,morphology
+            water_frequency_days,temperature_range,toxicity_warning,overview,origin,morphology,
+            lifespan,flowering_season,humidity,medium,drainage,mature_size,growth_rate,soil_ph,nutrition
             """;
 
     private static final RowMapper<Plant> PLANT_MAPPER = (rs, row) -> new Plant(
@@ -47,7 +48,16 @@ public class PlantCatalogController {
             rs.getString("toxicity_warning"),
             rs.getString("overview"),
             rs.getString("origin"),
-            rs.getString("morphology"));
+            rs.getString("morphology"),
+            rs.getString("lifespan"),
+            rs.getString("flowering_season"),
+            rs.getString("humidity"),
+            rs.getString("medium"),
+            rs.getString("drainage"),
+            rs.getString("mature_size"),
+            rs.getString("growth_rate"),
+            rs.getString("soil_ph"),
+            rs.getString("nutrition"));
 
     @GetMapping("/api/v1/catalog/plants")
     public PageResponse<Plant> listPublished(
@@ -86,7 +96,8 @@ public class PlantCatalogController {
     public List<Plant> listFavorites(@AuthenticationPrincipal Jwt jwt) {
         return jdbc.query("""
                 SELECT c.id,c.common_name,c.scientific_name,c.category,c.difficulty,c.light_requirement,
-                       c.water_frequency_days,c.temperature_range,c.toxicity_warning,c.overview,c.origin,c.morphology
+                       c.water_frequency_days,c.temperature_range,c.toxicity_warning,c.overview,c.origin,c.morphology,
+                       c.lifespan,c.flowering_season,c.humidity,c.medium,c.drainage,c.mature_size,c.growth_rate,c.soil_ph,c.nutrition
                 FROM user_plant_favorites f
                 JOIN plant_catalog c ON c.id=f.plant_catalog_id
                 WHERE f.user_id=? AND c.is_active=true AND c.publication_status='approved' ORDER BY c.common_name
@@ -120,13 +131,19 @@ public class PlantCatalogController {
                     INSERT INTO plant_catalog(
                         id,common_name,scientific_name,category,difficulty,light_requirement,
                         water_frequency_days,temperature_range,toxicity_warning,overview,origin,morphology,
+                        lifespan,flowering_season,humidity,medium,drainage,mature_size,growth_rate,soil_ph,nutrition,
                         publication_status,reviewed_by,reviewed_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'approved',?,now())
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'approved',?,now())
                     """, id, request.commonName().trim(), request.scientificName().trim(), request.category().trim(),
                     blankToNull(request.difficulty()), blankToNull(request.lightRequirement()),
                     request.waterFrequencyDays(), blankToNull(request.temperatureRange()),
                     blankToNull(request.toxicityWarning()), blankToNull(request.overview()),
-                    blankToNull(request.origin()), blankToNull(request.morphology()), adminId);
+                    blankToNull(request.origin()), blankToNull(request.morphology()),
+                    blankToNull(request.lifespan()), blankToNull(request.floweringSeason()),
+                    blankToNull(request.humidity()), blankToNull(request.medium()),
+                    blankToNull(request.drainage()), blankToNull(request.matureSize()),
+                    blankToNull(request.growthRate()), blankToNull(request.soilPh()),
+                    blankToNull(request.nutrition()), adminId);
         } catch (DuplicateKeyException exception) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
                     "A plant with this scientific name already exists");
@@ -145,6 +162,8 @@ public class PlantCatalogController {
                     UPDATE plant_catalog
                     SET common_name=?, scientific_name=?, category=?, difficulty=?, light_requirement=?,
                         water_frequency_days=?, temperature_range=?, toxicity_warning=?, overview=?, origin=?, morphology=?,
+                        lifespan=?, flowering_season=?, humidity=?, medium=?, drainage=?,
+                        mature_size=?, growth_rate=?, soil_ph=?, nutrition=?,
                         reviewed_by=?, reviewed_at=now(), updated_at=now()
                     WHERE id=? AND is_active=true
                     """,
@@ -152,7 +171,12 @@ public class PlantCatalogController {
                     blankToNull(request.difficulty()), blankToNull(request.lightRequirement()),
                     request.waterFrequencyDays(), blankToNull(request.temperatureRange()),
                     blankToNull(request.toxicityWarning()), blankToNull(request.overview()),
-                    blankToNull(request.origin()), blankToNull(request.morphology()), adminId, id);
+                    blankToNull(request.origin()), blankToNull(request.morphology()),
+                    blankToNull(request.lifespan()), blankToNull(request.floweringSeason()),
+                    blankToNull(request.humidity()), blankToNull(request.medium()),
+                    blankToNull(request.drainage()), blankToNull(request.matureSize()),
+                    blankToNull(request.growthRate()), blankToNull(request.soilPh()),
+                    blankToNull(request.nutrition()), adminId, id);
             if (updated == 0) {
                 throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND);
             }
@@ -186,7 +210,16 @@ public class PlantCatalogController {
             @Size(max=2000) String toxicityWarning,
             @Size(max=4000) String overview,
             @Size(max=240) String origin,
-            @Size(max=4000) String morphology) {}
+            @Size(max=4000) String morphology,
+            @Size(max=120) String lifespan,
+            @Size(max=160) String floweringSeason,
+            @Size(max=80) String humidity,
+            @Size(max=1000) String medium,
+            @Size(max=160) String drainage,
+            @Size(max=160) String matureSize,
+            @Size(max=120) String growthRate,
+            @Size(max=64) String soilPh,
+            @Size(max=1000) String nutrition) {}
 
     public record Plant(
             UUID id,
@@ -200,5 +233,14 @@ public class PlantCatalogController {
             String toxicityWarning,
             String overview,
             String origin,
-            String morphology) {}
+            String morphology,
+            String lifespan,
+            String floweringSeason,
+            String humidity,
+            String medium,
+            String drainage,
+            String matureSize,
+            String growthRate,
+            String soilPh,
+            String nutrition) {}
 }
