@@ -163,6 +163,18 @@ export default function HomeScreen() {
           <View style={styles.sunBadge}><Text style={styles.sun}>{greetingMeta.badgeGlyph}</Text></View>
         </View>
 
+        <View style={styles.introCard}>
+          <View style={styles.introIcon}>
+            <Text style={styles.introEmoji}>🌿</Text>
+          </View>
+          <View style={styles.flexCopy}>
+            <Text style={styles.introTitle}>GoPlant — Vườn xanh trong tay bạn</Text>
+            <Text style={styles.introBody}>
+              Đồng hành cùng bạn theo dõi từng chậu cây, nhắc lịch tưới nước, bón phân đúng hẹn và lưu giữ hành trình phát triển mỗi ngày.
+            </Text>
+          </View>
+        </View>
+
         <View style={styles.weatherCard}>
           <Pressable
             accessibilityRole="button"
@@ -387,6 +399,11 @@ const styles = StyleSheet.create({
   subtitle: { color: C.secondaryText, fontFamily: F.regular, fontSize: 13, lineHeight: 19 },
   sunBadge: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#D9F1E3', alignItems: 'center', justifyContent: 'center' },
   sun: { color: C.forest, fontSize: 26, lineHeight: 30 },
+  introCard: { paddingHorizontal: 12, paddingVertical: 11, borderRadius: 14, backgroundColor: '#EAF7EE', borderWidth: 1, borderColor: '#CBE8D4', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  introIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#D5EFE0', alignItems: 'center', justifyContent: 'center' },
+  introEmoji: { fontSize: 20, lineHeight: 24 },
+  introTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 13, lineHeight: 18 },
+  introBody: { color: '#3B6752', fontFamily: F.regular, fontSize: 12, lineHeight: 17 },
   weatherCard: { minHeight: 72, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: C.softSurface, flexDirection: 'row', alignItems: 'center', gap: 10 },
   weatherMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   taskMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },

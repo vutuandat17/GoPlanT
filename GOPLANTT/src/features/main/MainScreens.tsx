@@ -275,6 +275,29 @@ function EmptyPage({ kind }: { kind: PageKind }) {
   );
 }
 
+const INTRO_BANNER_CONFIG: Record<PageKind, { icon: string; title: string; body: string }> = {
+  gardens: {
+    icon: '🏡',
+    title: 'Không gian xanh của riêng bạn',
+    body: 'Giúp bạn phân chia khu vườn theo từng vị trí, sắp xếp cây trồng khoa học, theo dõi thời tiết từng khu vực và đồng hành cùng bạn chăm sóc vườn luôn xanh tốt.',
+  },
+  plants: {
+    icon: '🪴',
+    title: 'Hồ sơ từng chậu cây trong vườn',
+    body: 'Lưu trữ thông tin giống cây, vị trí trồng, ngày bắt đầu chăm sóc và danh sách cây yêu thích để bạn dễ dàng theo dõi từng mầm xanh mỗi ngày.',
+  },
+  journal: {
+    icon: '📝',
+    title: 'Lưu giữ hành trình lớn lên của cây',
+    body: 'Ghi chép lại những lần tưới nước, bón phân, cắt tỉa kèm hình ảnh thực tế để bạn nhìn lại sự thay đổi và rút kinh nghiệm chăm cây hiệu quả hơn.',
+  },
+  monitoring: {
+    icon: '🩺',
+    title: 'Theo dõi sức khỏe toàn khu vườn',
+    body: 'Tổng hợp tình trạng sinh trưởng, phát hiện sớm cây cần chú ý và đánh giá mức độ ổn định của từng khu vườn để kịp thời xử lý.',
+  },
+};
+
 function PageContent({ kind }: { kind: PageKind }) {
   const { ownedPlants, gardens } = usePlantData();
   const { journals = [] } = useJournals();
@@ -285,9 +308,19 @@ function PageContent({ kind }: { kind: PageKind }) {
     monitoring: { title: 'Theo dõi & Ghi nhận', subtitle: 'Tổng quan sức khỏe vườn', intro: ownedPlants.length || gardens.length ? `Theo dõi ${ownedPlants.length} cây • ${gardens.length} khu vườn` : 'Chưa có cây hoặc khu vườn để theo dõi' },
   };
   const { subtitle, intro } = config[kind];
+  const banner = INTRO_BANNER_CONFIG[kind];
   return <TabScreenTransition>
     <ScrollView style={s.contentScroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
       <View style={s.introRow}><View style={s.cardCopy}><Text style={s.pageTitle}>{subtitle}</Text><Text style={s.body}>{intro}</Text></View></View>
+      <View style={s.introBanner}>
+        <View style={s.introBannerIcon}>
+          <Text style={s.introBannerEmoji}>{banner.icon}</Text>
+        </View>
+        <View style={s.cardCopy}>
+          <Text style={s.introBannerTitle}>{banner.title}</Text>
+          <Text style={s.introBannerBody}>{banner.body}</Text>
+        </View>
+      </View>
       <EmptyPage kind={kind} />
     </ScrollView>
   </TabScreenTransition>;
@@ -319,4 +352,9 @@ const s = StyleSheet.create({
   emptyGlyph: { color: C.forest, fontSize: 30, lineHeight: 36 },
   emptyDescription: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11, lineHeight: 17, textAlign: 'center' },
   managementActions: { flexDirection: 'row', gap: 8 },
+  introBanner: { paddingHorizontal: 12, paddingVertical: 11, borderRadius: 14, backgroundColor: '#EAF7EE', borderWidth: 1, borderColor: '#CBE8D4', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  introBannerIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#D5EFE0', alignItems: 'center', justifyContent: 'center' },
+  introBannerEmoji: { fontSize: 20, lineHeight: 24 },
+  introBannerTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 13, lineHeight: 18 },
+  introBannerBody: { color: '#3B6752', fontFamily: F.regular, fontSize: 11, lineHeight: 16 },
 });
