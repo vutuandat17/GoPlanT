@@ -78,13 +78,13 @@ function parseUserTime(input: string): string | null {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
-function Header({ title, showCreate }: { title: string; showCreate?: boolean }) {
+function Header({ title, showCreate, onBack }: { title: string; showCreate?: boolean; onBack?: () => void }) {
   return (
     <View style={sc.header}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Quay lại"
-        onPress={() => safeBack('/schedule')}
+        onPress={onBack ?? (() => safeBack('/schedule'))}
         style={sc.backBtn}>
         <Text style={sc.backIcon}>‹</Text>
       </Pressable>
@@ -155,6 +155,7 @@ function formatDateTimeViLocal(iso: string | null | undefined): string {
 // ─── ScheduleListScreen ───────────────────────────────────────────────────────
 
 export function ScheduleListScreen() {
+  const { returnToGardenId } = useLocalSearchParams<{ returnToGardenId?: string }>();
   const { ownedPlants, gardens } = usePlantData();
   const { schedules, todayTasks, todaySummary, isLoading, error, completeTask, skipTask, loadCalendar, refresh } = useCareSchedules();
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
@@ -296,7 +297,10 @@ export function ScheduleListScreen() {
 
   return (
     <SafeAreaView style={sc.safe} edges={['top']}>
-      <Header title="Lập lịch chăm sóc" />
+      <Header
+        title="Lập lịch chăm sóc"
+        onBack={returnToGardenId ? () => router.replace({ pathname: '/garden-detail', params: { gardenId: returnToGardenId } } as never) : undefined}
+      />
       <ScrollView style={sc.scroll} contentContainerStyle={sc.scrollContent} showsVerticalScrollIndicator={false}>
         {/* ── Banner giới thiệu ── */}
         <View style={sc.introBanner}>

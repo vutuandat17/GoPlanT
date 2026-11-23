@@ -275,24 +275,32 @@ function EmptyPage({ kind }: { kind: PageKind }) {
   );
 }
 
-const INTRO_BANNER_CONFIG: Record<PageKind, { icon: string; title: string; body: string }> = {
+const INTRO_BANNER_CONFIG: Record<PageKind, { kicker: string; icon: string; watermark: string; title: string; body: string }> = {
   gardens: {
+    kicker: 'KHÔNG GIAN XANH',
     icon: '🏡',
+    watermark: '🌿',
     title: 'Không gian xanh của riêng bạn',
     body: 'Giúp bạn phân chia khu vườn theo từng vị trí, sắp xếp cây trồng khoa học, theo dõi thời tiết từng khu vực và đồng hành cùng bạn chăm sóc vườn luôn xanh tốt.',
   },
   plants: {
+    kicker: 'BỘ SƯU TẬP',
     icon: '🪴',
+    watermark: '🌱',
     title: 'Hồ sơ từng chậu cây trong vườn',
     body: 'Lưu trữ thông tin giống cây, vị trí trồng, ngày bắt đầu chăm sóc và danh sách cây yêu thích để bạn dễ dàng theo dõi từng mầm xanh mỗi ngày.',
   },
   journal: {
+    kicker: 'HÀNH TRÌNH SINH TRƯỞNG',
     icon: '📝',
+    watermark: '🍃',
     title: 'Lưu giữ hành trình lớn lên của cây',
     body: 'Ghi chép lại những lần tưới nước, bón phân, cắt tỉa kèm hình ảnh thực tế để bạn nhìn lại sự thay đổi và rút kinh nghiệm chăm cây hiệu quả hơn.',
   },
   monitoring: {
+    kicker: 'SỨC KHỎE KHU VƯỜN',
     icon: '🩺',
+    watermark: '🌾',
     title: 'Theo dõi sức khỏe toàn khu vườn',
     body: 'Tổng hợp tình trạng sinh trưởng, phát hiện sớm cây cần chú ý và đánh giá mức độ ổn định của từng khu vườn để kịp thời xử lý.',
   },
@@ -301,24 +309,36 @@ const INTRO_BANNER_CONFIG: Record<PageKind, { icon: string; title: string; body:
 function PageContent({ kind }: { kind: PageKind }) {
   const { ownedPlants, gardens } = usePlantData();
   const { journals = [] } = useJournals();
-  const config: Record<PageKind, { title: string; subtitle: string; intro: string }> = {
-    gardens: { title: 'Trang Chủ', subtitle: 'Vườn của tôi', intro: gardens.length ? `Đang quản lý ${gardens.length} khu vườn` : 'Bắt đầu tạo khu vườn đầu tiên của bạn' },
-    plants: { title: 'Cây Trồng', subtitle: 'Quản lý cây trồng', intro: `Tổng số ${ownedPlants.length} cây • ${gardens.length} khu vườn` },
-    journal: { title: 'Nhật ký', subtitle: 'Nhật ký phát triển', intro: journals.length ? `${journals.length} ghi nhận phát triển` : 'Chưa có ghi nhận nào' },
-    monitoring: { title: 'Theo dõi & Ghi nhận', subtitle: 'Tổng quan sức khỏe vườn', intro: ownedPlants.length || gardens.length ? `Theo dõi ${ownedPlants.length} cây • ${gardens.length} khu vườn` : 'Chưa có cây hoặc khu vườn để theo dõi' },
+  const config: Record<PageKind, { subtitle: string; summaryPill: string }> = {
+    gardens: { subtitle: 'Vườn của tôi', summaryPill: gardens.length ? `${gardens.length} khu vườn` : 'Chưa có vườn' },
+    plants: { subtitle: 'Quản lý cây trồng', summaryPill: `${ownedPlants.length} cây` },
+    journal: { subtitle: 'Nhật ký phát triển', summaryPill: journals.length ? `${journals.length} ghi chép` : '0 ghi chép' },
+    monitoring: { subtitle: 'Theo dõi & Ghi nhận', summaryPill: `${ownedPlants.length} cây • ${gardens.length} vườn` },
   };
-  const { subtitle, intro } = config[kind];
+  const { subtitle, summaryPill } = config[kind];
   const banner = INTRO_BANNER_CONFIG[kind];
   return <TabScreenTransition>
     <ScrollView style={s.contentScroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-      <View style={s.introRow}><View style={s.cardCopy}><Text style={s.pageTitle}>{subtitle}</Text><Text style={s.body}>{intro}</Text></View></View>
-      <View style={s.introBanner}>
-        <View style={s.introBannerIcon}>
-          <Text style={s.introBannerEmoji}>{banner.icon}</Text>
+      <View style={s.editorialHeader}>
+        <View style={s.kickerRow}>
+          <View style={s.kickerDot} />
+          <Text style={s.kickerText}>{banner.kicker}</Text>
         </View>
-        <View style={s.cardCopy}>
-          <Text style={s.introBannerTitle}>{banner.title}</Text>
-          <Text style={s.introBannerBody}>{banner.body}</Text>
+        <View style={s.titlePillRow}>
+          <Text style={s.pageTitle}>{subtitle}</Text>
+          <Text style={s.summaryPill}>{summaryPill}</Text>
+        </View>
+      </View>
+      <View style={s.introBanner}>
+        <Text style={s.introWatermark}>{banner.watermark}</Text>
+        <View style={s.introBannerTop}>
+          <View style={s.introBannerIcon}>
+            <Text style={s.introBannerEmoji}>{banner.icon}</Text>
+          </View>
+          <View style={s.cardCopy}>
+            <Text style={s.introBannerTitle}>{banner.title}</Text>
+            <Text style={s.introBannerBody}>{banner.body}</Text>
+          </View>
         </View>
       </View>
       <EmptyPage kind={kind} />
@@ -334,7 +354,13 @@ export function MonitoringScreen() { return <PageContent kind="monitoring" />; }
 const s = StyleSheet.create({
   contentScroll: { width: '100%', flex: 1, alignSelf: 'center' },
   content: { width: '100%', maxWidth: 760, alignSelf: 'center', paddingHorizontal: 14, paddingTop: 18, paddingBottom: 20, gap: 9 },
-  introRow: { minHeight: 54, marginBottom: 4, flexDirection: 'row', alignItems: 'center', gap: 8 }, pageTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 18, lineHeight: 24 },
+  introRow: { minHeight: 54, marginBottom: 4, flexDirection: 'row', alignItems: 'center', gap: 8 }, pageTitle: { color: C.forest, fontFamily: F.bold, fontSize: 21, lineHeight: 28, flex: 1 },
+  editorialHeader: { gap: 4, paddingTop: 2 },
+  kickerRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  kickerDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.primary },
+  kickerText: { color: C.primary, fontFamily: F.bold, fontSize: 10, letterSpacing: 0.8 },
+  titlePillRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  summaryPill: { overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99, backgroundColor: '#D9F2E3', color: C.forest, fontFamily: F.semiBold, fontSize: 11 },
   section: { gap: 8, marginTop: 5 }, sectionHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, sectionTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 15, lineHeight: 21 }, hint: { color: C.mutedText, fontFamily: F.regular, fontSize: 11 },
   card: { padding: 10, borderRadius: 14, backgroundColor: C.surface, gap: 7 }, gardenArt: { minHeight: 104, borderRadius: 11, backgroundColor: '#DDEFE3', alignItems: 'center', justifyContent: 'center' }, artGlyph: { color: '#49815E', fontSize: 38 }, artLabel: { color: '#446751', fontFamily: F.semiBold, fontSize: 9, letterSpacing: 1 },
   cardBody: { gap: 5 }, cardTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 13, lineHeight: 19 }, body: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11, lineHeight: 17 },
@@ -352,9 +378,11 @@ const s = StyleSheet.create({
   emptyGlyph: { color: C.forest, fontSize: 30, lineHeight: 36 },
   emptyDescription: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11, lineHeight: 17, textAlign: 'center' },
   managementActions: { flexDirection: 'row', gap: 8 },
-  introBanner: { paddingHorizontal: 12, paddingVertical: 11, borderRadius: 14, backgroundColor: '#EAF7EE', borderWidth: 1, borderColor: '#CBE8D4', flexDirection: 'row', alignItems: 'center', gap: 10 },
-  introBannerIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#D5EFE0', alignItems: 'center', justifyContent: 'center' },
-  introBannerEmoji: { fontSize: 20, lineHeight: 24 },
-  introBannerTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 13, lineHeight: 18 },
-  introBannerBody: { color: '#3B6752', fontFamily: F.regular, fontSize: 11, lineHeight: 16 },
+  introBanner: { overflow: 'hidden', position: 'relative', paddingHorizontal: 13, paddingVertical: 12, borderRadius: 16, backgroundColor: '#EAF7EE' },
+  introWatermark: { position: 'absolute', right: 8, bottom: -6, fontSize: 54, opacity: 0.1 },
+  introBannerTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  introBannerIcon: { width: 42, height: 42, borderRadius: 12, backgroundColor: '#D5EFE0', alignItems: 'center', justifyContent: 'center' },
+  introBannerEmoji: { fontSize: 22, lineHeight: 26 },
+  introBannerTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 13.5, lineHeight: 19 },
+  introBannerBody: { color: '#3B6752', fontFamily: F.regular, fontSize: 11.5, lineHeight: 16.5 },
 });

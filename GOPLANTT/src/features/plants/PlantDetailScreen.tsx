@@ -23,7 +23,7 @@ function InfoRow({ label, value }: { label: string; value?: string }) {
 }
 
 export default function PlantDetailScreen() {
-  const { name, ownedId } = useLocalSearchParams<{ name?: string; ownedId?: string }>();
+  const { name, ownedId, returnToGardenId } = useLocalSearchParams<{ name?: string; ownedId?: string; returnToGardenId?: string }>();
   const { catalog, ownedPlants, gardens, favorites, toggleFavorite, updatePlantPhoto, removePlant } = usePlantData();
   const { journals } = useJournals();
   const { schedules } = useCareSchedules();
@@ -63,7 +63,7 @@ export default function PlantDetailScreen() {
 
   return <SafeAreaView style={d.safe} edges={['top']}>
     <View style={d.header}>
-      <Pressable onPress={() => safeBack('/plants')} accessibilityRole="button" accessibilityLabel="Quay lại" style={d.back}><Text style={d.backText}>‹</Text></Pressable>
+      <Pressable onPress={() => safeBack(returnToGardenId ? `/garden-detail?gardenId=${encodeURIComponent(returnToGardenId)}` : '/plants')} accessibilityRole="button" accessibilityLabel="Quay lại" style={d.back}><Text style={d.backText}>‹</Text></Pressable>
       <Text style={d.headerTitle}>Chi tiết cây trồng</Text>
       <Pressable onPress={() => toggleFavorite(plant.id)} accessibilityRole="button" accessibilityLabel={isFavorite ? 'Bỏ yêu thích' : 'Thêm yêu thích'}><Text style={d.heart}>{isFavorite ? '♥' : '♡'}</Text></Pressable>
     </View>

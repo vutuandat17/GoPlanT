@@ -108,6 +108,8 @@ export function GardenDetailScreen() {
   const [movingPlant, setMovingPlant] = useState<OwnedPlant | null>(null);
   const [moveBusy, setMoveBusy] = useState(false);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [tasksExpanded, setTasksExpanded] = useState(true);
+  const [plantsExpanded, setPlantsExpanded] = useState(true);
 
   const handleMovePlant = async (nextGardenId: string | null) => {
     if (!movingPlant) return;
@@ -191,16 +193,25 @@ export function GardenDetailScreen() {
             ) : null}
           </View>
         ) : null}
-        <Pressable onPress={() => router.push('/schedule' as never)}><Text style={g.link}>{pendingTodayCount > 0 ? `◷ ${pendingTodayCount} việc chăm sóc cần làm hôm nay ›` : '◷ Xem lịch chăm sóc ›'}</Text></Pressable>
+        <Pressable onPress={() => router.push({ pathname: '/schedule', params: { returnToGardenId: garden.id } } as never)}><Text style={g.link}>{pendingTodayCount > 0 ? `◷ ${pendingTodayCount} việc chăm sóc cần làm hôm nay ›` : '◷ Xem lịch chăm sóc ›'}</Text></Pressable>
       </View>
 
       {gardenPendingTasks.length > 0 ? (
         <View style={g.taskBannerCard}>
           <View style={g.row}>
-            <Text style={g.sectionTitle}>Hôm nay vườn này có {gardenPendingTasks.length} việc cần làm</Text>
-            <Pressable onPress={() => router.push('/schedule' as never)}><Text style={g.link}>Tất cả ›</Text></Pressable>
+            <Text style={[g.sectionTitle, { flex: 1 }]}>Hôm nay vườn này có {gardenPendingTasks.length} việc cần làm</Text>
+            <View style={g.headerActionsRow}>
+              <Pressable onPress={() => router.push({ pathname: '/schedule', params: { returnToGardenId: garden.id } } as never)}><Text style={g.link}>Tất cả ›</Text></Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={tasksExpanded ? 'Thu gọn danh sách công việc hôm nay' : 'Mở rộng danh sách công việc hôm nay'}
+                onPress={() => setTasksExpanded((prev) => !prev)}
+                style={g.toggleBtn}>
+                <Text style={g.toggleBtnText}>{tasksExpanded ? 'Thu gọn ▲' : 'Mở rộng ▼'}</Text>
+              </Pressable>
+            </View>
           </View>
-          {gardenPendingTasks.slice(0, 4).map((task) => {
+          {tasksExpanded ? gardenPendingTasks.map((task) => {
             const meta = CARE_TASK_META[task.taskType] ?? CARE_TASK_META.other;
             const busy = completingTaskId === task.id;
             return (
@@ -219,7 +230,7 @@ export function GardenDetailScreen() {
                 </Pressable>
               </View>
             );
-          })}
+          }) : null}
         </View>
       ) : null}
       <View style={g.card}>
@@ -276,25 +287,43 @@ export function GardenDetailScreen() {
           </>
         ) : null}
       </View>
-      <View style={g.row}><Text style={g.sectionTitle}>Cây đang trồng ({plants.length})</Text><Pressable onPress={() => router.push({ pathname: '/garden/add-plant', params: { gardenId: garden.id } } as never)}><Text style={g.link}>＋ Thêm cây</Text></Pressable></View>
-      {plants.map((plant) => (
+      <View style={g.row}>
+        <Text style={[g.sectionTitle, { flex: 1 }]}>Cây đang trồng ({plants.length})</Text>
+        <View style={g.headerActionsRow}>
+          <Pressable onPress={() => router.push({ pathname: '/garden/add-plant', params: { gardenId: garden.id } } as never)}><Text style={g.link}>＋ Thêm cây</Text></Pressable>
+          {plants.length > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={plantsExpanded ? 'Thu gọn danh sách cây đang trồng' : 'Mở rộng danh sách cây đang trồng'}
+              onPress={() => setPlantsExpanded((prev) => !prev)}
+              style={g.toggleBtn}>
+              <Text style={g.toggleBtnText}>{plantsExpanded ? 'Thu gọn ▲' : 'Mở rộng ▼'}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+      {plantsExpanded ? plants.map((plant) => (
         <View key={plant.id} style={g.plantCard}>
-          <PlantArtwork category={catalog.find((item) => item.id === plant.catalogId)?.category ?? 'Cây trồng'} accessToken={accessToken} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null} style={g.plantImage}/>
-          <View style={g.plantCopy}>
-            <Text style={g.plantName}>{plant.name}</Text>
-            <Text style={g.body}>{plant.scientificName} • {plant.location || 'Chưa có vị trí cụ thể'}</Text>
-          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Xem chi tiết ${plant.name}`}
+            onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id, returnToGardenId: garden.id } } as never)}
+            style={g.plantCardMain}>
+            <PlantArtwork category={catalog.find((item) => item.id === plant.catalogId)?.category ?? 'Cây trồng'} accessToken={accessToken} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null} style={g.plantImage}/>
+            <View style={g.plantCopy}>
+              <Text style={g.plantName}>{plant.name}</Text>
+              <Text style={g.body}>{plant.scientificName} • {plant.location || 'Chưa có vị trí cụ thể'}</Text>
+            </View>
+            <Text style={g.link}>›</Text>
+          </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel={`Chuyển vườn cho ${plant.name}`} onPress={() => setMovingPlant(plant)} style={g.moveBtn}>
             <Text style={g.moveBtnText}>Chuyển</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={`Xem chi tiết ${plant.name}`} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id } } as never)}>
-            <Text style={g.link}>›</Text>
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel={`Xóa ${plant.name} khỏi vườn`} onPress={() => Alert.alert('Xóa cây', `Xóa hồ sơ “${plant.name}” khỏi tài khoản?`, [{ text: 'Hủy', style: 'cancel' }, { text: 'Xóa cây', style: 'destructive', onPress: () => void removePlant(plant.id).catch((error) => Alert.alert('Không thể xóa cây', error instanceof Error ? error.message : 'Vui lòng thử lại.')) }])}>
             <Text style={g.deleteLink}>Xóa</Text>
           </Pressable>
         </View>
-      ))}
+      )) : null}
       {plants.length === 0 ? <Text style={g.note}>Khu vườn chưa có cây.</Text> : null}
       <ActionButton label="Chỉnh sửa thông tin vườn" onPress={() => router.push({ pathname: '/garden/create', params: { editGardenId: garden.id } } as never)}/>
       <ActionButton secondary label="Xóa khu vườn" onPress={() => Alert.alert('Xóa khu vườn', 'Cây trong vườn sẽ được giữ lại và chuyển sang trạng thái chưa phân vườn.', [{ text: 'Hủy', style: 'cancel' }, { text: 'Xóa vườn', style: 'destructive', onPress: () => void removeGarden(garden.id).then(() => router.replace('/gardens' as never)).catch((error) => Alert.alert('Không thể xóa vườn', error instanceof Error ? error.message : 'Vui lòng thử lại.')) }])}/>
@@ -576,7 +605,7 @@ export function AddGardenPlantScreen() { return <GardenForm addPlant/>; }
 
 const g = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.background }, header: { height: 52, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, back: { width: 34 }, backText: { color: C.forest, fontSize: 29 }, headerTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 }, profile: { width: 29, height: 29, borderRadius: 15, overflow: 'hidden', backgroundColor: C.forest, color: C.surface, textAlign: 'center', textAlignVertical: 'center', fontFamily: F.bold }, deleteLink: { color: '#A12D24', fontFamily: F.semiBold, fontSize: 10 },
-  content: { padding: 13, gap: 9, paddingBottom: 24 }, hero: { height: 180, borderRadius: 15, backgroundColor: '#DCEDE0', alignItems: 'center', justifyContent: 'center' }, heroPlant: { color: '#508664', fontSize: 64 }, heroLabel: { color: C.forest, fontFamily: F.bold, fontSize: 10, letterSpacing: 1 }, title: { color: C.forest, fontFamily: F.bold, fontSize: 19 }, body: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11, lineHeight: 17 }, metrics: { flexDirection: 'row', gap: 7 }, metric: { flex: 1, padding: 9, borderRadius: 11, backgroundColor: C.surface }, metricValue: { color: C.forest, fontFamily: F.bold, fontSize: 15 }, card: { padding: 11, borderRadius: 14, backgroundColor: C.surface, gap: 8 }, sectionTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 }, row: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'space-between' }, link: { color: C.primary, fontFamily: F.semiBold, fontSize: 11 }, icon: { color: C.forest, fontSize: 16 }, time: { color: C.primary, fontFamily: F.semiBold, fontSize: 10 }, plantCard: { minHeight: 66, padding: 8, borderRadius: 12, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 9 }, selectedPlant: { borderWidth: 1, borderColor: C.primary, backgroundColor: '#E5F4E9' }, plantImage: { width: 46, height: 46, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: C.softSurface }, plantEmoji: { fontSize: 22 }, plantCopy: { flex: 1 }, plantName: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 }, action: { minHeight: 44, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, actionText: { color: C.surface, fontFamily: F.semiBold, fontSize: 12 }, actionSecondary: { backgroundColor: C.softSurface }, actionTextSecondary: { color: C.forest }, note: { color: C.mutedText, fontFamily: F.regular, fontSize: 9, textAlign: 'center' },
+  content: { padding: 13, gap: 9, paddingBottom: 24 }, hero: { height: 180, borderRadius: 15, backgroundColor: '#DCEDE0', alignItems: 'center', justifyContent: 'center' }, heroPlant: { color: '#508664', fontSize: 64 }, heroLabel: { color: C.forest, fontFamily: F.bold, fontSize: 10, letterSpacing: 1 }, title: { color: C.forest, fontFamily: F.bold, fontSize: 19 }, body: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11, lineHeight: 17 }, metrics: { flexDirection: 'row', gap: 7 }, metric: { flex: 1, padding: 9, borderRadius: 11, backgroundColor: C.surface }, metricValue: { color: C.forest, fontFamily: F.bold, fontSize: 15 }, card: { padding: 11, borderRadius: 14, backgroundColor: C.surface, gap: 8 }, sectionTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 }, row: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'space-between' }, link: { color: C.primary, fontFamily: F.semiBold, fontSize: 11 }, icon: { color: C.forest, fontSize: 16 }, time: { color: C.primary, fontFamily: F.semiBold, fontSize: 10 }, plantCard: { minHeight: 66, padding: 8, borderRadius: 12, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 9 }, plantCardMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 9 }, selectedPlant: { borderWidth: 1, borderColor: C.primary, backgroundColor: '#E5F4E9' }, plantImage: { width: 46, height: 46, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: C.softSurface }, plantEmoji: { fontSize: 22 }, plantCopy: { flex: 1 }, plantName: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 }, action: { minHeight: 44, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, actionText: { color: C.surface, fontFamily: F.semiBold, fontSize: 12 }, actionSecondary: { backgroundColor: C.softSurface }, actionTextSecondary: { color: C.forest }, note: { color: C.mutedText, fontFamily: F.regular, fontSize: 9, textAlign: 'center' },
   tip: { padding: 12, borderRadius: 12, backgroundColor: C.softSurface, gap: 4 }, label: { color: C.text, fontFamily: F.semiBold, fontSize: 12, marginTop: 4 }, required: { color: C.terracotta }, input: { minHeight: 44, paddingHorizontal: 12, borderRadius: 9, backgroundColor: C.surface, color: C.text, fontFamily: F.regular, fontSize: 12 }, inputError: { borderWidth: 1, borderColor: '#C62828' }, multiline: { height: 80, textAlignVertical: 'top', paddingTop: 10 }, choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, choice: { paddingHorizontal: 10, paddingVertical: 9, borderRadius: 9, backgroundColor: C.surface }, choiceActive: { borderWidth: 1, borderColor: C.primary, backgroundColor: '#E0F2E6' }, heroSmall: { height: 100, borderRadius: 12, backgroundColor: '#E0EEE3', alignItems: 'center', justifyContent: 'center' }, error: { color: '#B42318', fontFamily: F.regular, fontSize: 11 },
   weatherTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   weatherIcon: { fontSize: 30, lineHeight: 36 },
@@ -585,6 +614,7 @@ const g = StyleSheet.create({
   alertTitle: { color: C.terracotta, fontFamily: F.bold, fontSize: 11 },
   alertText: { color: C.terracotta, fontFamily: F.regular, fontSize: 11, lineHeight: 16 },
   suggestSection: { gap: 8, marginTop: 4 },
+  headerActionsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   toggleBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99, backgroundColor: C.softSurface, borderWidth: 1, borderColor: '#CBE3D3' },
   toggleBtnText: { color: C.forest, fontFamily: F.semiBold, fontSize: 11 },
   suggestList: { gap: 8 },
