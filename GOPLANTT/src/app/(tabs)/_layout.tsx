@@ -8,11 +8,11 @@ import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { useAppPreferences } from '@/features/preferences/AppPreferences';
 
 const tabs = [
-  { name: 'home', label: 'Trang chủ', icon: '⌂' },
-  { name: 'gardens', label: 'Vườn của tôi', icon: '▦' },
-  { name: 'plants', label: 'Cây trồng', icon: '♧' },
-  { name: 'journal', label: 'Nhật ký của tôi', icon: '▤' },
-  { name: 'monitoring', label: 'Theo dõi', icon: '☼' },
+  { name: 'home', label: 'Trang chủ', icon: '🏠' },
+  { name: 'gardens', label: 'Vườn của tôi', icon: '🏡' },
+  { name: 'plants', label: 'Cây trồng', icon: '🪴' },
+  { name: 'journal', label: 'Nhật ký của tôi', icon: '📝' },
+  { name: 'monitoring', label: 'Theo dõi', icon: '🩺' },
 ];
 
 const titles: Record<string, string> = {
@@ -44,7 +44,9 @@ function MainTabBar({ state, navigation }: BottomTabBarProps) {
               if (!event.defaultPrevented) navigation.navigate(route.name as never);
             }}
             style={styles.navItem}>
-            <Text style={[styles.navIcon, selected && styles.active]}>{tab.icon}</Text>
+            <View style={[styles.navIconWrap, selected && styles.navIconWrapActive]}>
+              <Text style={[styles.navIcon, !selected && styles.navIconMuted]}>{tab.icon}</Text>
+            </View>
             <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.navLabel, selected && styles.active]}>{tab.label}</Text>
           </Pressable>
         );
@@ -77,8 +79,11 @@ export default function MainTabsLayout() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.background },
   bottomNav: { width: '100%', maxWidth: 760, minHeight: 60, paddingHorizontal: 3, alignSelf: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#DDE8E0', backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center' },
-  navItem: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 2 },
-  navIcon: { color: C.secondaryText, fontSize: 18, lineHeight: 22 },
+  navItem: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 2, paddingVertical: 4 },
+  navIconWrap: { width: 36, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  navIconWrapActive: { backgroundColor: '#DFF3E6' },
+  navIcon: { fontSize: 17, lineHeight: 21 },
+  navIconMuted: { opacity: 0.72 },
   navLabel: { color: C.secondaryText, fontFamily: F.regular, fontSize: 9 },
   active: { color: C.forest, fontFamily: F.semiBold },
 });

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from '@/components/app-primitives';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from '@/components/app-primitives';
@@ -22,6 +22,41 @@ function InfoRow({ label, value }: { label: string; value?: string }) {
   return <View style={d.infoRow}><Text style={d.infoLabel}>{label}</Text><Text style={d.infoValue}>{value?.trim() || missing}</Text></View>;
 }
 
+function CollapsibleCard({
+  title,
+  expanded = true,
+  onToggle,
+  rightAction,
+  children,
+}: {
+  title: string;
+  expanded?: boolean;
+  onToggle?: () => void;
+  rightAction?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <View style={d.card}>
+      <View style={d.cardHeaderRow}>
+        <Text style={[d.sectionTitle, d.cardTitleFlex]}>{title}</Text>
+        <View style={d.cardHeaderActions}>
+          {rightAction}
+          {onToggle ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${expanded ? 'Thu gọn' : 'Mở rộng'} ${title}`}
+              onPress={onToggle}
+              style={d.toggleBtn}>
+              <Text style={d.toggleBtnText}>{expanded ? 'Thu gọn ▲' : 'Mở rộng ▼'}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+      {expanded ? children : null}
+    </View>
+  );
+}
+
 export default function PlantDetailScreen() {
   const { name, ownedId, returnToGardenId } = useLocalSearchParams<{ name?: string; ownedId?: string; returnToGardenId?: string }>();
   const { catalog, ownedPlants, gardens, favorites, toggleFavorite, updatePlantPhoto, removePlant } = usePlantData();
@@ -29,6 +64,12 @@ export default function PlantDetailScreen() {
   const { schedules } = useCareSchedules();
   const { accessToken } = useAuthSession();
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    overview: false,
+    characteristics: false,
+  });
+  const isSectionExpanded = (key: string) => expandedSections[key] !== false;
+  const toggleSection = (key: string) => setExpandedSections((prev) => ({ ...prev, [key]: !(prev[key] !== false) }));
   const owned = ownedPlants.find((item) => item.id === ownedId);
   const currentGarden = owned?.gardenId ? gardens.find((item) => item.id === owned.gardenId) : undefined;
   const healthLabel = owned ? getLatestHealthLabel(owned.id, journals) : 'Chưa đánh giá';
@@ -71,29 +112,30 @@ export default function PlantDetailScreen() {
       <View style={d.hero}><PlantArtwork category={plant.category} photoUri={photoUri} accessToken={accessToken} style={d.heroArtwork}/><Text style={d.heroBadge}>{owned?.photoUpdatedAt ? 'ẢNH CÂY CỦA BẠN' : 'ẢNH MẶC ĐỊNH'}</Text></View>
       <View style={d.titleRow}><View style={d.copy}><Text style={d.title}>{owned?.name ?? plant.name}</Text><Text style={d.latin}>{plant.scientificName}</Text><View style={d.tags}><Text style={d.tag}>{plant.category}</Text><Text style={d.tag}>{owned ? 'Cây đang sở hữu' : 'Cây tham khảo'}</Text></View></View></View>
 
-      {owned ? <View style={d.card}>
-        <Text style={d.sectionTitle}>Hồ sơ cây của bạn</Text>
-        <InfoRow label="Khu vườn hiện tại" value={currentGarden?.name ?? 'Chưa phân vườn'} />
-        <InfoRow label="Ngày trồng / bắt đầu chăm sóc" value={owned.plantedAt} />
-        <InfoRow label="Vị trí hiện tại" value={owned.location} />
-        <InfoRow label="Ghi chú" value={owned.note} />
-        <InfoRow label="Tình trạng" value={healthLabel} />
-        <Text style={d.note}>Hồ sơ cây được lưu trong tài khoản GoPlant của bạn.</Text>
-        <Pressable accessibilityRole="button" disabled={uploadingPhoto} onPress={() => void replacePhoto()} style={[d.photoButton, uploadingPhoto && d.photoButtonDisabled]}>
-          <Text style={d.photoButtonText}>{uploadingPhoto ? 'Đang tải ảnh…' : owned.photoUpdatedAt ? 'Thay ảnh cây' : 'Tải ảnh lên thay ảnh mặc định'}</Text>
-        </Pressable>
-      </View> : null}
+      {owned ? (
+        <CollapsibleCard title="Hồ sơ cây của bạn" expanded={isSectionExpanded('profile')} onToggle={() => toggleSection('profile')}>
+          <InfoRow label="Khu vườn hiện tại" value={currentGarden?.name ?? 'Chưa phân vườn'} />
+          <InfoRow label="Ngày trồng / bắt đầu chăm sóc" value={owned.plantedAt} />
+          <InfoRow label="Vị trí hiện tại" value={owned.location} />
+          <InfoRow label="Ghi chú" value={owned.note} />
+          <InfoRow label="Tình trạng" value={healthLabel} />
+          <Text style={d.note}>Hồ sơ cây được lưu trong tài khoản GoPlant của bạn.</Text>
+          <Pressable accessibilityRole="button" disabled={uploadingPhoto} onPress={() => void replacePhoto()} style={[d.photoButton, uploadingPhoto && d.photoButtonDisabled]}>
+            <Text style={d.photoButtonText}>{uploadingPhoto ? 'Đang tải ảnh…' : owned.photoUpdatedAt ? 'Thay ảnh cây' : 'Tải ảnh lên thay ảnh mặc định'}</Text>
+          </Pressable>
+        </CollapsibleCard>
+      ) : null}
 
       {owned ? (
-        <View style={d.card}>
-          <View style={d.scheduleHeader}>
-            <Text style={d.sectionTitle}>Theo dõi & Nhật ký</Text>
+        <CollapsibleCard
+          title="Theo dõi & Nhật ký"
+          rightAction={
             <Pressable
               accessibilityRole="button"
               onPress={() => router.push({ pathname: '/journal/new', params: { plantId: owned.id } } as never)}>
               <Text style={d.scheduleCreateLink}>＋ Ghi nhật ký</Text>
             </Pressable>
-          </View>
+          }>
           <View style={d.quickLinksRow}>
             <Pressable
               accessibilityRole="button"
@@ -108,31 +150,28 @@ export default function PlantDetailScreen() {
               <Text style={d.quickLinkText}>♡ Theo dõi sức khỏe ›</Text>
             </Pressable>
           </View>
-        </View>
+        </CollapsibleCard>
       ) : null}
 
-      <View style={d.card}>
-        <Text style={d.sectionTitle}>Thông tin nhận diện</Text>
+      <CollapsibleCard title="Thông tin nhận diện" expanded={isSectionExpanded('identity')} onToggle={() => toggleSection('identity')}>
         <InfoRow label="Tên cây" value={plant.name} />
         <InfoRow label="Tên khoa học" value={plant.scientificName} />
         <InfoRow label="Loại cây" value={plant.category} />
         <InfoRow label="Nguồn gốc" value={plant.origin} />
         <InfoRow label="Mô tả ngắn" value={plant.overview} />
         <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(`https://powo.science.kew.org/results?q=${encodeURIComponent(plant.scientificName)}`)}><Text style={d.sourceLink}>Tra cứu phân loại và vùng phân bố tại Kew ↗</Text></Pressable>
-      </View>
+      </CollapsibleCard>
 
-      <View style={d.card}>
-        <Text style={d.sectionTitle}>Tổng quan về cây</Text>
+      <CollapsibleCard title="Tổng quan về cây" expanded={isSectionExpanded('overview')} onToggle={() => toggleSection('overview')}>
         <InfoRow label="Đặc điểm hình thái" value={plant.morphology} />
         <InfoRow label="Nguồn gốc và phân bố" value={plant.origin} />
         <InfoRow label="Đặc điểm sinh trưởng" value={plant.overview} />
         <InfoRow label="Tuổi thọ" value={plant.lifespan} />
         <InfoRow label="Mùa hoa / mùa quả" value={plant.floweringSeason} />
         <InfoRow label="Công dụng và lưu ý" value={plant.usageAndCaution} />
-      </View>
+      </CollapsibleCard>
 
-      <View style={d.card}>
-        <Text style={d.sectionTitle}>Đặc tính và điều kiện sinh trưởng</Text>
+      <CollapsibleCard title="Đặc tính và điều kiện sinh trưởng" expanded={isSectionExpanded('characteristics')} onToggle={() => toggleSection('characteristics')}>
         <InfoRow label="Độ khó chăm sóc" value={plant.difficulty} />
         <InfoRow label="Nhu cầu ánh sáng" value={plant.light} />
         <InfoRow label="Nhu cầu nước" value={plant.water} />
@@ -147,18 +186,18 @@ export default function PlantDetailScreen() {
         <InfoRow label="Độ pH đất" value={plant.soilPh} />
         <InfoRow label="Nhu cầu dinh dưỡng" value={plant.nutrition} />
         <Text style={d.note}>Các điều kiện chưa có nguồn dữ liệu được để trống về giá trị; đây không phải khuyến nghị chăm sóc.</Text>
-      </View>
+      </CollapsibleCard>
 
       {owned ? (
-        <View style={d.card}>
-          <View style={d.scheduleHeader}>
-            <Text style={d.sectionTitle}>Lịch chăm sóc ({plantSchedules.length})</Text>
+        <CollapsibleCard
+          title={`Lịch chăm sóc (${plantSchedules.length})`}
+          rightAction={
             <Pressable
               accessibilityRole="button"
               onPress={() => router.push({ pathname: '/schedule/create', params: { plantId: owned.id } } as never)}>
               <Text style={d.scheduleCreateLink}>＋ Lên lịch chăm sóc</Text>
             </Pressable>
-          </View>
+          }>
           {plantSchedules.length === 0 ? (
             <Text style={d.infoLabel}>Cây chưa có lịch chăm sóc định kỳ.</Text>
           ) : (
@@ -177,7 +216,7 @@ export default function PlantDetailScreen() {
               );
             })
           )}
-        </View>
+        </CollapsibleCard>
       ) : null}
 
       <View style={d.actions}>
@@ -226,4 +265,9 @@ const d = StyleSheet.create({
   quickLinkText: { color: C.forest, fontFamily: F.semiBold, fontSize: 11 },
   deleteButton: { minHeight: 44, paddingHorizontal: 10, borderRadius: 10, backgroundColor: '#FCEBE9', alignItems: 'center', justifyContent: 'center' },
   deleteButtonText: { color: '#A12D24', fontFamily: F.semiBold, fontSize: 12 },
+  cardHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 },
+  cardTitleFlex: { flex: 1, marginBottom: 0 },
+  cardHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  toggleBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99, backgroundColor: C.softSurface, borderWidth: 1, borderColor: '#CBE3D3' },
+  toggleBtnText: { color: C.forest, fontFamily: F.semiBold, fontSize: 10 },
 });

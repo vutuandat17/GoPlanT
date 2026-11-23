@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from '@/components/app-primitives';
 
@@ -18,6 +18,7 @@ type SearchResultItem = FilterPlant & {
   ownedId?: string;
   catalogId?: string;
   gardenName?: string;
+  overview?: string;
   latin: string;
   detail: string;
   photoUri?: string | null;
@@ -33,8 +34,23 @@ function SearchHeader({ query, onQueryChange, onFilter }: { query: string; onQue
 
 function SearchResult({ item, accessToken, onAdd, onFavorite }: { item: SearchResultItem; accessToken: string | null; onAdd: () => void; onFavorite: () => void }) {
   return <View style={ss.resultCard}>
-    <View style={ss.resultTop}><PlantArtwork category={item.category} photoUri={item.photoUri} accessToken={accessToken} style={ss.resultImage}/><View style={ss.resultCopy}><Text style={ss.resultName}>{item.name}</Text><Text style={ss.latin}>{item.latin}</Text><Text style={ss.body}>{item.owned ? `Đang sở hữu • Vườn: ${item.gardenName}${item.location ? ` (${item.location})` : ''}` : `${item.category} • Thư viện mẫu`}</Text></View><Pressable accessibilityRole="button" accessibilityLabel={item.isFavorite ? 'Bỏ yêu thích' : 'Yêu thích'} onPress={onFavorite}><Text style={ss.favorite}>{item.isFavorite ? '♥' : '♡'}</Text></Pressable></View>
-    <Text style={ss.statusLine}>{item.owned ? 'Đang trồng trong vườn của bạn • Bấm "Tiếp tục trồng" để trồng thêm' : 'Một số thông tin sinh trưởng chưa có dữ liệu trong thư viện mẫu.'}</Text>
+    <View style={ss.resultTop}>
+      <PlantArtwork category={item.category} photoUri={item.photoUri} accessToken={accessToken} style={ss.resultImage}/>
+      <View style={ss.resultCopy}>
+        <Text style={ss.resultName}>{item.name}</Text>
+        <Text style={ss.latin}>{item.latin}</Text>
+        <Text style={ss.body}>{item.owned ? `🏡 Đang sở hữu • Vườn: ${item.gardenName}${item.location ? ` (${item.location})` : ''}` : `🌿 ${item.category} • Thư viện GoPlant`}</Text>
+      </View>
+      <Pressable accessibilityRole="button" accessibilityLabel={item.isFavorite ? 'Bỏ yêu thích' : 'Yêu thích'} onPress={onFavorite}><Text style={ss.favorite}>{item.isFavorite ? '♥' : '♡'}</Text></Pressable>
+    </View>
+    {item.overview ? <Text style={ss.overviewLine} numberOfLines={2}>{item.overview}</Text> : null}
+    <View style={ss.chipsRow}>
+      <Text style={ss.chipCat}>🌿 {item.category}</Text>
+      {item.owned ? <Text style={ss.chipOwned}>🏡 {item.gardenName}</Text> : null}
+      {item.light ? <Text style={ss.chipSun}>☀️ {item.light}</Text> : null}
+      {item.water ? <Text style={ss.chipWater}>💧 {item.water}</Text> : null}
+      {item.difficulty ? <Text style={ss.chipDiff}>🌱 {item.difficulty}</Text> : null}
+    </View>
     <View style={ss.actions}><Pressable onPress={() => router.push({ pathname: '/plant-detail', params: { name: item.name, ...(item.ownedId ? { ownedId: item.ownedId } : {}) } } as never)} style={[ss.action, ss.actionLight]}><Text style={ss.actionLightText}>Xem chi tiết</Text></Pressable><Pressable onPress={onAdd} style={ss.action}><Text style={ss.actionText}>{item.owned ? '＋ Tiếp tục trồng' : '＋ Thêm vào cây của tôi'}</Text></Pressable></View>
   </View>;
 }
@@ -47,6 +63,8 @@ export function SearchScreen() {
   const { accessToken } = useAuthSession();
   const [query, setQuery] = useState(params.query ?? 'Trầu bà');
   const [scope, setScope] = useState('Tất cả');
+  const [expandedScopes, setExpandedScopes] = useState<Record<string, boolean>>({});
+  const isExpanded = expandedScopes[scope] !== false;
   const filtersParam = (params as typeof params & { filters?: string | string[] }).filters;
   const filters = useMemo<PlantFilterState>(() => {
     try { return JSON.parse(Array.isArray(filtersParam) ? filtersParam[0] : filtersParam ?? '{}') as PlantFilterState; }
@@ -54,16 +72,23 @@ export function SearchScreen() {
   }, [filtersParam]);
   const ownedCatalogIds = useMemo(() => new Set(ownedPlants.map((plant) => plant.catalogId)), [ownedPlants]);
   const rows = useMemo<SearchResultItem[]>(() => [
-    ...ownedPlants.map((plant) => ({
-      ...toOwnedFilterPlant(plant, journals, todayTasks, schedules, favorites.includes(plant.catalogId)),
-      latin: plant.scientificName,
-      owned: true,
-      ownedId: plant.id,
-      catalogId: plant.catalogId,
-      gardenName: gardens.find((garden) => garden.id === plant.gardenId)?.name ?? 'Chưa phân vườn',
-      detail: getLatestHealthLabel(plant.id, journals),
-      photoUri: plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null,
-    })),
+    ...ownedPlants.map((plant) => {
+      const cat = catalog.find((c) => c.id === plant.catalogId);
+      return {
+        ...toOwnedFilterPlant(plant, journals, todayTasks, schedules, favorites.includes(plant.catalogId)),
+        latin: plant.scientificName,
+        owned: true,
+        ownedId: plant.id,
+        catalogId: plant.catalogId,
+        gardenName: gardens.find((garden) => garden.id === plant.gardenId)?.name ?? 'Chưa phân vườn',
+        light: cat?.light,
+        water: cat?.water,
+        difficulty: cat?.difficulty,
+        overview: cat?.overview,
+        detail: getLatestHealthLabel(plant.id, journals),
+        photoUri: plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null,
+      };
+    }),
     ...catalog.map((plant) => ({ ...plant, latin: plant.scientificName, owned: false, detail: 'Thông tin từ danh mục cây', isFavorite: favorites.includes(plant.id) })),
   ], [ownedPlants, gardens, catalog, favorites, journals, todayTasks, schedules]);
   const favoriteCount = useMemo(() => rows.filter((item) => Boolean(item.isFavorite) && (item.owned || !ownedCatalogIds.has(item.id))).length, [rows, ownedCatalogIds]);
@@ -91,7 +116,7 @@ export function SearchScreen() {
       <Text style={ss.kicker}>⌕ Đang tìm kiếm cho từ khóa: <Text style={ss.bold}>“{query || 'cây trồng'}”</Text></Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={ss.pills}>{['Tất cả', 'Trong vườn của tôi', 'Cây yêu thích'].map((item) => { const label = item === 'Tất cả' ? item : item === 'Trong vườn của tôi' ? `${item}  ${ownedPlants.length}` : `${item}  ${favoriteCount}`; return <Pressable key={item} onPress={() => setScope(item)} style={[ss.scope, scope === item && ss.scopeActive]}><Text style={[ss.scopeText, scope === item && ss.scopeTextActive]}>{label}</Text></Pressable>; })}</ScrollView>
       {relatedKeywords.length > 0 ? <><Text style={ss.kicker}>GỢI Ý TỪ KHÓA LIÊN QUAN</Text><View style={ss.suggestions}>{relatedKeywords.map((item) => <Pressable key={item} onPress={() => setQuery(item)} style={ss.suggestion}><Text style={ss.body}>⌕  {item}</Text></Pressable>)}</View></> : null}
-      {list.length ? <><View style={ss.sectionRow}><Text style={ss.sectionTitle}>{scope === 'Cây yêu thích' ? 'Cây yêu thích của bạn' : scope === 'Trong vườn của tôi' ? 'Cây đang sở hữu' : 'Cây trồng phù hợp'}</Text><Text style={ss.body}>{list.length} kết quả</Text></View>{list.map((item) => <SearchResult key={`${item.ownedId ?? item.id}`} item={item} accessToken={accessToken} onAdd={() => router.push({ pathname: '/garden/add-plant', params: { plantId: item.catalogId ?? item.id } } as never)} onFavorite={() => toggleFavorite(item.catalogId ?? item.id)} />)}</> : <View style={ss.emptyCard}><View style={ss.emptyIcon}><Text style={ss.emptyPlant}>♧</Text></View><Text style={ss.emptyTitle}>Không tìm thấy kết quả phù hợp</Text><Text style={ss.queryText}>“{query}”</Text><Text style={ss.bodyCenter}>Thử xóa bộ lọc hoặc tìm bằng tên thường gọi.</Text><Pressable onPress={openFilter} style={ss.action}><Text style={ss.actionText}>Mở bộ lọc</Text></Pressable></View>}
+      {list.length ? <><View style={ss.sectionRow}><Text style={ss.sectionTitle}>{scope === 'Cây yêu thích' ? 'Cây yêu thích của bạn' : scope === 'Trong vườn của tôi' ? 'Cây đang sở hữu' : 'Cây trồng phù hợp'}</Text><View style={ss.sectionRight}>{scope !== 'Tất cả' ? <Text style={ss.body}>{list.length} cây</Text> : null}<Pressable accessibilityRole="button" accessibilityLabel={isExpanded ? 'Thu gọn danh sách' : 'Mở rộng danh sách'} onPress={() => setExpandedScopes((prev) => ({ ...prev, [scope]: !isExpanded }))} style={ss.toggleBtn}><Text style={ss.toggleBtnText}>{isExpanded ? 'Thu gọn ▲' : 'Mở rộng ▼'}</Text></Pressable></View></View>{isExpanded ? list.map((item) => <SearchResult key={`${item.ownedId ?? item.id}`} item={item} accessToken={accessToken} onAdd={() => router.push({ pathname: '/garden/add-plant', params: { plantId: item.catalogId ?? item.id } } as never)} onFavorite={() => toggleFavorite(item.catalogId ?? item.id)} />) : <View style={ss.collapsedBrandBox}><View style={ss.collapsedLogoRing}><Image source={require('@/assets/images/figma/welcome/logo.jpeg')} style={ss.collapsedLogo} resizeMode="cover" /></View><Text style={ss.collapsedBrandTitle}>GoPlant</Text><Text style={ss.collapsedBrandDesc}>Người bạn đồng hành giúp bạn chăm sóc khu vườn xanh, theo dõi từng chậu cây và lưu giữ hành trình phát triển mỗi ngày.</Text></View>}</> : <View style={ss.emptyCard}><View style={ss.emptyIcon}><Text style={ss.emptyPlant}>♧</Text></View><Text style={ss.emptyTitle}>Không tìm thấy kết quả phù hợp</Text><Text style={ss.queryText}>“{query}”</Text><Text style={ss.bodyCenter}>Thử xóa bộ lọc hoặc tìm bằng tên thường gọi.</Text><Pressable onPress={openFilter} style={ss.action}><Text style={ss.actionText}>Mở bộ lọc</Text></Pressable></View>}
     </ScrollView>
   </SafeAreaView>;
 }
@@ -155,7 +180,19 @@ const ss = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.background }, header: { minHeight: 56, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#DDE8E0' }, back: { width: 28 }, backText: { color: C.forest, fontSize: 30 },
   searchBox: { flex: 1, minHeight: 40, paddingHorizontal: 9, borderWidth: 1, borderColor: '#CBDACF', borderRadius: 99, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 5 }, searchIcon: { color: C.secondaryText, fontSize: 21 }, searchInput: { flex: 1, color: C.text, fontFamily: F.regular, fontSize: 12 }, clear: { color: C.secondaryText, fontSize: 20 }, filterButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 9, backgroundColor: C.softSurface }, filterGlyph: { color: C.forest, fontSize: 20 },
   content: { padding: 12, gap: 10 }, kicker: { color: C.secondaryText, fontFamily: F.semiBold, fontSize: 10, lineHeight: 15 }, bold: { color: C.forest, fontFamily: F.bold }, pills: { flexDirection: 'row', gap: 6 }, scope: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 99, backgroundColor: '#E6EEE8' }, scopeActive: { backgroundColor: C.forest }, scopeText: { color: C.secondaryText, fontFamily: F.semiBold, fontSize: 10 }, scopeTextActive: { color: C.surface }, suggestions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, suggestion: { paddingHorizontal: 9, paddingVertical: 6, borderRadius: 99, backgroundColor: '#E8F0E9' }, body: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11, lineHeight: 16 },
-  sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, sectionTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 }, resultCard: { padding: 10, borderRadius: 13, backgroundColor: C.surface, gap: 7 }, resultTop: { flexDirection: 'row', alignItems: 'center', gap: 9 }, resultImage: { width: 58, height: 58, borderRadius: 10 }, plantEmoji: { fontSize: 26 }, resultCopy: { flex: 1, gap: 2 }, resultName: { color: C.forest, fontFamily: F.semiBold, fontSize: 13 }, latin: { color: C.mutedText, fontFamily: F.regular, fontStyle: 'italic', fontSize: 10 }, favorite: { color: C.terracotta, fontSize: 23 }, dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: C.peach }, dotGood: { backgroundColor: '#66B98A' }, statusLine: { padding: 7, borderRadius: 8, backgroundColor: C.softSurface, color: C.secondaryText, fontFamily: F.regular, fontSize: 10 }, actions: { flexDirection: 'row', gap: 7 }, action: { flex: 1, minHeight: 37, paddingHorizontal: 9, borderRadius: 9, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, actionText: { color: C.surface, fontFamily: F.semiBold, fontSize: 10 }, actionLight: { backgroundColor: C.softSurface }, actionLightText: { color: C.secondaryText, fontFamily: F.semiBold, fontSize: 10 },
+  sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, sectionRight: { flexDirection: 'row', alignItems: 'center', gap: 8 }, toggleBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99, backgroundColor: C.softSurface, borderWidth: 1, borderColor: '#CBE3D3' }, toggleBtnText: { color: C.forest, fontFamily: F.semiBold, fontSize: 10 }, sectionTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14, flex: 1 }, resultCard: { padding: 10, borderRadius: 13, backgroundColor: C.surface, gap: 7 }, resultTop: { flexDirection: 'row', alignItems: 'center', gap: 9 }, resultImage: { width: 58, height: 58, borderRadius: 10 }, plantEmoji: { fontSize: 26 }, resultCopy: { flex: 1, gap: 2 }, resultName: { color: C.forest, fontFamily: F.semiBold, fontSize: 13 }, latin: { color: C.mutedText, fontFamily: F.regular, fontStyle: 'italic', fontSize: 10 }, favorite: { color: C.terracotta, fontSize: 23 }, dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: C.peach }, dotGood: { backgroundColor: '#66B98A' }, statusLine: { padding: 7, borderRadius: 8, backgroundColor: C.softSurface, color: C.secondaryText, fontFamily: F.regular, fontSize: 10 }, actions: { flexDirection: 'row', gap: 7 }, action: { flex: 1, minHeight: 37, paddingHorizontal: 9, borderRadius: 9, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, actionText: { color: C.surface, fontFamily: F.semiBold, fontSize: 10 }, actionLight: { backgroundColor: C.softSurface }, actionLightText: { color: C.secondaryText, fontFamily: F.semiBold, fontSize: 10 },
   emptyCard: { padding: 16, borderRadius: 14, backgroundColor: C.surface, alignItems: 'center', gap: 10 }, emptyIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: C.softSurface, alignItems: 'center', justifyContent: 'center' }, emptyPlant: { color: '#83A993', fontSize: 34 }, emptyTitle: { color: C.forest, fontFamily: F.semiBold, textAlign: 'center', fontSize: 13 }, queryText: { color: C.terracotta, fontFamily: F.bold, fontSize: 16 }, bodyCenter: { color: C.secondaryText, fontFamily: F.regular, textAlign: 'center', fontSize: 11, lineHeight: 17 }, mockNote: { color: C.mutedText, fontFamily: F.regular, fontSize: 9, textAlign: 'center' },
   filterHeader: { minHeight: 54, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, filterTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 }, profile: { color: C.surface, fontFamily: F.bold, textAlign: 'center', textAlignVertical: 'center', width: 30, height: 30, borderRadius: 15, backgroundColor: C.forest }, filterContent: { padding: 12, gap: 11, paddingBottom: 22 }, toggleRow: { flexDirection: 'row', padding: 4, borderRadius: 10, backgroundColor: '#E4EDE6', gap: 4 }, toggleOption: { flex: 1, minHeight: 37, alignItems: 'center', justifyContent: 'center', borderRadius: 8 }, toggleActive: { backgroundColor: C.surface }, toggleText: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11 }, toggleTextActive: { color: C.forest, fontFamily: F.semiBold }, letters: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 }, letter: { width: 25, height: 25, alignItems: 'center', justifyContent: 'center', borderRadius: 99, backgroundColor: C.softSurface }, letterActive: { backgroundColor: C.forest }, letterText: { color: C.secondaryText, fontFamily: F.regular, fontSize: 9 }, filterGroup: { gap: 7 }, link: { color: C.primary, fontFamily: F.semiBold, fontSize: 10 }, optionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, option: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 9, backgroundColor: C.surface, borderWidth: 1, borderColor: '#E5ECE6' }, optionActive: { backgroundColor: C.forest, borderColor: C.forest }, optionText: { color: C.secondaryText, fontFamily: F.regular, fontSize: 10 }, optionTextActive: { color: C.surface, fontFamily: F.semiBold }, filterResult: { padding: 11, borderRadius: 12, backgroundColor: C.softSurface, gap: 4 }, filterFooter: { padding: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#DDE8E0', backgroundColor: C.surface, flexDirection: 'row', gap: 8 },
+  collapsedBrandBox: { alignItems: 'center', justifyContent: 'center', paddingVertical: 44, paddingHorizontal: 24, gap: 10, opacity: 0.5 },
+  collapsedLogoRing: { width: 76, height: 76, borderRadius: 38, padding: 4, backgroundColor: '#E1F3E8', alignItems: 'center', justifyContent: 'center' },
+  collapsedLogo: { width: 68, height: 68, borderRadius: 34 },
+  collapsedBrandTitle: { color: C.forest, fontFamily: F.bold, fontSize: 16, letterSpacing: 0.4 },
+  collapsedBrandDesc: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12, lineHeight: 18, textAlign: 'center', maxWidth: 280 },
+  overviewLine: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11, lineHeight: 16 },
+  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chipCat: { overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3.5, borderRadius: 8, backgroundColor: '#DFF3E6', color: C.forest, fontFamily: F.semiBold, fontSize: 10 },
+  chipOwned: { overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3.5, borderRadius: 8, backgroundColor: '#D5F2E1', color: C.forest, fontFamily: F.bold, fontSize: 10 },
+  chipSun: { overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3.5, borderRadius: 8, backgroundColor: '#FEF3C7', color: '#92400E', fontFamily: F.semiBold, fontSize: 10 },
+  chipWater: { overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3.5, borderRadius: 8, backgroundColor: '#E0F2FE', color: '#0369A1', fontFamily: F.semiBold, fontSize: 10 },
+  chipDiff: { overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3.5, borderRadius: 8, backgroundColor: '#EAF7EE', color: C.primary, fontFamily: F.semiBold, fontSize: 10 },
 });
