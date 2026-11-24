@@ -49,6 +49,45 @@ mvn spring-boot:run
 
 The bootstrap defaults to `admin@goplant.test` and runs only when that email does not already exist. Passwords must contain at least 8 characters. Existing administrator records are never overwritten, even if a different bootstrap password is provided. The current local database already has this admin; leave the bootstrap password unset to preserve it. Remove bootstrap variables after provisioning.
 
+### Start locally with Neon `dev` branch (`.env`)
+
+Khi phát triển ở máy cá nhân bằng nhánh **`dev`** trên **Neon PostgreSQL** (tách biệt hoàn toàn với nhánh `main`/`production`):
+
+1. **Cấu hình file `backend/.env`** (lấy thông số **Direct connection** của branch `dev` trên Neon Console):
+
+```env
+DATABASE_URL=jdbc:postgresql://<host-branch-dev>:5432/<dbname>?sslmode=require
+DATABASE_USERNAME=<user-cua-dev>
+DATABASE_PASSWORD=<password-cua-dev>
+
+# Có thể đặt sẵn PORT và JWT secret tại đây để không phải nhập lại mỗi lần mở terminal:
+PORT=8082
+GOPLANT_JWT_SECRET=<chuoi-bi-mat-ngau-nhien-toi-thieu-32-ky-tu>
+```
+
+> **Lưu ý:** Không lưu thông tin kết nối của branch `main`/`production` vào `backend/.env` trên máy dev.
+
+2. **Các câu lệnh khởi động Backend để test Local với Neon `dev`:**
+   - **Không** chạy `docker compose up -d postgres` và **không** chạy đoạn lấy `$env:DATABASE_PASSWORD` từ container Docker (vì biến PowerShell `$env:...` sẽ ghi đè file `.env`).
+   - Mở một terminal PowerShell mới tại `backend/` (hoặc xóa các biến DB cũ nếu trước đó từng chạy Docker trong cùng terminal) và chạy:
+
+```powershell
+cd backend
+Remove-Item Env:DATABASE_URL, Env:DATABASE_USERNAME, Env:DATABASE_PASSWORD -ErrorAction SilentlyContinue
+
+# Nếu chưa đặt PORT và GOPLANT_JWT_SECRET trong file .env thì chạy thêm:
+$env:PORT = '8082'
+$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+$bytes = New-Object byte[] 48
+$rng.GetBytes($bytes)
+$env:GOPLANT_JWT_SECRET = [Convert]::ToBase64String($bytes)
+$rng.Dispose()
+
+& "C:\tools\apache-maven-3.10.0\bin\mvn.cmd" spring-boot:run
+```
+
+*(Khi đã **deploy** Backend lên server/cloud trỏ tới branch `main`, bạn **không cần** chạy `mvn spring-boot:run` trong VS Code nữa.)*
+
 ## Authentication
 
 Register creates an account in `pending_verification`; login is allowed only after its primary email is verified. Verification tokens are random, single-use, expire after 24 hours, and only their SHA-256 hashes are stored. Registration sends a verification email through SMTP and rolls back account creation if SMTP is missing or delivery fails. The email link opens a confirmation page; the user must press its button, so automated link previews do not consume the token. SMTP credentials and a public API URL are required for registration outside local token testing:
