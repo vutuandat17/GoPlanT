@@ -13,7 +13,7 @@ import { useAuthSession } from '@/features/auth/AuthSession';
 import { useJournals } from '@/features/journal/JournalStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
 import { CARE_TASK_META, formatScheduleRepeat, formatTimeShort, useCareSchedules } from '@/features/schedule/CareScheduleStore';
-import { apiBaseUrl } from '@/services/api';
+import { apiBaseUrl, getCatalogPlantPhotoUri } from '@/services/api';
 import { safeBack } from '@/services/navigation';
 
 const missing = 'Chưa có dữ liệu';
@@ -80,7 +80,7 @@ export default function PlantDetailScreen() {
   const isFavorite = favorites.includes(plant.id);
   const photoUri = owned?.photoUpdatedAt
     ? `${apiBaseUrl}/api/v1/plants/${owned.id}/photo?v=${encodeURIComponent(owned.photoUpdatedAt)}`
-    : null;
+    : getCatalogPlantPhotoUri(plant.id, plant.photoUpdatedAt);
 
   const replacePhoto = async () => {
     if (!owned) return;

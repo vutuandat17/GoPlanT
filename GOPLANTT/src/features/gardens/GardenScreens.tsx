@@ -13,7 +13,7 @@ import { GardenArtwork } from '@/features/gardens/GardenArtwork';
 import { GardenPickerModal } from '@/features/gardens/GardenPickerModal';
 import { useJournals } from '@/features/journal/JournalStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
-import { usePlantData, type OwnedPlant } from '@/features/plants/PlantDataStore';
+import { resolvePlantPhotoUri, usePlantData, type OwnedPlant } from '@/features/plants/PlantDataStore';
 import { CARE_TASK_META, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 import { ApiError, apiBaseUrl, fetchGardenWeather, fetchWeatherProvinces, getGardenPhotoUri, type ApiGardenWeather, type ApiProvince } from '@/services/api';
 
@@ -309,7 +309,7 @@ export function GardenDetailScreen() {
             accessibilityLabel={`Xem chi tiết ${plant.name}`}
             onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id, returnToGardenId: garden.id } } as never)}
             style={g.plantCardMain}>
-            <PlantArtwork category={catalog.find((item) => item.id === plant.catalogId)?.category ?? 'Cây trồng'} accessToken={accessToken} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null} style={g.plantImage}/>
+            <PlantArtwork category={catalog.find((item) => item.id === plant.catalogId)?.category ?? 'Cây trồng'} accessToken={accessToken} photoUri={resolvePlantPhotoUri(plant, catalog)} style={g.plantImage}/>
             <View style={g.plantCopy}>
               <Text style={g.plantName}>{plant.name}</Text>
               <Text style={g.body}>{plant.scientificName} • {plant.location || 'Chưa có vị trí cụ thể'}</Text>
@@ -542,14 +542,14 @@ function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
     <Text style={g.label}>Mô tả (không bắt buộc)</Text><TextInput value={description} onChangeText={setDescription} placeholder="Thêm ghi chú cho khu vườn..." style={[g.input, g.multiline]} multiline/></> : <>
       {!editId ? <>
         <Text style={g.label}>1. Chọn loại cây</Text>
-        {selectedProfile ? <View style={[g.plantCard, g.selectedPlant]}><PlantArtwork category={selectedProfile.category} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{selectedProfile.name}</Text><Text style={g.body}>{selectedProfile.scientificName} • {selectedProfile.category}</Text></View><Text style={g.link}>Đã chọn</Text></View> : null}
+        {selectedProfile ? <View style={[g.plantCard, g.selectedPlant]}><PlantArtwork category={selectedProfile.category} photoUri={resolvePlantPhotoUri(selectedProfile, catalog)} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{selectedProfile.name}</Text><Text style={g.body}>{selectedProfile.scientificName} • {selectedProfile.category}</Text></View><Text style={g.link}>Đã chọn</Text></View> : null}
         <TextInput value={plantQuery} onChangeText={setPlantQuery} placeholder="Tìm tên cây hoặc tên khoa học" style={g.input}/>
         {!plantQuery.trim() && !selectedProfile ? <Text style={g.note}>Nhập tên cây để tìm trong thư viện {catalog.length} loại. Danh sách chỉ hiện kết quả phù hợp.</Text> : null}
-        {filteredCatalog.map((plant) => <Pressable key={plant.id} onPress={() => { setSelected(plant.id); if (!name.trim() || catalog.some((item) => item.name === name)) setName(plant.name); }} style={[g.plantCard, selected === plant.id && g.choiceActive]}><PlantArtwork category={plant.category} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{plant.name}</Text><Text style={g.body}>{plant.scientificName} • {plant.category}</Text></View><Text style={g.link}>{selected === plant.id ? '✓ Đã chọn' : 'Chọn'}</Text></Pressable>)}
+        {filteredCatalog.map((plant) => <Pressable key={plant.id} onPress={() => { setSelected(plant.id); if (!name.trim() || catalog.some((item) => item.name === name)) setName(plant.name); }} style={[g.plantCard, selected === plant.id && g.choiceActive]}><PlantArtwork category={plant.category} photoUri={resolvePlantPhotoUri(plant, catalog)} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{plant.name}</Text><Text style={g.body}>{plant.scientificName} • {plant.category}</Text></View><Text style={g.link}>{selected === plant.id ? '✓ Đã chọn' : 'Chọn'}</Text></Pressable>)}
         {plantQuery.trim() && filteredCatalog.length === 0 ? <Text style={g.note}>Không tìm thấy loại cây phù hợp. Thử tên thường gọi hoặc tên khoa học khác.</Text> : null}
         {matchingCatalog.length > 20 ? <Text style={g.note}>Hiển thị 20 kết quả đầu. Nhập thêm ký tự để thu hẹp tìm kiếm.</Text> : null}
         {catalog.length === 0 ? <Text style={g.note}>Thư viện chưa có cây nào. Vui lòng thử lại sau.</Text> : null}
-      </> : selectedProfile ? <View style={g.plantCard}><PlantArtwork category={selectedProfile.category} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{selectedProfile.name}</Text><Text style={g.body}>{selectedProfile.scientificName}</Text></View></View> : <Text style={g.note}>Không tìm thấy loại cây của hồ sơ này.</Text>}
+      </> : selectedProfile ? <View style={g.plantCard}><PlantArtwork category={selectedProfile.category} photoUri={resolvePlantPhotoUri(selectedProfile, catalog)} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{selectedProfile.name}</Text><Text style={g.body}>{selectedProfile.scientificName}</Text></View></View> : <Text style={g.note}>Không tìm thấy loại cây của hồ sơ này.</Text>}
       {selectedProfile ? <><Text style={g.label}>Tên hiển thị <Text style={g.required}>*</Text></Text><TextInput value={name} onChangeText={setName} placeholder="Tên cây trong hồ sơ của bạn" style={[g.input, error && !name.trim() && g.inputError]}/><Text style={g.label}>2. Chọn vườn nhận cây</Text><Text style={g.body}>{gardenId ? `Cây sẽ được thêm vào ${gardens.find((garden) => garden.id === gardenId)?.name ?? 'vườn đã chọn'}. Bạn có thể đổi vườn bên dưới.` : 'Chọn nơi trồng hoặc để cây ở trạng thái chưa phân vườn.'}</Text><View style={g.choices}><Pressable onPress={() => setGardenId('')} style={[g.choice, !gardenId && g.choiceActive]}><Text style={g.body}>Chưa phân vườn</Text></Pressable>{gardens.map((garden) => <Pressable key={garden.id} onPress={() => setGardenId(garden.id)} style={[g.choice, gardenId === garden.id && g.choiceActive]}><Text style={g.body}>{garden.name}</Text></Pressable>)}</View>{gardens.length === 0 ? <Text style={g.note}>Bạn chưa tạo vườn. Có thể tiếp tục và phân vườn sau.</Text> : null}<Text style={g.label}>Vị trí cụ thể trong vườn (không bắt buộc)</Text><TextInput value={place} onChangeText={setPlace} placeholder="Ví dụ: Kệ cạnh cửa sổ" style={g.input}/><Text style={g.label}>Ngày trồng / bắt đầu chăm sóc (không bắt buộc)</Text><TextInput value={plantedAt} onChangeText={setPlantedAt} placeholder="dd/mm/yyyy" style={g.input}/><Text style={g.label}>Ghi chú (không bắt buộc)</Text><TextInput value={note} onChangeText={setNote} placeholder="Ghi chú về cây" style={[g.input, g.multiline]} multiline/></> : null}
       </>}
     {addPlant && !editId && suggestedCatalog.length > 0 ? (
@@ -570,7 +570,7 @@ function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
               const isSelected = selected === plant.id;
               return (
                 <View key={plant.id} style={[g.plantCard, isSelected && g.choiceActive]}>
-                  <PlantArtwork category={plant.category} style={g.plantImage} />
+                  <PlantArtwork category={plant.category} photoUri={resolvePlantPhotoUri(plant, catalog)} style={g.plantImage} />
                   <View style={g.plantCopy}>
                     <Text style={g.plantName}>{plant.name}</Text>
                     <Text style={g.body}>{plant.scientificName} • {plant.category}</Text>

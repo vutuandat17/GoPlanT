@@ -4,7 +4,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from '@/components/app-primitives';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
-import { usePlantData } from '@/features/plants/PlantDataStore';
+import { resolvePlantPhotoUri, usePlantData } from '@/features/plants/PlantDataStore';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { useJournals } from '@/features/journal/JournalStore';
 import { useCareSchedules } from '@/features/schedule/CareScheduleStore';
@@ -86,10 +86,17 @@ export function SearchScreen() {
         difficulty: cat?.difficulty,
         overview: cat?.overview,
         detail: getLatestHealthLabel(plant.id, journals),
-        photoUri: plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null,
+        photoUri: resolvePlantPhotoUri(plant, catalog),
       };
     }),
-    ...catalog.map((plant) => ({ ...plant, latin: plant.scientificName, owned: false, detail: 'Thông tin từ danh mục cây', isFavorite: favorites.includes(plant.id) })),
+    ...catalog.map((plant) => ({
+      ...plant,
+      latin: plant.scientificName,
+      owned: false,
+      detail: 'Thông tin từ danh mục cây',
+      isFavorite: favorites.includes(plant.id),
+      photoUri: resolvePlantPhotoUri(plant, catalog),
+    })),
   ], [ownedPlants, gardens, catalog, favorites, journals, todayTasks, schedules]);
   const favoriteCount = useMemo(() => rows.filter((item) => Boolean(item.isFavorite) && (item.owned || !ownedCatalogIds.has(item.id))).length, [rows, ownedCatalogIds]);
   const relatedKeywords = useMemo(() => [...new Set(catalog.map((plant) => plant.name).filter(Boolean))].slice(0, 4), [catalog]);

@@ -341,7 +341,41 @@ export type PlantCatalogItem = {
   growthRate?: string | null;
   soilPh?: string | null;
   nutrition?: string | null;
+  isActive?: boolean;
+  publicationStatus?: string | null;
+  photoUpdatedAt?: string | null;
 };
+
+export type AdminCatalogPlantRequest = {
+  commonName: string;
+  scientificName: string;
+  category: string;
+  sourceTitle?: string | null;
+  sourceUrl?: string | null;
+  difficulty?: string | null;
+  lightRequirement?: string | null;
+  waterFrequencyDays?: number | null;
+  temperatureRange?: string | null;
+  toxicityWarning?: string | null;
+  overview?: string | null;
+  origin?: string | null;
+  morphology?: string | null;
+  lifespan?: string | null;
+  floweringSeason?: string | null;
+  humidity?: string | null;
+  medium?: string | null;
+  drainage?: string | null;
+  matureSize?: string | null;
+  growthRate?: string | null;
+  soilPh?: string | null;
+  nutrition?: string | null;
+};
+
+export function getCatalogPlantPhotoUri(catalogId: string, photoUpdatedAt?: string | null) {
+  return photoUpdatedAt && apiBaseUrl
+    ? `${apiBaseUrl}/api/v1/catalog/plants/${catalogId}/photo?v=${encodeURIComponent(photoUpdatedAt)}`
+    : null;
+}
 
 export function fetchCatalogPlants(params?: { page?: number; size?: number; q?: string; category?: string }) {
   const search = new URLSearchParams();
@@ -351,6 +385,48 @@ export function fetchCatalogPlants(params?: { page?: number; size?: number; q?: 
   if (params?.category?.trim()) search.set('category', params.category.trim());
   const qs = search.toString();
   return apiRequest<PageResponse<PlantCatalogItem>>(`/api/v1/catalog/plants${qs ? `?${qs}` : ''}`);
+}
+
+export function fetchAdminCatalogPlants(
+  token: string,
+  params?: { page?: number; size?: number; q?: string; category?: string; active?: boolean },
+) {
+  const search = new URLSearchParams();
+  if (params?.page !== undefined) search.set('page', String(params.page));
+  if (params?.size !== undefined) search.set('size', String(params.size));
+  if (params?.q?.trim()) search.set('q', params.q.trim());
+  if (params?.category?.trim()) search.set('category', params.category.trim());
+  if (params?.active !== undefined) search.set('active', String(params.active));
+  const qs = search.toString();
+  return apiRequest<PageResponse<PlantCatalogItem>>(`/api/v1/admin/catalog/plants${qs ? `?${qs}` : ''}`, { token });
+}
+
+export function createAdminCatalogPlant(token: string, body: AdminCatalogPlantRequest) {
+  return apiRequest<PlantCatalogItem>('/api/v1/admin/catalog/plants', { method: 'POST', token, body });
+}
+
+export function updateAdminCatalogPlant(id: string, token: string, body: AdminCatalogPlantRequest) {
+  return apiRequest<PlantCatalogItem>(`/api/v1/admin/catalog/plants/${id}`, { method: 'PUT', token, body });
+}
+
+export function deleteAdminCatalogPlant(id: string, token: string) {
+  return apiRequest<void>(`/api/v1/admin/catalog/plants/${id}`, { method: 'DELETE', token });
+}
+
+export function restoreAdminCatalogPlant(id: string, token: string) {
+  return apiRequest<PlantCatalogItem>(`/api/v1/admin/catalog/plants/${id}/restore`, { method: 'POST', token });
+}
+
+export function uploadCatalogPlantPhoto(
+  id: string,
+  token: string,
+  photo: { uri: string; mimeType?: string | null; fileName?: string | null },
+) {
+  return uploadPhoto(`/api/v1/admin/catalog/plants/${id}/photo`, `catalog-${id}.jpg`, token, photo);
+}
+
+export function deleteCatalogPlantPhoto(id: string, token: string) {
+  return apiRequest<void>(`/api/v1/admin/catalog/plants/${id}/photo`, { method: 'DELETE', token });
 }
 
 export function fetchOwnedPlants(token: string, params?: { page?: number; size?: number; q?: string; gardenId?: string }) {

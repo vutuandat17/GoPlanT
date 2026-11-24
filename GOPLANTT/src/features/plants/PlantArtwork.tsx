@@ -37,7 +37,7 @@ export function PlantArtwork({ category, photoUri, accessToken, style }: Props) 
       <Path d="M73 111h34" stroke="#E9AD8A" strokeWidth="3" strokeLinecap="round"/>
       <Rect x="15" y="128" width="150" height="4" rx="2" fill={C.mint} opacity="0.85"/>
     </Svg>
-    {photoUri && accessToken && !photoFailed ? (
+    {photoUri && !photoFailed ? (
       <AuthorizedImage
         uri={photoUri}
         accessToken={accessToken}

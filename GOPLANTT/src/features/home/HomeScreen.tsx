@@ -5,7 +5,7 @@ import { router } from 'expo-router';
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { TabScreenTransition } from '@/components/tab-screen-transition';
-import { usePlantData } from '@/features/plants/PlantDataStore';
+import { resolvePlantPhotoUri, usePlantData } from '@/features/plants/PlantDataStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
 import { GardenArtwork } from '@/features/gardens/GardenArtwork';
 import { apiBaseUrl, fetchGardenWeather, getGardenPhotoUri, type ApiGardenWeather } from '@/services/api';
@@ -359,7 +359,7 @@ export default function HomeScreen() {
           return (
             <Pressable key={plant.id} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name } } as never)} style={styles.featuredPlantCard}>
               <View style={styles.featuredTopRow}>
-                <PlantArtwork category={plant.category} style={styles.featuredPlantArtwork} />
+                <PlantArtwork category={plant.category} photoUri={resolvePlantPhotoUri(plant, catalog)} accessToken={accessToken} style={styles.featuredPlantArtwork} />
                 <View style={styles.flexCopy}>
                   <View style={styles.featuredHeaderRow}>
                     <Text style={styles.featuredPlantTitle} numberOfLines={1}>{plant.name}</Text>
@@ -455,10 +455,8 @@ export default function HomeScreen() {
         </View> : null}
         <SectionTitle title="Cây trồng & chăm sóc" trailing={`${ownedPlants.length} cây`} />
         {ownedPlants.map((plant) => {
-          const hasPhoto = Boolean(plant.photoUpdatedAt);
-          const photoUri = plant.photoUpdatedAt
-            ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}`
-            : null;
+          const photoUri = resolvePlantPhotoUri(plant, catalog);
+          const hasPhoto = Boolean(photoUri);
           const gardenName = gardens.find((g) => g.id === plant.gardenId)?.name ?? 'Chưa phân vườn';
           const healthLabel = getLatestHealthLabel(plant.id, journals);
           const pendingPlantTasks = todayTasks.filter((t) => t.plantId === plant.id && t.status === 'pending').length;

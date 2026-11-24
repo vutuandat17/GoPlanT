@@ -6,7 +6,7 @@ import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { TabScreenTransition } from '@/components/tab-screen-transition';
 import { GardenArtwork } from '@/features/gardens/GardenArtwork';
 import { GardenPickerModal } from '@/features/gardens/GardenPickerModal';
-import { usePlantData, type OwnedPlant } from '@/features/plants/PlantDataStore';
+import { resolvePlantPhotoUri, usePlantData, type OwnedPlant } from '@/features/plants/PlantDataStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
 import { apiBaseUrl, getGardenPhotoUri } from '@/services/api';
 import { useAuthSession } from '@/features/auth/AuthSession';
@@ -170,7 +170,7 @@ function EmptyPage({ kind }: { kind: PageKind }) {
             <Pressable
               style={s.rowPressMain}
               onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id } } as never)}>
-              <PlantArtwork style={s.plantImage} category={plant.category} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : undefined} accessToken={accessToken} />
+              <PlantArtwork style={s.plantImage} category={plant.category} photoUri={resolvePlantPhotoUri(plant, catalog)} accessToken={accessToken} />
               <View style={s.cardCopy}>
                 <Text style={s.cardTitle}>{plant.name}</Text>
                 <Text style={s.body}>{plant.location || 'Chưa có vị trí cụ thể'}</Text>
@@ -238,7 +238,7 @@ function EmptyPage({ kind }: { kind: PageKind }) {
                 <PlantArtwork
                   style={s.ownedPlantImage}
                   category={plant.category}
-                  photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : undefined}
+                  photoUri={resolvePlantPhotoUri(plant, catalog)}
                   accessToken={accessToken}
                 />
                 <View style={s.cardCopy}>
@@ -278,7 +278,7 @@ function EmptyPage({ kind }: { kind: PageKind }) {
               accessibilityLabel={`Xem ${plant.name}`}
               onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name } } as never)}
               style={s.rowPressMain}>
-              <PlantArtwork style={s.plantImage} category={plant.category} />
+              <PlantArtwork style={s.plantImage} category={plant.category} photoUri={resolvePlantPhotoUri(plant, catalog)} accessToken={accessToken} />
               <View style={s.cardCopy}>
                 <Text style={s.cardTitle}>{plant.name}</Text>
                 <Text style={s.latin}>{plant.scientificName}</Text>
@@ -332,7 +332,7 @@ function EmptyPage({ kind }: { kind: PageKind }) {
             const count = journals.filter((item) => item.plantId === plant.id).length;
             return (
               <Pressable key={plant.id} onPress={() => router.push({ pathname: '/journal/detail', params: { plantId: plant.id } } as never)} style={s.rowCard}>
-                <PlantArtwork style={s.plantImage} category={plant.category} accessToken={accessToken} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null} />
+                <PlantArtwork style={s.plantImage} category={plant.category} accessToken={accessToken} photoUri={resolvePlantPhotoUri(plant, catalog)} />
                 <View style={s.cardCopy}>
                   <Text style={s.cardTitle}>{plant.name}</Text>
                   <Text style={s.body}>{count > 0 ? `${count} ghi nhận` : (plant.location || 'Chưa có ghi nhận')}</Text>

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { useAuthSession } from '@/features/auth/AuthSession';
-import { apiRequest, deleteGardenPhoto, fetchCatalogPlants, fetchOwnedPlants, isApiConfigured, updateGarden as updateGardenApi, uploadGardenPhoto, uploadPlantPhoto, type ApiGarden, type ApiOwnedPlant, type PlantCatalogItem } from '@/services/api';
+import { apiBaseUrl, apiRequest, deleteGardenPhoto, fetchCatalogPlants, fetchOwnedPlants, getCatalogPlantPhotoUri, isApiConfigured, updateGarden as updateGardenApi, uploadGardenPhoto, uploadPlantPhoto, type ApiGarden, type ApiOwnedPlant, type PlantCatalogItem } from '@/services/api';
 
 export type PlantProfile = {
   id: string;
@@ -29,6 +29,7 @@ export type PlantProfile = {
   growthRate?: string;
   wateringFrequency?: string;
   nutrition?: string;
+  photoUpdatedAt?: string | null;
 };
 
 export type OwnedPlant = {
@@ -107,6 +108,7 @@ function mapCatalog(plant: PlantCatalogItem): PlantProfile {
     growthRate: plant.growthRate ?? undefined,
     soilPh: plant.soilPh ?? undefined,
     nutrition: plant.nutrition ?? undefined,
+    photoUpdatedAt: plant.photoUpdatedAt ?? null,
   };
 }
 
@@ -302,6 +304,20 @@ export function PlantDataProvider({ children }: { children: ReactNode }) {
   }), [catalog, ownedPlants, gardens, favorites, isLoading, apiError, accessToken, refresh, filterStates, setFilterState]);
 
   return <PlantDataContext.Provider value={value}>{children}</PlantDataContext.Provider>;
+}
+
+export function resolvePlantPhotoUri(
+  plant: { id: string; catalogId?: string; photoUpdatedAt?: string | null },
+  catalog: PlantProfile[],
+): string | null {
+  if (plant.catalogId) {
+    if (plant.photoUpdatedAt && apiBaseUrl) {
+      return `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}`;
+    }
+    const cat = catalog.find((item) => item.id === plant.catalogId);
+    return getCatalogPlantPhotoUri(plant.catalogId, cat?.photoUpdatedAt);
+  }
+  return getCatalogPlantPhotoUri(plant.id, plant.photoUpdatedAt);
 }
 
 export function usePlantData() {

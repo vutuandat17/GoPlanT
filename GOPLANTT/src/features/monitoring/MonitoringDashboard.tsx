@@ -6,7 +6,7 @@ import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { JOURNAL_HEALTH_META, JOURNAL_LOG_TYPE_META, useJournals } from '@/features/journal/JournalStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
-import { usePlantData, type GardenProfile, type OwnedPlant } from '@/features/plants/PlantDataStore';
+import { resolvePlantPhotoUri, usePlantData, type GardenProfile, type OwnedPlant } from '@/features/plants/PlantDataStore';
 import { matchesPlantFilters, toOwnedFilterPlant } from '@/features/plants/plantFilters';
 import { CARE_TASK_META, formatDateVi, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 import {
@@ -41,7 +41,7 @@ function addDaysIso(isoDate: string, deltaDays: number): string {
 
 export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter }: Props) {
   const { accessToken } = useAuthSession();
-  const { ownedPlants, gardens } = usePlantData();
+  const { ownedPlants, gardens, catalog } = usePlantData();
   const { journals } = useJournals();
   const { todayTasks, schedules, loadCalendar } = useCareSchedules();
 
@@ -347,11 +347,7 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
                 style={s.plantImage}
                 category={plant.category}
                 accessToken={accessToken}
-                photoUri={
-                  plant.photoUpdatedAt
-                    ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}`
-                    : null
-                }
+                photoUri={resolvePlantPhotoUri(plant, catalog)}
               />
               <View style={s.cardCopy}>
                 <Text style={s.attentionTitle}>{plant.name}</Text>
@@ -389,11 +385,7 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
                 style={s.plantImage}
                 category={plant.category}
                 accessToken={accessToken}
-                photoUri={
-                  plant.photoUpdatedAt
-                    ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}`
-                    : null
-                }
+                photoUri={resolvePlantPhotoUri(plant, catalog)}
               />
               <View style={s.cardCopy}>
                 <Text style={s.stableTitle}>{plant.name}</Text>

@@ -106,7 +106,8 @@ class ApiSecurityAndFlowTest {
                 "Cây nhiệt đới lá xẻ đặc trưng.",
                 "Trung Mỹ và Nam Mỹ",
                 "Lá lớn xẻ thùy sâu.",
-                null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null,
+                true, "approved", null);
 
         when(jdbc.queryForObject(contains("SELECT count(*) FROM plant_catalog"), eq(Long.class), any(Object[].class)))
                 .thenReturn(1L);
@@ -682,9 +683,10 @@ class ApiSecurityAndFlowTest {
         PlantCatalogController.Plant updatedCatalog = new PlantCatalogController.Plant(
                 catalogId, "Trầu bà lá xẻ", "Monstera deliciosa", "Cây nội thất",
                 "Dễ", "Ánh sáng gián tiếp vừa", 5, null, null, null, null, null,
-                null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null,
+                true, "approved", null);
         when(jdbc.update(contains("UPDATE plant_catalog"), any(Object[].class))).thenReturn(1);
-        when(jdbc.queryForObject(contains("FROM plant_catalog WHERE id=?"), any(RowMapper.class), eq(catalogId)))
+        when(jdbc.queryForObject(contains("WHERE c.id=?"), any(RowMapper.class), eq(catalogId)))
                 .thenReturn(updatedCatalog);
 
         mockMvc.perform(put("/api/v1/admin/catalog/plants/{id}", catalogId)
@@ -1285,6 +1287,86 @@ class ApiSecurityAndFlowTest {
                 .andExpect(content().contentType(MediaType.IMAGE_PNG));
 
         mockMvc.perform(delete("/api/v1/auth/me/avatar").header("Authorization", userBearer))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void adminCatalogManagementSupportsListingSoftDeleteRestoreAndPhotos() throws Exception {
+        UUID memberId = UUID.randomUUID();
+        UUID moderatorId = UUID.randomUUID();
+        UUID catalogId = UUID.randomUUID();
+        UUID missingId = UUID.randomUUID();
+        String memberBearer = bearerToken(memberId, "member");
+        String moderatorBearer = bearerToken(moderatorId, "moderator");
+
+        PlantCatalogController.Plant sample = new PlantCatalogController.Plant(
+                catalogId, "Trầu bà lá xẻ", "Monstera deliciosa", "Cây nội thất",
+                "Dễ", "Ánh sáng gián tiếp", 3, "18-28°C", null, null, null, null,
+                null, null, null, null, null, null, null, null, null,
+                true, "approved", Instant.now());
+
+        mockMvc.perform(get("/api/v1/admin/catalog/plants").header("Authorization", memberBearer))
+                .andExpect(status().isForbidden());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM plant_catalog c"), eq(Long.class), any(Object[].class)))
+                .thenReturn(1L);
+        when(jdbc.query(contains("FROM plant_catalog c LEFT JOIN plant_catalog_photos"), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of(sample));
+
+        mockMvc.perform(get("/api/v1/admin/catalog/plants")
+                        .param("page", "0")
+                        .param("size", "50")
+                        .header("Authorization", moderatorBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].commonName").value("Trầu bà lá xẻ"))
+                .andExpect(jsonPath("$.items[0].isActive").value(true));
+
+        when(jdbc.update(contains("UPDATE plant_catalog SET is_active=false"), eq(missingId))).thenReturn(0);
+        mockMvc.perform(delete("/api/v1/admin/catalog/plants/{id}", missingId)
+                        .header("Authorization", moderatorBearer))
+                .andExpect(status().isNotFound());
+
+        when(jdbc.update(contains("UPDATE plant_catalog SET is_active=false"), eq(catalogId))).thenReturn(1);
+        mockMvc.perform(delete("/api/v1/admin/catalog/plants/{id}", catalogId)
+                        .header("Authorization", moderatorBearer))
+                .andExpect(status().isNoContent());
+
+        when(jdbc.update(contains("UPDATE plant_catalog SET is_active=true"), eq(catalogId))).thenReturn(1);
+        when(jdbc.queryForObject(contains("WHERE c.id=?"), any(RowMapper.class), eq(catalogId))).thenReturn(sample);
+        mockMvc.perform(post("/api/v1/admin/catalog/plants/{id}/restore", catalogId)
+                        .header("Authorization", moderatorBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(catalogId.toString()));
+
+        ByteArrayOutputStream pngOut = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", pngOut);
+        MockMultipartFile validPng = new MockMultipartFile("file", "catalog.png", MediaType.IMAGE_PNG_VALUE, pngOut.toByteArray());
+        MockMultipartFile invalidFile = new MockMultipartFile("file", "bad.txt", MediaType.TEXT_PLAIN_VALUE, "bad".getBytes());
+
+        mockMvc.perform(multipart("/api/v1/admin/catalog/plants/{id}/photo", catalogId)
+                        .file(validPng)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(multipart("/api/v1/admin/catalog/plants/{id}/photo", catalogId)
+                        .file(invalidFile)
+                        .header("Authorization", moderatorBearer))
+                .andExpect(status().isUnsupportedMediaType());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM plant_catalog WHERE id=?"), eq(Integer.class), eq(catalogId)))
+                .thenReturn(1);
+        mockMvc.perform(multipart("/api/v1/admin/catalog/plants/{id}/photo", catalogId)
+                        .file(validPng)
+                        .header("Authorization", moderatorBearer))
+                .andExpect(status().isNoContent());
+
+        when(jdbc.query(contains("FROM plant_catalog_photos ph"), any(RowMapper.class), eq(catalogId)))
+                .thenReturn(List.of());
+        mockMvc.perform(get("/api/v1/catalog/plants/{id}/photo", catalogId))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(delete("/api/v1/admin/catalog/plants/{id}/photo", catalogId)
+                        .header("Authorization", moderatorBearer))
                 .andExpect(status().isNoContent());
     }
 }

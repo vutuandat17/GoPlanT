@@ -11,7 +11,7 @@ import { useAuthSession } from '@/features/auth/AuthSession';
 import { JOURNAL_HEALTH_META, JOURNAL_LOG_TYPE_META, useJournals } from '@/features/journal/JournalStore';
 import { GrowthChart } from '@/features/monitoring/GrowthChart';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
-import { usePlantData, type PlantProfile } from '@/features/plants/PlantDataStore';
+import { resolvePlantPhotoUri, usePlantData, type PlantProfile } from '@/features/plants/PlantDataStore';
 import { CARE_TASK_META, formatDateVi, formatScheduleRepeat, formatTimeShort, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 import {
   apiBaseUrl,
@@ -328,11 +328,7 @@ export default function MonitoringDetailScreen() {
               style={m.plant}
               category={plant?.category ?? 'Cây trồng'}
               accessToken={accessToken}
-              photoUri={
-                plant?.photoUpdatedAt
-                  ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}`
-                  : null
-              }
+              photoUri={plant ? resolvePlantPhotoUri(plant, catalog) : null}
             />
           )}
           <View style={m.copy}>
