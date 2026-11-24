@@ -11,9 +11,15 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
@@ -38,6 +44,7 @@ public class SecurityConfig {
                                 "/api/v1/auth/refresh", "/api/v1/auth/logout",
                                 "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/catalog/plants/**", "/api/v1/weather/provinces").permitAll()
+                        .requestMatchers("/api/v1/admin/catalog/**").hasAnyRole("admin", "moderator")
                         .requestMatchers("/api/v1/admin/**").hasRole("admin")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
@@ -63,8 +70,20 @@ public class SecurityConfig {
     }
 
     @Bean
-    JwtDecoder jwtDecoder(@Value("${goplant.jwt.secret}") String secret) {
-        return NimbusJwtDecoder.withSecretKey(signingKey(secret)).macAlgorithm(MacAlgorithm.HS256).build();
+    JwtDecoder jwtDecoder(
+            @Value("${goplant.jwt.secret}") String secret,
+            AccessTokenRevocationService tokenRevocations) {
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(signingKey(secret))
+                .macAlgorithm(MacAlgorithm.HS256)
+                .build();
+        OAuth2TokenValidator<Jwt> revocationValidator = jwt -> tokenRevocations.isRevoked(jwt)
+                ? OAuth2TokenValidatorResult.failure(new OAuth2Error(
+                        "invalid_token",
+                        "Phiên đăng nhập đã bị thu hồi hoặc tài khoản đã bị khóa.",
+                        null))
+                : OAuth2TokenValidatorResult.success();
+        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(JwtValidators.createDefault(), revocationValidator));
+        return decoder;
     }
 
     private SecretKey signingKey(String secret) {

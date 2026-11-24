@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
 import { router } from 'expo-router';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { TabScreenTransition } from '@/components/tab-screen-transition';
-import { usePlantData } from '@/features/plants/PlantDataStore';
+import { resolvePlantPhotoUri, usePlantData } from '@/features/plants/PlantDataStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
-import { apiBaseUrl, fetchGardenWeather, type ApiGardenWeather } from '@/services/api';
-import { matchesPlantFilters } from '@/features/plants/plantFilters';
+import { GardenArtwork } from '@/features/gardens/GardenArtwork';
+import { apiBaseUrl, fetchGardenWeather, getGardenPhotoUri, type ApiGardenWeather } from '@/services/api';
+import { matchesPlantFilters, getLatestHealthLabel } from '@/features/plants/plantFilters';
+import { useJournals } from '@/features/journal/JournalStore';
 import { CARE_TASK_META, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 
 const categories = ['Tất cả', 'Cây ăn quả', 'Cây rau lá', 'Hoa cảnh', 'Cây mọng nước', 'Cây gia vị'];
@@ -22,9 +24,60 @@ function SectionTitle({ title, trailing }: { title: string; trailing?: string })
   );
 }
 
+function getWeatherEmoji(conditionMain?: string | null): string {
+  const main = conditionMain?.toLocaleLowerCase() ?? '';
+  if (main.includes('thunder')) return '⛈️';
+  if (main.includes('rain') || main.includes('drizzle')) return '🌧️';
+  if (main.includes('snow')) return '❄️';
+  if (main.includes('mist') || main.includes('fog') || main.includes('haze') || main.includes('smoke')) return '🌫️';
+  if (main.includes('cloud')) return '⛅';
+  if (main.includes('clear')) return '☀️';
+  return '🌤️';
+}
+
+function getTimeBasedGreeting(now: Date): {
+  prefix: string;
+  emoji: string;
+  subtitle: string;
+  badgeGlyph: string;
+} {
+  const hour = now.getHours();
+  if (hour >= 5 && hour < 11) {
+    return {
+      prefix: 'Chào buổi sáng',
+      emoji: '🌱',
+      subtitle: 'Hôm nay là thời điểm lý tưởng để chăm vườn nhỏ!',
+      badgeGlyph: '☀️',
+    };
+  }
+  if (hour >= 11 && hour < 14) {
+    return {
+      prefix: 'Chào buổi trưa',
+      emoji: '☀️',
+      subtitle: 'Kiểm tra độ ẩm đất và che nắng nhẹ cho cây nhé!',
+      badgeGlyph: '🌞',
+    };
+  }
+  if (hour >= 14 && hour < 18) {
+    return {
+      prefix: 'Chào buổi chiều',
+      emoji: '🌤️',
+      subtitle: 'Buổi chiều mát mẻ rất hợp để tưới nước cho vườn!',
+      badgeGlyph: '🌤️',
+    };
+  }
+  return {
+    prefix: 'Chào buổi tối',
+    emoji: '🌙',
+    subtitle: 'Cùng nhìn lại tình trạng khu vườn sau một ngày nhé!',
+    badgeGlyph: '🌙',
+  };
+}
+
 export default function HomeScreen() {
   const { user, accessToken } = useAuthSession();
-  const { catalog, gardens, ownedPlants, isLoading, apiError, filterStates } = usePlantData();
+  const { catalog, gardens, ownedPlants, favorites, isLoading, apiError, filterStates } = usePlantData();
+  const { journals = [] } = useJournals();
   const { schedules, todayTasks, todaySummary, completeTask } = useCareSchedules();
   const [category, setCategory] = useState(categories[0]);
   const [query, setQuery] = useState('');
@@ -69,7 +122,15 @@ export default function HomeScreen() {
   const nextTaskMeta = nextTask ? (CARE_TASK_META[nextTask.taskType] ?? CARE_TASK_META.other) : null;
 
   const navigate = (route: string) => router.push(route as never);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  const greetingMeta = getTimeBasedGreeting(now);
+  const ownedCatalogIds = useMemo(() => new Set(ownedPlants.map((plant) => plant.catalogId)), [ownedPlants]);
   const discoveries = catalog.filter((plant) => {
+    if (ownedCatalogIds.has(plant.id)) return false;
     const nameAndCategory = `${plant.name} ${plant.category}`.toLocaleLowerCase();
     const categoryMatch = category === 'Tất cả'
       || category === 'Cây ăn quả' && /ăn quả|trái cây/.test(nameAndCategory)
@@ -79,16 +140,42 @@ export default function HomeScreen() {
       || category === 'Cây gia vị' && /gia vị/.test(nameAndCategory);
     return categoryMatch && matchesPlantFilters(plant, filterStates.home ?? {});
   });
+  const featuredPlants = useMemo(() => {
+    const shuffle = <T,>(items: T[]) => {
+      const copy = [...items];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    };
+    const unfavorited = shuffle(discoveries.filter((plant) => !favorites.includes(plant.id)));
+    const favorited = shuffle(discoveries.filter((plant) => favorites.includes(plant.id)));
+    return [...unfavorited, ...favorited].slice(0, 2);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalog, ownedCatalogIds, favorites, category, filterStates.home]);
 
   return (
     <TabScreenTransition>
       <ScrollView style={styles.contentScroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.greetingRow}>
           <View style={styles.greetingCopy}>
-            <Text style={styles.greeting}>Chào buổi sáng, {user?.name ?? 'bạn'} 🌱</Text>
-            <Text style={styles.subtitle}>Hôm nay là thời điểm lý tưởng để chăm vườn nhỏ!</Text>
+            <Text style={styles.greeting}>{greetingMeta.prefix}, {user?.name ?? 'bạn'} {greetingMeta.emoji}</Text>
+            <Text style={styles.subtitle}>{greetingMeta.subtitle}</Text>
           </View>
-          <View style={styles.sunBadge}><Text style={styles.sun}>☼</Text></View>
+          <View style={styles.sunBadge}><Text style={styles.sun}>{greetingMeta.badgeGlyph}</Text></View>
+        </View>
+
+        <View style={styles.introCard}>
+          <View style={styles.introIcon}>
+            <Text style={styles.introEmoji}>🌿</Text>
+          </View>
+          <View style={styles.flexCopy}>
+            <Text style={styles.introTitle}>GoPlant — Vườn xanh trong tay bạn</Text>
+            <Text style={styles.introBody}>
+              Đồng hành cùng bạn theo dõi từng chậu cây, nhắc lịch tưới nước, bón phân đúng hẹn và lưu giữ hành trình phát triển mỗi ngày.
+            </Text>
+          </View>
         </View>
 
         <View style={styles.weatherCard}>
@@ -104,7 +191,7 @@ export default function HomeScreen() {
               }
             }}
             style={styles.weatherMain}>
-            <View style={[styles.roundIcon, { backgroundColor: '#E1F3E8' }]}><Text>☼</Text></View>
+            <View style={[styles.roundIcon, { backgroundColor: '#E1F3E8' }]}><Text style={styles.weatherEmoji}>{getWeatherEmoji(weather?.conditionMain)}</Text></View>
             <View style={styles.flexCopy}>
               <Text style={styles.cardTitle} numberOfLines={1}>
                 {weatherGarden ? `Thời tiết · ${weatherGarden.name}` : 'Thông tin thời tiết'}
@@ -114,7 +201,7 @@ export default function HomeScreen() {
                   ? weatherLoading && !weather
                     ? 'Đang cập nhật thời tiết...'
                     : weather && weather.temperatureC != null
-                      ? `${weather.conditionDescription || weather.conditionMain || 'Ngoài trời'}${weather.humidityPct != null ? ` · Độ ẩm ${weather.humidityPct}%` : ''}${weather.plantAlerts.length > 0 ? ` · ⚠ ${weather.plantAlerts.length} cây cần chú ý` : ''}`
+                      ? `${weather.conditionDescription || weather.conditionMain || 'Ngoài trời'}${weather.humidityPct != null ? ` · 💧 ${weather.humidityPct}%` : ''}${weather.plantAlerts.length > 0 ? ` · ⚠️ ${weather.plantAlerts.length} cây cần chú ý` : ''}`
                       : 'Chưa lấy được dữ liệu thời tiết.'
                   : gardens.length > 0
                     ? 'Chưa thiết lập vị trí cho khu vườn.'
@@ -197,7 +284,7 @@ export default function HomeScreen() {
           style={styles.scheduleBanner}>
           <View style={styles.scheduleBannerLeft}>
             <View style={styles.scheduleBannerIcon}>
-              <Text style={styles.scheduleBannerIconGlyph}>◷</Text>
+              <Text style={styles.scheduleBannerIconGlyph}>📅</Text>
             </View>
             <View style={styles.scheduleBannerCopy}>
               <Text style={styles.scheduleBannerTitle}>Lập lịch chăm sóc cây trồng</Text>
@@ -248,10 +335,10 @@ export default function HomeScreen() {
 
         <View style={styles.shortcuts}>
           {[
-            ['♧', 'Quản lý cây', '#E8EFEB', '/plants'],
-            ['▦', 'Quản lý vườn', C.brightMint, '/gardens'],
-            ['▤', 'Nhật ký', C.peach, '/journal'],
-            ['♧', 'Sâu bệnh', '#FAD8D3', '/monitoring'],
+            ['🪴', 'Quản lý cây', '#E8EFEB', '/plants'],
+            ['🏡', 'Quản lý vườn', C.brightMint, '/gardens'],
+            ['📝', 'Nhật ký', C.peach, '/journal'],
+            ['🐞', 'Sâu bệnh', '#FAD8D3', '/monitoring'],
           ].map(([icon, label, color, route]) => (
             <Pressable key={label} onPress={() => navigate(route)} style={styles.shortcut}>
               <View style={[styles.shortcutIcon, { backgroundColor: color }]}><Text style={styles.shortcutGlyph}>{icon}</Text></View>
@@ -260,8 +347,106 @@ export default function HomeScreen() {
           ))}
         </View>
 
+        <View style={styles.exploreTitleRow}>
+          <Text style={styles.sectionTitle}>Các cây nổi bật</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Khám phá ngay" onPress={() => router.push({ pathname: '/search', params: { query: '' } } as never)} style={styles.exploreAll}>
+            <Text style={styles.featuredCta}>Khám phá ngay</Text>
+            <Text style={styles.exploreArrow}>›</Text>
+          </Pressable>
+        </View>
+        {featuredPlants.map((plant) => {
+          const shortInfo = plant.overview || plant.morphology || (plant.light && plant.water ? `Ánh sáng: ${plant.light} • Tưới: ${plant.water}` : plant.scientificName);
+          return (
+            <Pressable key={plant.id} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name } } as never)} style={styles.featuredPlantCard}>
+              <View style={styles.featuredTopRow}>
+                <PlantArtwork category={plant.category} photoUri={resolvePlantPhotoUri(plant, catalog)} accessToken={accessToken} style={styles.featuredPlantArtwork} />
+                <View style={styles.flexCopy}>
+                  <View style={styles.featuredHeaderRow}>
+                    <Text style={styles.featuredPlantTitle} numberOfLines={1}>{plant.name}</Text>
+                    <Text style={styles.featuredCategory}>{plant.category}</Text>
+                  </View>
+                  <Text style={styles.featuredLatin} numberOfLines={1}>{plant.scientificName}</Text>
+                  <Text style={styles.bodyText} numberOfLines={2}>{shortInfo}</Text>
+                </View>
+              </View>
+              {(plant.light || plant.water || plant.difficulty) ? (
+                <View style={styles.featuredChipsRow}>
+                  {plant.light ? <Text style={styles.chipSun}>☀️ {plant.light}</Text> : null}
+                  {plant.water ? <Text style={styles.chipWater}>💧 {plant.water}</Text> : null}
+                  {plant.difficulty ? <Text style={styles.chipDiff}>🌱 {plant.difficulty}</Text> : null}
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        })}
+
         <SectionTitle title="Vườn của bạn" trailing={`${gardens.length} khu vực`} />
-        {gardens.map((garden) => <Pressable key={garden.id} onPress={() => router.push({ pathname: '/garden-detail', params: { gardenId: garden.id } } as never)} style={styles.suggestionCard}><Text style={styles.plantEmoji}>⌂</Text><View style={styles.flexCopy}><Text style={styles.cardTitle}>{garden.name}</Text><Text style={styles.bodyText}>{garden.locationDetail || garden.locationType}</Text></View></Pressable>)}
+        {gardens.map((garden) => {
+          const gardenPlants = ownedPlants.filter((plant) => plant.gardenId === garden.id);
+          const gardenPlantIds = new Set(gardenPlants.map((p) => p.id));
+          const pendingTasksCount = todayTasks.filter((t) => t.status === 'pending' && gardenPlantIds.has(t.plantId)).length;
+          const spaceBadgeMap: Record<string, string> = {
+            balcony: '🌤️ Ban công',
+            rooftop: '🏙️ Sân thượng',
+            garden: '🏡 Sân vườn',
+            indoor: '🪴 Trong nhà',
+            greenhouse: '🌱 Nhà kính',
+            other: '🌿 Khác',
+          };
+          const spaceBadge = spaceBadgeMap[garden.locationType] ?? '🌿 Khu vườn';
+          const hasPhoto = Boolean(garden.photoUpdatedAt);
+          const photoUri = getGardenPhotoUri(garden.id, garden.photoUpdatedAt);
+          return (
+            <Pressable
+              key={garden.id}
+              onPress={() => router.push({ pathname: '/garden-detail', params: { gardenId: garden.id } } as never)}
+              style={styles.homeGardenCard}>
+              {hasPhoto ? (
+                <View style={styles.homeGardenCoverWrap}>
+                  <GardenArtwork
+                    locationType={garden.locationType}
+                    photoUri={photoUri}
+                    accessToken={accessToken}
+                    style={styles.homeGardenCover}
+                    glyphStyle={styles.homeGardenGlyph}
+                    labelStyle={styles.homeGardenArtLabel}
+                  />
+                  <Text style={styles.homeGardenCoverBadge}>{spaceBadge}</Text>
+                </View>
+              ) : null}
+              <View style={styles.homeGardenTopRow}>
+                {!hasPhoto ? (
+                  <GardenArtwork
+                    locationType={garden.locationType}
+                    photoUri={photoUri}
+                    accessToken={accessToken}
+                    style={styles.homeGardenThumb}
+                    glyphStyle={styles.homeGardenThumbGlyph}
+                    labelStyle={styles.homeGardenThumbLabel}
+                  />
+                ) : null}
+                <View style={styles.flexCopy}>
+                  <View style={styles.featuredHeaderRow}>
+                    <Text style={styles.featuredPlantTitle} numberOfLines={1}>{garden.name}</Text>
+                    {!hasPhoto ? <Text style={styles.featuredCategory}>{spaceBadge}</Text> : null}
+                    <Text style={styles.homeGardenArrow}>›</Text>
+                  </View>
+                  <Text style={styles.bodyText} numberOfLines={1}>
+                    📍 {garden.locationDetail || 'Chưa có vị trí cụ thể'}{garden.provinceName ? ` · ${garden.provinceName}` : ''}
+                  </Text>
+                  <View style={styles.featuredChipsRow}>
+                    <Text style={styles.chipDiff}>🪴 {gardenPlants.length} cây đang trồng</Text>
+                    {pendingTasksCount > 0 ? (
+                      <Text style={styles.chipSun}>💧 {pendingTasksCount} việc hôm nay</Text>
+                    ) : garden.locationSource ? (
+                      <Text style={styles.chipWater}>🌤️ Theo dõi thời tiết</Text>
+                    ) : null}
+                  </View>
+                </View>
+              </View>
+            </Pressable>
+          );
+        })}
         {gardens.length === 0 ? <View style={styles.emptyHomeCard}>
           <Text style={styles.emptyHomeArt}>⌂</Text>
           <Text style={styles.emptyHomeTitle}>Bắt đầu tạo khu vườn đầu tiên</Text>
@@ -269,7 +454,63 @@ export default function HomeScreen() {
           <Pressable onPress={() => navigate('/garden/create')} style={styles.emptyHomeButton}><Text style={styles.white}>＋  Tạo khu vườn mới</Text></Pressable>
         </View> : null}
         <SectionTitle title="Cây trồng & chăm sóc" trailing={`${ownedPlants.length} cây`} />
-        {ownedPlants.map((plant) => <Pressable key={plant.id} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id } } as never)} style={styles.suggestionCard}><PlantArtwork category={plant.category} accessToken={accessToken} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null} style={styles.suggestionPlantArtwork}/><View style={styles.flexCopy}><Text style={styles.cardTitle}>{plant.name}</Text><Text style={styles.bodyText}>{plant.location || plant.category}</Text></View></Pressable>)}
+        {ownedPlants.map((plant) => {
+          const photoUri = resolvePlantPhotoUri(plant, catalog);
+          const hasPhoto = Boolean(photoUri);
+          const gardenName = gardens.find((g) => g.id === plant.gardenId)?.name ?? 'Chưa phân vườn';
+          const healthLabel = getLatestHealthLabel(plant.id, journals);
+          const pendingPlantTasks = todayTasks.filter((t) => t.plantId === plant.id && t.status === 'pending').length;
+          const isAlertHealth = /cần|chú ý|nguy|yếu|sâu/i.test(healthLabel);
+          const isGoodHealth = /khỏe|tốt/i.test(healthLabel);
+          return (
+            <Pressable
+              key={plant.id}
+              onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id } } as never)}
+              style={styles.homeGardenCard}>
+              {hasPhoto ? (
+                <View style={styles.homeGardenCoverWrap}>
+                  <PlantArtwork
+                    category={plant.category}
+                    accessToken={accessToken}
+                    photoUri={photoUri}
+                    style={styles.homeGardenCover}
+                  />
+                  <Text style={styles.homeGardenCoverBadge}>🌿 {plant.category}</Text>
+                </View>
+              ) : null}
+              <View style={styles.homeGardenTopRow}>
+                {!hasPhoto ? (
+                  <PlantArtwork
+                    category={plant.category}
+                    accessToken={accessToken}
+                    photoUri={photoUri}
+                    style={styles.homeGardenThumb}
+                  />
+                ) : null}
+                <View style={styles.flexCopy}>
+                  <View style={styles.featuredHeaderRow}>
+                    <Text style={styles.featuredPlantTitle} numberOfLines={1}>{plant.name}</Text>
+                    {!hasPhoto ? <Text style={styles.featuredCategory}>{plant.category}</Text> : null}
+                    <Text style={styles.homeGardenArrow}>›</Text>
+                  </View>
+                  <Text style={styles.featuredLatin} numberOfLines={1}>{plant.scientificName}</Text>
+                  <Text style={styles.bodyText} numberOfLines={1}>
+                    🏡 {gardenName}{plant.location ? ` · 📍 ${plant.location}` : ''}
+                  </Text>
+                  <View style={styles.featuredChipsRow}>
+                    <Text style={isAlertHealth ? styles.chipAlert : isGoodHealth ? styles.chipDiff : styles.chipNeutral}>
+                      {isAlertHealth ? '⚠️' : isGoodHealth ? '💚' : '🩺'} {healthLabel}
+                    </Text>
+                    <Text style={styles.chipNeutral}>📅 {plant.plantedAt || 'Chưa rõ ngày'}</Text>
+                    {pendingPlantTasks > 0 ? (
+                      <Text style={styles.chipSun}>💧 {pendingPlantTasks} việc hôm nay</Text>
+                    ) : null}
+                  </View>
+                </View>
+              </View>
+            </Pressable>
+          );
+        })}
         {ownedPlants.length === 0 ? <View style={styles.emptyHomeCard}>
           <Text style={styles.emptyHomeArt}>♧</Text>
           <Text style={styles.emptyHomeTitle}>Chưa có cây nào trong vườn</Text>
@@ -278,8 +519,6 @@ export default function HomeScreen() {
         </View> : null}
         {apiError ? <Text style={styles.bodyText}>{apiError}</Text> : null}
         {isLoading ? <Text style={styles.bodyText}>Đang tải dữ liệu…</Text> : null}
-        <View style={styles.exploreTitleRow}><Text style={styles.sectionTitle}>Khám phá cây</Text><Pressable accessibilityRole="button" accessibilityLabel="Xem tất cả các loại cây" onPress={() => router.push({ pathname: '/search', params: { query: '' } } as never)} style={styles.exploreAll}><Text style={styles.sectionTrailing}>{catalog.length} cây</Text><Text style={styles.exploreArrow}>›</Text></Pressable></View>
-        {discoveries.slice(0, 4).map((plant) => <Pressable key={plant.id} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name } } as never)} style={styles.suggestionCard}><PlantArtwork category={plant.category} style={styles.suggestionPlantArtwork}/><View style={styles.flexCopy}><Text style={styles.cardTitle}>{plant.name}</Text><Text style={styles.bodyText}>{plant.scientificName} • {plant.category}</Text></View></Pressable>)}
       </ScrollView>
     </TabScreenTransition>
   );
@@ -294,10 +533,16 @@ const styles = StyleSheet.create({
   subtitle: { color: C.secondaryText, fontFamily: F.regular, fontSize: 13, lineHeight: 19 },
   sunBadge: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#D9F1E3', alignItems: 'center', justifyContent: 'center' },
   sun: { color: C.forest, fontSize: 26, lineHeight: 30 },
+  introCard: { paddingHorizontal: 12, paddingVertical: 11, borderRadius: 14, backgroundColor: '#EAF7EE', borderWidth: 1, borderColor: '#CBE8D4', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  introIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#D5EFE0', alignItems: 'center', justifyContent: 'center' },
+  introEmoji: { fontSize: 20, lineHeight: 24 },
+  introTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 13, lineHeight: 18 },
+  introBody: { color: '#3B6752', fontFamily: F.regular, fontSize: 12, lineHeight: 17 },
   weatherCard: { minHeight: 72, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: C.softSurface, flexDirection: 'row', alignItems: 'center', gap: 10 },
   weatherMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   taskMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
   roundIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  weatherEmoji: { fontSize: 19, lineHeight: 23 },
   flexCopy: { flex: 1, gap: 2 },
   cardTitle: { color: C.text, fontFamily: F.semiBold, fontSize: 14, lineHeight: 19 },
   secondary: { color: C.secondaryText, fontFamily: F.regular },
@@ -380,4 +625,29 @@ const styles = StyleSheet.create({
   myScheduleBannerIconGlyph: { color: C.forest, fontFamily: F.bold, fontSize: 20, lineHeight: 24 },
   myScheduleBannerCta: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: C.softSurface, borderWidth: 1, borderColor: '#CBE3D3', marginLeft: 8 },
   myScheduleBannerCtaText: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 },
+  featuredCta: { color: C.primary, fontFamily: F.semiBold, fontSize: 12 },
+  featuredPlantCard: { padding: 12, borderRadius: 15, backgroundColor: C.surface, gap: 9, borderWidth: 1, borderColor: '#E1ECE4' },
+  featuredTopRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  featuredPlantArtwork: { width: 58, height: 58, borderRadius: 12 },
+  featuredHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
+  featuredPlantTitle: { flex: 1, color: C.forest, fontFamily: F.bold, fontSize: 14.5, lineHeight: 20 },
+  featuredLatin: { color: C.mutedText, fontFamily: F.regular, fontSize: 10.5, fontStyle: 'italic' },
+  featuredCategory: { overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 99, backgroundColor: '#E1F3E8', color: C.forest, fontFamily: F.semiBold, fontSize: 10 },
+  featuredChipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chipSun: { overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: '#FEF3C7', color: '#92400E', fontFamily: F.semiBold, fontSize: 10.5 },
+  chipWater: { overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: '#E0F2FE', color: '#0369A1', fontFamily: F.semiBold, fontSize: 10.5 },
+  chipDiff: { overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: '#DFF3E6', color: C.forest, fontFamily: F.semiBold, fontSize: 10.5 },
+  homeGardenCard: { padding: 11, borderRadius: 15, backgroundColor: C.surface, gap: 9, borderWidth: 1, borderColor: '#E1ECE4' },
+  homeGardenCoverWrap: { position: 'relative', borderRadius: 12, overflow: 'hidden' },
+  homeGardenCover: { width: '100%', height: 118, borderRadius: 12, backgroundColor: '#DDEFE3', alignItems: 'center', justifyContent: 'center' },
+  homeGardenCoverBadge: { position: 'absolute', top: 8, left: 8, overflow: 'hidden', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 99, backgroundColor: 'rgba(255,255,255,0.92)', color: C.forest, fontFamily: F.semiBold, fontSize: 10 },
+  homeGardenGlyph: { color: '#49815E', fontSize: 36 },
+  homeGardenArtLabel: { color: '#446751', fontFamily: F.semiBold, fontSize: 9, letterSpacing: 1 },
+  homeGardenTopRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  homeGardenThumb: { width: 58, height: 58, borderRadius: 12, backgroundColor: '#DDEFE3', alignItems: 'center', justifyContent: 'center' },
+  homeGardenThumbGlyph: { color: '#49815E', fontSize: 26 },
+  homeGardenThumbLabel: { color: '#446751', fontFamily: F.semiBold, fontSize: 7.5, letterSpacing: 0.6 },
+  homeGardenArrow: { color: C.primary, fontFamily: F.bold, fontSize: 20, lineHeight: 22 },
+  chipNeutral: { overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: '#EFF4F0', color: C.secondaryText, fontFamily: F.regular, fontSize: 10.5 },
+  chipAlert: { overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: '#FFE8DC', color: '#914218', fontFamily: F.semiBold, fontSize: 10.5 },
 });

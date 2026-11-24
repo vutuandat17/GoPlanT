@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
+import { AuthorizedImage } from '@/components/AuthorizedImage';
+import { pickOrCaptureOptimizedImage } from '@/services/imagePicker';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
 import { SafeAreaView } from '@/components/app-primitives';
 import { router } from 'expo-router';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { safeBack } from '@/services/navigation';
 import { AccountButton } from '@/features/auth/AccountButton';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { usePlantData } from '@/features/plants/PlantDataStore';
@@ -54,7 +56,7 @@ function calcPlantAgeDays(plantedAt: string | null | undefined): string {
 function Header({ title }: { title: string }) {
   return (
     <View style={j.header}>
-      <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Quay lại">
+      <Pressable onPress={() => safeBack('/journal')} accessibilityRole="button" accessibilityLabel="Quay lại">
         <Text style={j.back}>‹</Text>
       </Pressable>
       <Text style={j.headerTitle} numberOfLines={1}>{title}</Text>
@@ -212,13 +214,10 @@ export function JournalDetailScreen({ plantId }: { plantId?: string }) {
                         const uri = `${apiBaseUrl}/api/v1/journals/${entry.id}/photos/${photoId}`;
                         return (
                           <Pressable key={photoId} onPress={() => setPreviewPhotoUri(uri)} accessibilityRole="button" accessibilityLabel="Phóng to ảnh nhật ký">
-                            <ExpoImage
-                              source={{
-                                uri,
-                                headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-                              }}
+                            <AuthorizedImage
+                              uri={uri}
+                              accessToken={accessToken}
                               contentFit="cover"
-                              cachePolicy="none"
                               style={j.photoImage}
                             />
                           </Pressable>
@@ -248,13 +247,10 @@ export function JournalDetailScreen({ plantId }: { plantId?: string }) {
             <Text style={j.lightboxCloseText}>✕</Text>
           </Pressable>
           {previewPhotoUri ? (
-            <ExpoImage
-              source={{
-                uri: previewPhotoUri,
-                headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-              }}
+            <AuthorizedImage
+              uri={previewPhotoUri}
+              accessToken={accessToken}
               contentFit="contain"
-              cachePolicy="none"
               style={j.lightboxImage}
             />
           ) : null}
@@ -325,22 +321,17 @@ function JournalForm({
       Alert.alert('Giới hạn ảnh', `Mỗi bài nhật ký chỉ đính kèm tối đa ${MAX_PHOTOS} ảnh.`);
       return;
     }
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Cần quyền truy cập ảnh', 'Cho phép GoPlant truy cập thư viện ảnh để đính kèm ảnh nhật ký.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.85,
+    const picked = await pickOrCaptureOptimizedImage({
+      maxWidth: 1600,
+      quality: 0.8,
+      title: 'Đính kèm ảnh nhật ký',
     });
-    if (result.canceled || !result.assets[0]) return;
-    const asset = result.assets[0];
+    if (!picked) return;
     const draft: LocalPhotoDraft = {
-      uri: asset.uri,
-      mimeType: asset.mimeType,
-      fileName: asset.fileName,
-      fileSize: asset.fileSize,
+      uri: picked.uri,
+      mimeType: picked.mimeType,
+      fileName: picked.fileName,
+      fileSize: picked.fileSize,
     };
     const validationError = validateJournalPhotoDraft(draft);
     if (validationError) {
@@ -383,11 +374,11 @@ function JournalForm({
           Alert.alert(
             'Đã lưu nội dung nhật ký',
             `Đã lưu nội dung nhật ký nhưng ${result.failedPhotoCount} ảnh chưa tải lên được; bạn có thể vào Chỉnh sửa để thử lại.`,
-            [{ text: 'OK', onPress: () => router.back() }],
+            [{ text: 'OK', onPress: () => safeBack('/journal') }],
           );
         } else {
           Alert.alert('Đã cập nhật', 'Bài nhật ký đã được lưu thay đổi.', [
-            { text: 'OK', onPress: () => router.back() },
+            { text: 'OK', onPress: () => safeBack('/journal') },
           ]);
         }
       } else {
@@ -407,11 +398,11 @@ function JournalForm({
           Alert.alert(
             'Đã lưu nội dung nhật ký',
             `Đã lưu nội dung nhật ký nhưng ${result.failedPhotoCount} ảnh chưa tải lên được; bạn có thể vào Chỉnh sửa để thử lại.`,
-            [{ text: 'OK', onPress: () => router.back() }],
+            [{ text: 'OK', onPress: () => safeBack('/journal') }],
           );
         } else {
           Alert.alert('Đã lưu ghi nhận', 'Nhật ký chăm sóc đã được thêm thành công.', [
-            { text: 'OK', onPress: () => router.back() },
+            { text: 'OK', onPress: () => safeBack('/journal') },
           ]);
         }
       }
@@ -515,13 +506,10 @@ function JournalForm({
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={j.photoScroll}>
           {existing && existingPhotoIds.map((photoId) => (
             <View key={photoId} style={j.photoPreviewWrap}>
-              <ExpoImage
-                source={{
-                  uri: `${apiBaseUrl}/api/v1/journals/${existing.id}/photos/${photoId}`,
-                  headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-                }}
+              <AuthorizedImage
+                uri={`${apiBaseUrl}/api/v1/journals/${existing.id}/photos/${photoId}`}
+                accessToken={accessToken}
                 contentFit="cover"
-                cachePolicy="none"
                 style={j.photoPreview}
               />
               <Pressable onPress={() => void handleRemoveExistingPhoto(photoId)} style={j.photoRemoveBtn}>

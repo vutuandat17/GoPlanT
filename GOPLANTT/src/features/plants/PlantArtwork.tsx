@@ -1,8 +1,8 @@
 import { useEffect, useState, type ComponentProps } from 'react';
 import { StyleSheet, View } from '@/components/app-primitives';
-import { Image as ExpoImage } from 'expo-image';
 import Svg, { Circle, Ellipse, Path, Rect } from 'react-native-svg';
 
+import { AuthorizedImage } from '@/components/AuthorizedImage';
 import { GoPlantColors as C } from '@/constants/theme';
 
 type Props = {
@@ -37,14 +37,15 @@ export function PlantArtwork({ category, photoUri, accessToken, style }: Props) 
       <Path d="M73 111h34" stroke="#E9AD8A" strokeWidth="3" strokeLinecap="round"/>
       <Rect x="15" y="128" width="150" height="4" rx="2" fill={C.mint} opacity="0.85"/>
     </Svg>
-    {photoUri && accessToken && !photoFailed ? <ExpoImage
-      key={photoUri}
-      source={{ uri: photoUri, headers: { Authorization: `Bearer ${accessToken}` } }}
-      contentFit="cover"
-      cachePolicy="none"
-      onError={() => setPhotoFailed(true)}
-      style={StyleSheet.absoluteFill}
-    /> : null}
+    {photoUri && !photoFailed ? (
+      <AuthorizedImage
+        uri={photoUri}
+        accessToken={accessToken}
+        contentFit="cover"
+        onError={() => setPhotoFailed(true)}
+        style={StyleSheet.absoluteFill}
+      />
+    ) : null}
   </View>;
 }
 

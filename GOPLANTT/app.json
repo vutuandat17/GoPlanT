@@ -40,7 +40,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Cho phép GoPlant truy cập ảnh để cập nhật ảnh cây trồng."
+          "photosPermission": "Cho phép GoPlant truy cập ảnh để cập nhật ảnh cây trồng.",
+          "cameraPermission": "Cho phép GoPlant sử dụng camera để chụp ảnh cây trồng và khu vườn."
         }
       ],
       [

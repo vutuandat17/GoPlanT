@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -38,6 +39,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import vn.goplant.backend.auth.VerificationEmailSender;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import vn.goplant.backend.catalog.PlantCatalogController;
 import vn.goplant.backend.gardens.GardenController;
 
@@ -103,7 +105,9 @@ class ApiSecurityAndFlowTest {
                 "Nhựa cây có thể gây kích ứng nếu nuốt phải.",
                 "Cây nhiệt đới lá xẻ đặc trưng.",
                 "Trung Mỹ và Nam Mỹ",
-                "Lá lớn xẻ thùy sâu.");
+                "Lá lớn xẻ thùy sâu.",
+                null, null, null, null, null, null, null, null, null,
+                true, "approved", null);
 
         when(jdbc.queryForObject(contains("SELECT count(*) FROM plant_catalog"), eq(Long.class), any(Object[].class)))
                 .thenReturn(1L);
@@ -678,9 +682,11 @@ class ApiSecurityAndFlowTest {
 
         PlantCatalogController.Plant updatedCatalog = new PlantCatalogController.Plant(
                 catalogId, "Trầu bà lá xẻ", "Monstera deliciosa", "Cây nội thất",
-                "Dễ", "Ánh sáng gián tiếp vừa", 5, null, null, null, null, null);
+                "Dễ", "Ánh sáng gián tiếp vừa", 5, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null,
+                true, "approved", null);
         when(jdbc.update(contains("UPDATE plant_catalog"), any(Object[].class))).thenReturn(1);
-        when(jdbc.queryForObject(contains("FROM plant_catalog WHERE id=?"), any(RowMapper.class), eq(catalogId)))
+        when(jdbc.queryForObject(contains("WHERE c.id=?"), any(RowMapper.class), eq(catalogId)))
                 .thenReturn(updatedCatalog);
 
         mockMvc.perform(put("/api/v1/admin/catalog/plants/{id}", catalogId)
@@ -798,5 +804,569 @@ class ApiSecurityAndFlowTest {
                         .file(validPng)
                         .header("Authorization", memberBearer))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void adminUserManagementEnforcesRoleLastAdminGuardAndAuditLogging() throws Exception {
+        UUID adminId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID targetUserId = UUID.randomUUID();
+        String adminBearer = bearerToken(adminId, "admin");
+        String memberBearer = bearerToken(memberId, "member");
+
+        mockMvc.perform(get("/api/v1/admin/users").header("Authorization", memberBearer))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/admin/users/stats").header("Authorization", memberBearer))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/admin/audit-logs").header("Authorization", memberBearer))
+                .andExpect(status().isForbidden());
+
+        when(jdbc.queryForObject(contains("AS total_users"), any(RowMapper.class)))
+                .thenReturn(new vn.goplant.backend.admin.AdminUserService.AdminUserStats(10, 7, 2, 1, 1, 3, 5));
+
+        mockMvc.perform(get("/api/v1/admin/users/stats").header("Authorization", adminBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalUsers").value(10))
+                .andExpect(jsonPath("$.activeUsers").value(7))
+                .andExpect(jsonPath("$.pendingUsers").value(2));
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM users u JOIN user_email_addresses"), eq(Long.class), any(Object[].class)))
+                .thenReturn(0L);
+        when(jdbc.query(contains("FROM users u\nJOIN user_email_addresses"), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/admin/users")
+                        .param("page", "0")
+                        .param("size", "10")
+                        .param("activity", "never_logged_in")
+                        .header("Authorization", adminBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.items").isArray());
+
+        mockMvc.perform(get("/api/v1/admin/users")
+                        .param("activity", "invalid_activity")
+                        .header("Authorization", adminBearer))
+                .andExpect(status().isBadRequest());
+
+        // Self-lock must be rejected.
+        mockMvc.perform(patch("/api/v1/admin/users/{id}/status", adminId)
+                        .header("Authorization", adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"locked","reason":"Self lock"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        // Locking the last active admin must be rejected with 409 Conflict.
+        when(jdbc.queryForList("SELECT status FROM users WHERE id = ? FOR UPDATE", String.class, targetUserId))
+                .thenReturn(List.of("active"));
+        when(jdbc.queryForObject(contains("WHERE ur.user_id = ? AND r.code = ?"), eq(Integer.class), eq(targetUserId), eq("admin")))
+                .thenReturn(1);
+        when(jdbc.queryForObject(contains("WHERE r.code = 'admin' AND u.status = 'active'"), eq(Integer.class)))
+                .thenReturn(1);
+
+        mockMvc.perform(patch("/api/v1/admin/users/{id}/status", targetUserId)
+                        .header("Authorization", adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"locked","reason":"Test lock last admin"}
+                                """))
+                .andExpect(status().isConflict());
+
+        // Revoking admin role from the last active admin must also be rejected with 409 Conflict.
+        mockMvc.perform(put("/api/v1/admin/users/{id}/roles", targetUserId)
+                        .header("Authorization", adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"admin":false,"reason":"Test revoke last admin"}
+                                """))
+                .andExpect(status().isConflict());
+
+        // Auth history endpoints for member and admin.
+        mockMvc.perform(get("/api/v1/auth/me/auth-events"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/admin/auth-events").header("Authorization", memberBearer))
+                .andExpect(status().isForbidden());
+
+        when(jdbc.queryForObject(contains("FROM user_auth_events ev"), eq(Long.class), any(Object[].class)))
+                .thenReturn(0L);
+        when(jdbc.query(contains("FROM user_auth_events ev"), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/auth/me/auth-events")
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isArray());
+
+        mockMvc.perform(get("/api/v1/admin/auth-events")
+                        .param("eventType", "LOGIN_SUCCESS")
+                        .header("Authorization", adminBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isArray());
+
+        mockMvc.perform(get("/api/v1/admin/auth-events")
+                        .param("eventType", "INVALID_EVENT")
+                        .header("Authorization", adminBearer))
+                .andExpect(status().isBadRequest());
+
+        // Resend verification endpoint requires admin and pending_verification status.
+        mockMvc.perform(post("/api/v1/admin/users/{id}/resend-verification", targetUserId)
+                        .header("Authorization", memberBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isForbidden());
+
+        when(jdbc.query(contains("SELECT u.status, e.normalized_email"), any(RowMapper.class), eq(targetUserId)))
+                .thenReturn(List.of());
+        mockMvc.perform(post("/api/v1/admin/users/{id}/resend-verification", targetUserId)
+                        .header("Authorization", adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void lockingUserOrRevokingSessionsImmediatelyInvalidatesAccessToken() throws Exception {
+        UUID adminId = UUID.randomUUID();
+        UUID lockedUserId = UUID.randomUUID();
+        UUID revokedUserId = UUID.randomUUID();
+        String adminBearer = bearerToken(adminId, "admin");
+        String lockedUserBearer = bearerToken(lockedUserId, "user");
+        String revokedUserBearer = bearerToken(revokedUserId, "user");
+
+        when(jdbc.queryForObject(contains("FROM user_auth_events ev"), eq(Long.class), any(Object[].class)))
+                .thenReturn(0L);
+        when(jdbc.query(contains("FROM user_auth_events ev"), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
+        when(jdbc.queryForObject(contains("FROM admin_audit_logs l"), eq(Long.class), any(Object[].class)))
+                .thenReturn(0L);
+        when(jdbc.query(contains("FROM admin_audit_logs l"), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/auth/me/auth-events").header("Authorization", lockedUserBearer))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/auth/me/auth-events").header("Authorization", revokedUserBearer))
+                .andExpect(status().isOk());
+
+        when(jdbc.queryForList("SELECT status FROM users WHERE id = ? FOR UPDATE", String.class, lockedUserId))
+                .thenReturn(List.of("active"));
+        when(jdbc.queryForObject(contains("WHERE ur.user_id = ? AND r.code = ?"), eq(Integer.class), eq(lockedUserId), eq("admin")))
+                .thenReturn(0);
+        when(jdbc.query(contains("WHERE u.id = ?"), any(RowMapper.class), eq(lockedUserId)))
+                .thenReturn(List.of(new vn.goplant.backend.admin.AdminUserService.AdminUserSummary(
+                        lockedUserId, "locked@goplant.vn", "Locked User", "locked", "Asia/Ho_Chi_Minh",
+                        List.of("user"), Instant.now(), 0, 0, 0, null, null, Instant.now(), Instant.now(), null)));
+
+        mockMvc.perform(patch("/api/v1/admin/users/{id}/status", lockedUserId)
+                        .header("Authorization", adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"locked","reason":"Immediate cutoff test"}
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/auth/me/auth-events").header("Authorization", lockedUserBearer))
+                .andExpect(status().isUnauthorized());
+
+        when(jdbc.queryForObject("SELECT count(*) FROM users WHERE id = ?", Integer.class, revokedUserId))
+                .thenReturn(1);
+        when(jdbc.query(contains("WHERE u.id = ?"), any(RowMapper.class), eq(revokedUserId)))
+                .thenReturn(List.of(new vn.goplant.backend.admin.AdminUserService.AdminUserSummary(
+                        revokedUserId, "revoked@goplant.vn", "Revoked User", "active", "Asia/Ho_Chi_Minh",
+                        List.of("user"), Instant.now(), 0, 0, 0, null, null, Instant.now(), Instant.now(), null)));
+
+        mockMvc.perform(post("/api/v1/admin/users/{id}/revoke-sessions", revokedUserId)
+                        .header("Authorization", adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/auth/me/auth-events").header("Authorization", revokedUserBearer))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void moderatorCanAccessCatalogOnlyAndAuthEventRetentionPurgesOldRows() throws Exception {
+        UUID moderatorId = UUID.randomUUID();
+        String moderatorBearer = bearerToken(moderatorId, "moderator");
+
+        mockMvc.perform(get("/api/v1/admin/users").header("Authorization", moderatorBearer))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/v1/admin/catalog/plants")
+                        .header("Authorization", moderatorBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+
+        when(jdbc.update(contains("DELETE FROM user_auth_events WHERE created_at < ?"), any(java.sql.Timestamp.class)))
+                .thenReturn(12);
+        var retentionService = new vn.goplant.backend.auth.AuthEventService(jdbc, 90);
+        org.junit.jupiter.api.Assertions.assertEquals(12, retentionService.purgeExpiredEvents());
+    }
+
+    @Test
+    void loginDistinguishesPendingVerificationAndLockedAccounts() throws Exception {
+        UUID pendingUserId = UUID.randomUUID();
+        UUID lockedUserId = UUID.randomUUID();
+        String encodedPassword = passwordEncoder.encode("correct-password-12");
+
+        when(jdbc.query(contains("SELECT u.id,u.display_name,u.password_hash,u.status"), any(RowMapper.class), eq("pending-login@goplant.test")))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("id", UUID.class)).thenReturn(pendingUserId);
+                    when(rs.getString("display_name")).thenReturn("Pending User");
+                    when(rs.getString("password_hash")).thenReturn(encodedPassword);
+                    when(rs.getString("status")).thenReturn("pending_verification");
+                    when(rs.getString("normalized_email")).thenReturn("pending-login@goplant.test");
+                    when(rs.getString("timezone")).thenReturn("Asia/Ho_Chi_Minh");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"pending-login@goplant.test","password":"correct-password-12"}
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.detail").value("Tài khoản chưa xác minh email. Vui lòng kiểm tra hộp thư hoặc gửi lại email xác minh."));
+
+        when(jdbc.query(contains("SELECT u.id,u.display_name,u.password_hash,u.status"), any(RowMapper.class), eq("locked-login@goplant.test")))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("id", UUID.class)).thenReturn(lockedUserId);
+                    when(rs.getString("display_name")).thenReturn("Locked User");
+                    when(rs.getString("password_hash")).thenReturn(encodedPassword);
+                    when(rs.getString("status")).thenReturn("locked");
+                    when(rs.getString("normalized_email")).thenReturn("locked-login@goplant.test");
+                    when(rs.getString("timezone")).thenReturn("Asia/Ho_Chi_Minh");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"locked-login@goplant.test","password":"correct-password-12"}
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.detail").value("Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên để được hỗ trợ."));
+    }
+
+    @Test
+    void verifyEmailHtmlPagesRenderConfirmSuccessAndFriendlyErrorsWithDeepLink() throws Exception {
+        String validTokenFormat = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_abcde";
+        UUID tokenId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID emailId = UUID.randomUUID();
+
+        mockMvc.perform(get("/api/v1/auth/verify-email").param("token", "short"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Liên kết xác minh không hợp lệ")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("goplantt://auth/login")));
+
+        mockMvc.perform(get("/api/v1/auth/verify-email").param("token", validTokenFormat))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Xác minh email ngay")));
+
+        when(jdbc.query(contains("FROM account_action_tokens t"), any(RowMapper.class), anyString()))
+                .thenReturn(List.<Object[]>of(new Object[]{tokenId, userId, emailId}))
+                .thenReturn(List.of());
+
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("token", validTokenFormat))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Email đã được xác minh!")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Mở ứng dụng GoPlant")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("goplantt://auth/login")));
+
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("token", validTokenFormat))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Liên kết đã hết hạn hoặc đã được sử dụng")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("goplantt://auth/login")));
+    }
+
+    @Test
+    void passwordResetEnforcesRateLimitOldPasswordCheckAndImmediateTokenCutoff() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID tokenId = UUID.randomUUID();
+        String userBearer = bearerToken(userId, "user");
+        String currentHash = passwordEncoder.encode("old-secret-password-12");
+
+        when(jdbc.queryForObject(contains("FROM user_auth_events ev"), eq(Long.class), any(Object[].class)))
+                .thenReturn(0L);
+        when(jdbc.query(contains("FROM user_auth_events ev"), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/auth/me/auth-events").header("Authorization", userBearer))
+                .andExpect(status().isOk());
+
+        // Rate-limit 60s on forgot-password
+        when(jdbc.query(contains("WHERE e.normalized_email = ? AND u.status = 'active'"), any(RowMapper.class), eq("reset-guard@goplant.test")))
+                .thenReturn(List.of(userId));
+        when(jdbc.query(contains("WHERE user_id = ? AND purpose = 'PASSWORD_RESET'"), any(RowMapper.class), eq(userId)))
+                .thenReturn(List.of(Instant.now().minusSeconds(10)));
+
+        mockMvc.perform(post("/api/v1/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"reset-guard@goplant.test"}
+                                """))
+                .andExpect(status().isTooManyRequests());
+
+        // Reject reusing current password & accept new password with immediate access token cutoff
+        when(jdbc.query(contains("SELECT t.id AS token_id, t.user_id, u.password_hash"), any(RowMapper.class), anyString()))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("token_id", UUID.class)).thenReturn(tokenId);
+                    when(rs.getObject("user_id", UUID.class)).thenReturn(userId);
+                    when(rs.getString("password_hash")).thenReturn(currentHash);
+                    when(rs.getString("normalized_email")).thenReturn("reset-guard@goplant.test");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"token":"valid-reset-token-value-1234567890","newPassword":"old-secret-password-12"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"token":"valid-reset-token-value-1234567890","newPassword":"brand-new-secret-pass-99"}
+                                """))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/auth/me/auth-events").header("Authorization", userBearer))
+                .andExpect(status().isUnauthorized());
+
+        // Admin send-password-reset authorization & validation
+        String otherMemberBearer = bearerToken(UUID.randomUUID(), "user");
+        mockMvc.perform(post("/api/v1/admin/users/{id}/send-password-reset", userId)
+                        .header("Authorization", otherMemberBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isForbidden());
+
+        UUID adminId = UUID.randomUUID();
+        String adminBearer = bearerToken(adminId, "admin");
+        when(jdbc.query(contains("SELECT u.status, e.normalized_email"), any(RowMapper.class), eq(userId)))
+                .thenReturn(List.of());
+        mockMvc.perform(post("/api/v1/admin/users/{id}/send-password-reset", userId)
+                        .header("Authorization", adminBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void resetPasswordHtmlPagesRenderFormValidationSuccessAndDeepLink() throws Exception {
+        String validTokenFormat = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_reset";
+        UUID tokenId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        String oldHash = passwordEncoder.encode("existing-password-12");
+
+        mockMvc.perform(get("/api/v1/auth/reset-password").param("token", "short"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Liên kết đặt lại mật khẩu không hợp lệ")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("goplantt://auth/login")));
+
+        mockMvc.perform(get("/api/v1/auth/reset-password").param("token", validTokenFormat))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("confirmPassword")));
+
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("token", validTokenFormat)
+                        .param("newPassword", "new-password-12345")
+                        .param("confirmPassword", "different-password-123"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("chưa khớp")));
+
+        when(jdbc.query(contains("SELECT t.id AS token_id, t.user_id, u.password_hash"), any(RowMapper.class), anyString()))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("token_id", UUID.class)).thenReturn(tokenId);
+                    when(rs.getObject("user_id", UUID.class)).thenReturn(userId);
+                    when(rs.getString("password_hash")).thenReturn(oldHash);
+                    when(rs.getString("normalized_email")).thenReturn("html-reset@goplant.test");
+                    return List.of(mapper.mapRow(rs, 0));
+                })
+                .thenReturn(List.of());
+
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("token", validTokenFormat)
+                        .param("newPassword", "brand-new-password-123")
+                        .param("confirmPassword", "brand-new-password-123"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Đã đặt lại mật khẩu!")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("goplantt://auth/login")));
+
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("token", validTokenFormat)
+                        .param("newPassword", "brand-new-password-123")
+                        .param("confirmPassword", "brand-new-password-123"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Liên kết đã hết hạn hoặc đã được sử dụng")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("goplantt://auth/login")));
+    }
+
+    @Test
+    void userAvatarUploadFetchDeleteAndAdminView() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        String userBearer = bearerToken(userId, "user");
+        String adminBearer = bearerToken(adminId, "admin");
+
+        ByteArrayOutputStream pngOut = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB), "png", pngOut);
+        byte[] pngBytes = pngOut.toByteArray();
+        MockMultipartFile validPng = new MockMultipartFile("file", "avatar.png", MediaType.IMAGE_PNG_VALUE, pngBytes);
+
+        Instant now = Instant.now();
+        when(jdbc.query(contains("SELECT u.id,u.display_name,u.timezone"), any(RowMapper.class), eq(userId)))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("id", UUID.class)).thenReturn(userId);
+                    when(rs.getString("normalized_email")).thenReturn("avatar@goplant.test");
+                    when(rs.getString("display_name")).thenReturn("Avatar User");
+                    when(rs.getString("timezone")).thenReturn("Asia/Ho_Chi_Minh");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+        when(jdbc.queryForList("SELECT r.code FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=?", String.class, userId))
+                .thenReturn(List.of("user"));
+        when(jdbc.queryForList("SELECT updated_at FROM user_avatars WHERE user_id = ?", java.sql.Timestamp.class, userId))
+                .thenReturn(List.of(java.sql.Timestamp.from(now)));
+
+        mockMvc.perform(multipart("/api/v1/auth/me/avatar")
+                        .file(validPng)
+                        .header("Authorization", userBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.avatarUpdatedAt").isNotEmpty());
+
+        when(jdbc.query(contains("SELECT content_type, image_bytes FROM user_avatars"), any(RowMapper.class), eq(userId)))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getString("content_type")).thenReturn("image/png");
+                    when(rs.getBytes("image_bytes")).thenReturn(pngBytes);
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+
+        mockMvc.perform(get("/api/v1/auth/me/avatar").header("Authorization", userBearer))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.IMAGE_PNG));
+
+        mockMvc.perform(get("/api/v1/admin/users/{id}/avatar", userId).header("Authorization", userBearer))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/v1/admin/users/{id}/avatar", userId).header("Authorization", adminBearer))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.IMAGE_PNG));
+
+        mockMvc.perform(delete("/api/v1/auth/me/avatar").header("Authorization", userBearer))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void adminCatalogManagementSupportsListingSoftDeleteRestoreAndPhotos() throws Exception {
+        UUID memberId = UUID.randomUUID();
+        UUID moderatorId = UUID.randomUUID();
+        UUID catalogId = UUID.randomUUID();
+        UUID missingId = UUID.randomUUID();
+        String memberBearer = bearerToken(memberId, "member");
+        String moderatorBearer = bearerToken(moderatorId, "moderator");
+
+        PlantCatalogController.Plant sample = new PlantCatalogController.Plant(
+                catalogId, "Trầu bà lá xẻ", "Monstera deliciosa", "Cây nội thất",
+                "Dễ", "Ánh sáng gián tiếp", 3, "18-28°C", null, null, null, null,
+                null, null, null, null, null, null, null, null, null,
+                true, "approved", Instant.now());
+
+        mockMvc.perform(get("/api/v1/admin/catalog/plants").header("Authorization", memberBearer))
+                .andExpect(status().isForbidden());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM plant_catalog c"), eq(Long.class), any(Object[].class)))
+                .thenReturn(1L);
+        when(jdbc.query(contains("FROM plant_catalog c LEFT JOIN plant_catalog_photos"), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of(sample));
+
+        mockMvc.perform(get("/api/v1/admin/catalog/plants")
+                        .param("page", "0")
+                        .param("size", "50")
+                        .header("Authorization", moderatorBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].commonName").value("Trầu bà lá xẻ"))
+                .andExpect(jsonPath("$.items[0].isActive").value(true));
+
+        when(jdbc.update(contains("UPDATE plant_catalog SET is_active=false"), eq(missingId))).thenReturn(0);
+        mockMvc.perform(delete("/api/v1/admin/catalog/plants/{id}", missingId)
+                        .header("Authorization", moderatorBearer))
+                .andExpect(status().isNotFound());
+
+        when(jdbc.update(contains("UPDATE plant_catalog SET is_active=false"), eq(catalogId))).thenReturn(1);
+        mockMvc.perform(delete("/api/v1/admin/catalog/plants/{id}", catalogId)
+                        .header("Authorization", moderatorBearer))
+                .andExpect(status().isNoContent());
+
+        when(jdbc.update(contains("UPDATE plant_catalog SET is_active=true"), eq(catalogId))).thenReturn(1);
+        when(jdbc.queryForObject(contains("WHERE c.id=?"), any(RowMapper.class), eq(catalogId))).thenReturn(sample);
+        mockMvc.perform(post("/api/v1/admin/catalog/plants/{id}/restore", catalogId)
+                        .header("Authorization", moderatorBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(catalogId.toString()));
+
+        ByteArrayOutputStream pngOut = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", pngOut);
+        MockMultipartFile validPng = new MockMultipartFile("file", "catalog.png", MediaType.IMAGE_PNG_VALUE, pngOut.toByteArray());
+        MockMultipartFile invalidFile = new MockMultipartFile("file", "bad.txt", MediaType.TEXT_PLAIN_VALUE, "bad".getBytes());
+
+        mockMvc.perform(multipart("/api/v1/admin/catalog/plants/{id}/photo", catalogId)
+                        .file(validPng)
+                        .header("Authorization", memberBearer))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(multipart("/api/v1/admin/catalog/plants/{id}/photo", catalogId)
+                        .file(invalidFile)
+                        .header("Authorization", moderatorBearer))
+                .andExpect(status().isUnsupportedMediaType());
+
+        when(jdbc.queryForObject(contains("SELECT count(*) FROM plant_catalog WHERE id=?"), eq(Integer.class), eq(catalogId)))
+                .thenReturn(1);
+        mockMvc.perform(multipart("/api/v1/admin/catalog/plants/{id}/photo", catalogId)
+                        .file(validPng)
+                        .header("Authorization", moderatorBearer))
+                .andExpect(status().isNoContent());
+
+        when(jdbc.query(contains("FROM plant_catalog_photos ph"), any(RowMapper.class), eq(catalogId)))
+                .thenReturn(List.of());
+        mockMvc.perform(get("/api/v1/catalog/plants/{id}/photo", catalogId))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(delete("/api/v1/admin/catalog/plants/{id}/photo", catalogId)
+                        .header("Authorization", moderatorBearer))
+                .andExpect(status().isNoContent());
     }
 }

@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
+import { AuthorizedImage } from '@/components/AuthorizedImage';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from '@/components/app-primitives';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { safeBack } from '@/services/navigation';
 import { AccountButton } from '@/features/auth/AccountButton';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { JOURNAL_HEALTH_META, JOURNAL_LOG_TYPE_META, useJournals } from '@/features/journal/JournalStore';
 import { GrowthChart } from '@/features/monitoring/GrowthChart';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
-import { usePlantData, type PlantProfile } from '@/features/plants/PlantDataStore';
+import { resolvePlantPhotoUri, usePlantData, type PlantProfile } from '@/features/plants/PlantDataStore';
 import { CARE_TASK_META, formatDateVi, formatScheduleRepeat, formatTimeShort, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 import {
   apiBaseUrl,
@@ -308,7 +310,7 @@ export default function MonitoringDetailScreen() {
   return (
     <SafeAreaView style={m.safe} edges={['top']}>
       <View style={m.header}>
-        <Pressable onPress={() => router.back()}>
+        <Pressable onPress={() => safeBack('/monitoring')}>
           <Text style={m.back}>‹</Text>
         </Pressable>
         <Text style={m.headerTitle}>{isGardenMode ? 'Chỉ số khu vườn' : 'Chỉ số cây trồng'}</Text>
@@ -326,11 +328,7 @@ export default function MonitoringDetailScreen() {
               style={m.plant}
               category={plant?.category ?? 'Cây trồng'}
               accessToken={accessToken}
-              photoUri={
-                plant?.photoUpdatedAt
-                  ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}`
-                  : null
-              }
+              photoUri={plant ? resolvePlantPhotoUri(plant, catalog) : null}
             />
           )}
           <View style={m.copy}>
@@ -494,11 +492,9 @@ export default function MonitoringDetailScreen() {
                     <View style={m.compareRow}>
                       <View style={m.compareCol}>
                         {photoComparison.initialPhotoUri ? (
-                          <Image
-                            source={{
-                              uri: photoComparison.initialPhotoUri,
-                              headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-                            }}
+                          <AuthorizedImage
+                            uri={photoComparison.initialPhotoUri}
+                            accessToken={accessToken}
                             style={m.compareImg}
                           />
                         ) : (
@@ -511,11 +507,9 @@ export default function MonitoringDetailScreen() {
                       </View>
                       <View style={m.compareCol}>
                         {photoComparison.currentPhotoUri ? (
-                          <Image
-                            source={{
-                              uri: photoComparison.currentPhotoUri,
-                              headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-                            }}
+                          <AuthorizedImage
+                            uri={photoComparison.currentPhotoUri}
+                            accessToken={accessToken}
                             style={m.compareImg}
                           />
                         ) : (
@@ -584,12 +578,10 @@ export default function MonitoringDetailScreen() {
                     {entry.photoIds.length > 0 ? (
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={m.photoRow}>
                         {entry.photoIds.map((photoId) => (
-                          <Image
+                          <AuthorizedImage
                             key={photoId}
-                            source={{
-                              uri: `${apiBaseUrl}/api/v1/journals/${entry.id}/photos/${photoId}`,
-                              headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-                            }}
+                            uri={`${apiBaseUrl}/api/v1/journals/${entry.id}/photos/${photoId}`}
+                            accessToken={accessToken}
                             style={m.evidencePhoto}
                           />
                         ))}

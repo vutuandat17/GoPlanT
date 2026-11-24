@@ -27,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import vn.goplant.backend.care.CareScheduleService;
+import vn.goplant.backend.config.AccessTokenRevocationService;
 
 @Service
 public class AuthService {
@@ -40,11 +41,14 @@ public class AuthService {
     private final boolean requireEmailVerification;
     private final CareScheduleService careSchedules;
     private final LoginAttemptGuard loginAttempts;
+    private final AuthEventService authEvents;
+    private final AccessTokenRevocationService tokenRevocations;
     private final SecureRandom random = new SecureRandom();
 
     public AuthService(JdbcTemplate jdbc, PasswordEncoder passwords, JwtEncoder jwtEncoder,
                        VerificationEmailSender verificationEmails, CareScheduleService careSchedules,
-                       LoginAttemptGuard loginAttempts,
+                       LoginAttemptGuard loginAttempts, AuthEventService authEvents,
+                       AccessTokenRevocationService tokenRevocations,
                        @Value("${goplant.jwt.access-token-minutes:15}") int tokenMinutes,
                        @Value("${goplant.jwt.refresh-token-days:30}") int refreshTokenDays,
                        @Value("${goplant.auth.expose-verification-token:false}") boolean exposeVerificationToken,
@@ -55,6 +59,8 @@ public class AuthService {
         }
         this.careSchedules = careSchedules;
         this.loginAttempts = loginAttempts;
+        this.authEvents = authEvents;
+        this.tokenRevocations = tokenRevocations;
         this.jdbc = jdbc;
         this.passwords = passwords;
         this.jwtEncoder = jwtEncoder;
@@ -165,6 +171,11 @@ public class AuthService {
 
     @Transactional
     public LoginResult login(String email, String password) {
+        return login(email, password, AuthEventService.AuthClientInfo.UNKNOWN);
+    }
+
+    @Transactional
+    public LoginResult login(String email, String password, AuthEventService.AuthClientInfo client) {
         String normalized = normalizeEmail(email);
         loginAttempts.checkAllowed(normalized);
         var rows = jdbc.query("""
@@ -175,12 +186,29 @@ public class AuthService {
                 rs.getString("password_hash"), rs.getString("status"), rs.getString("normalized_email"), rs.getString("timezone")), normalized);
         if (rows.isEmpty() || !passwords.matches(password, rows.getFirst().passwordHash())) {
             loginAttempts.recordFailure(normalized);
+            if (!rows.isEmpty()) {
+                authEvents.record(rows.getFirst().id(), null, "LOGIN_FAILED", client, "Sai mật khẩu");
+            }
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Email hoặc mật khẩu không chính xác.");
         }
         Account account = rows.getFirst();
-        if (!"active".equals(account.status())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tài khoản chưa được kích hoạt hoặc đã bị khóa.");
+        if (!"active".equals(account.status())) {
+            authEvents.record(account.id(), null, "LOGIN_FAILED", client, "Tài khoản ở trạng thái " + account.status());
+            String message = switch (account.status()) {
+                case "pending_verification" ->
+                        "Tài khoản chưa xác minh email. Vui lòng kiểm tra hộp thư hoặc gửi lại email xác minh.";
+                case "locked" ->
+                        "Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên để được hỗ trợ.";
+                default ->
+                        "Tài khoản đã bị vô hiệu hóa hoặc chưa thể sử dụng.";
+            };
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, message);
+        }
         loginAttempts.reset(normalized);
-        String refreshToken = issueRefreshToken(account.id(), null);
+        jdbc.update("UPDATE users SET last_login_at=now(), last_active_at=now() WHERE id=?", account.id());
+        UUID sessionFamilyId = UUID.randomUUID();
+        String refreshToken = issueRefreshToken(account.id(), null, sessionFamilyId);
+        authEvents.record(account.id(), sessionFamilyId, "LOGIN_SUCCESS", client, "Đăng nhập thành công");
         return buildLoginResult(account.id(), account.email(), account.displayName(), account.timezone(), refreshToken);
     }
 
@@ -191,7 +219,7 @@ public class AuthService {
         }
         String hash = sha256(refreshToken.trim());
         var rows = jdbc.query("""
-                SELECT rt.id, rt.user_id, rt.expires_at, rt.revoked_at,
+                SELECT rt.id, rt.user_id, rt.session_family_id, rt.expires_at, rt.revoked_at,
                        u.display_name, u.status, u.timezone, e.normalized_email
                 FROM refresh_tokens rt
                 JOIN users u ON u.id = rt.user_id
@@ -201,6 +229,7 @@ public class AuthService {
                 """, (rs, row) -> new RefreshRow(
                 rs.getObject("id", UUID.class),
                 rs.getObject("user_id", UUID.class),
+                rs.getObject("session_family_id", UUID.class),
                 rs.getTimestamp("expires_at").toInstant(),
                 rs.getTimestamp("revoked_at") == null ? null : rs.getTimestamp("revoked_at").toInstant(),
                 rs.getString("display_name"),
@@ -226,21 +255,41 @@ public class AuthService {
         }
 
         UUID newTokenId = UUID.randomUUID();
-        String newRefreshToken = issueRefreshToken(tokenRow.userId(), newTokenId);
+        UUID sessionFamilyId = tokenRow.sessionFamilyId() != null ? tokenRow.sessionFamilyId() : UUID.randomUUID();
+        String newRefreshToken = issueRefreshToken(tokenRow.userId(), newTokenId, sessionFamilyId);
         jdbc.update("UPDATE refresh_tokens SET revoked_at=now(), replaced_by_token_id=?, last_used_at=now() WHERE id=?",
                 newTokenId, tokenRow.id());
+        touchLastActive(tokenRow.userId());
         return buildLoginResult(tokenRow.userId(), tokenRow.email(), tokenRow.displayName(), tokenRow.timezone(), newRefreshToken);
     }
 
     @Transactional
     public void logout(String refreshToken) {
+        logout(refreshToken, AuthEventService.AuthClientInfo.UNKNOWN);
+    }
+
+    @Transactional
+    public void logout(String refreshToken, AuthEventService.AuthClientInfo client) {
         if (refreshToken == null || refreshToken.isBlank()) return;
-        jdbc.update("UPDATE refresh_tokens SET revoked_at=now() WHERE token_hash=? AND revoked_at IS NULL",
-                sha256(refreshToken.trim()));
+        String hash = sha256(refreshToken.trim());
+        var matches = jdbc.query("""
+                SELECT user_id, session_family_id
+                FROM refresh_tokens
+                WHERE token_hash=? AND revoked_at IS NULL
+                """, (rs, row) -> new UUID[]{rs.getObject("user_id", UUID.class), rs.getObject("session_family_id", UUID.class)}, hash);
+        jdbc.update("UPDATE refresh_tokens SET revoked_at=now() WHERE token_hash=? AND revoked_at IS NULL", hash);
+        if (!matches.isEmpty()) {
+            authEvents.record(matches.getFirst()[0], matches.getFirst()[1], "LOGOUT", client, "Đăng xuất chủ động");
+        }
     }
 
     @Transactional
     public void changePassword(UUID userId, String currentPassword, String newPassword) {
+        changePassword(userId, currentPassword, newPassword, AuthEventService.AuthClientInfo.UNKNOWN);
+    }
+
+    @Transactional
+    public void changePassword(UUID userId, String currentPassword, String newPassword, AuthEventService.AuthClientInfo client) {
         var rows = jdbc.query("SELECT password_hash FROM users WHERE id=? AND status='active' FOR UPDATE",
                 (rs, row) -> rs.getString("password_hash"), userId);
         if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy tài khoản.");
@@ -253,6 +302,8 @@ public class AuthService {
         }
         jdbc.update("UPDATE users SET password_hash=?, updated_at=now() WHERE id=?", passwords.encode(newPassword), userId);
         revokeAllRefreshTokens(userId);
+        tokenRevocations.revokeTokensAtOrBefore(userId, Instant.now());
+        authEvents.record(userId, null, "PASSWORD_CHANGED", client, "Đổi mật khẩu tài khoản");
     }
 
     @Transactional
@@ -266,6 +317,15 @@ public class AuthService {
         String exposedToken = null;
         if (!users.isEmpty()) {
             UUID userId = users.getFirst();
+            var recent = jdbc.query("""
+                    SELECT created_at FROM account_action_tokens
+                    WHERE user_id = ? AND purpose = 'PASSWORD_RESET'
+                    ORDER BY created_at DESC LIMIT 1
+                    """, (rs, row) -> rs.getTimestamp("created_at").toInstant(), userId);
+            if (!recent.isEmpty() && recent.getFirst().isAfter(Instant.now().minusSeconds(60))) {
+                throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                        "Vui lòng đợi ít nhất 60 giây trước khi yêu cầu đặt lại mật khẩu lại.");
+            }
             jdbc.update("""
                     UPDATE account_action_tokens SET consumed_at=now()
                     WHERE user_id=? AND purpose='PASSWORD_RESET' AND consumed_at IS NULL
@@ -290,27 +350,44 @@ public class AuthService {
 
     @Transactional
     public void resetPassword(String token, String newPassword) {
+        resetPassword(token, newPassword, AuthEventService.AuthClientInfo.UNKNOWN);
+    }
+
+    @Transactional
+    public void resetPassword(String token, String newPassword, AuthEventService.AuthClientInfo client) {
         if (token == null || token.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Thiếu mã đặt lại mật khẩu.");
         }
         var matches = jdbc.query("""
-                SELECT t.id AS token_id, t.user_id
+                SELECT t.id AS token_id, t.user_id, u.password_hash, e.normalized_email
                 FROM account_action_tokens t
                 JOIN users u ON u.id = t.user_id
+                JOIN user_email_addresses e ON e.user_id = u.id AND e.address_type = 'primary'
                 WHERE t.token_hash = ? AND t.purpose = 'PASSWORD_RESET'
                   AND t.consumed_at IS NULL AND t.expires_at > now() AND u.status = 'active'
                 FOR UPDATE OF t, u
-                """, (rs, row) -> new UUID[]{rs.getObject("token_id", UUID.class), rs.getObject("user_id", UUID.class)},
+                """, (rs, row) -> new ResetTokenRow(
+                        rs.getObject("token_id", UUID.class),
+                        rs.getObject("user_id", UUID.class),
+                        rs.getString("password_hash"),
+                        rs.getString("normalized_email")),
                 sha256(token.trim()));
         if (matches.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Liên kết hoặc mã đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.");
         }
-        UUID tokenId = matches.getFirst()[0];
-        UUID userId = matches.getFirst()[1];
-        jdbc.update("UPDATE users SET password_hash=?, updated_at=now() WHERE id=?", passwords.encode(newPassword), userId);
-        jdbc.update("UPDATE account_action_tokens SET consumed_at=now() WHERE id=?", tokenId);
-        revokeAllRefreshTokens(userId);
+        ResetTokenRow target = matches.getFirst();
+        if (passwords.matches(newPassword, target.passwordHash())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mật khẩu mới phải khác mật khẩu hiện tại.");
+        }
+        jdbc.update("UPDATE users SET password_hash=?, updated_at=now() WHERE id=?", passwords.encode(newPassword), target.userId());
+        jdbc.update("UPDATE account_action_tokens SET consumed_at=now() WHERE id=?", target.tokenId());
+        revokeAllRefreshTokens(target.userId());
+        tokenRevocations.revokeTokensAtOrBefore(target.userId(), Instant.now());
+        loginAttempts.reset(target.normalizedEmail());
+        authEvents.record(target.userId(), null, "PASSWORD_CHANGED", client, "Đặt lại mật khẩu qua email");
     }
+
+    private record ResetTokenRow(UUID tokenId, UUID userId, String passwordHash, String normalizedEmail) {}
 
     private LoginResult buildLoginResult(UUID userId, String email, String displayName, String timezone, String refreshToken) {
         var roles = jdbc.queryForList("SELECT r.code FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=?", String.class, userId);
@@ -320,14 +397,15 @@ public class AuthService {
                 .claim("email", email).claim("name", displayName).claim("roles", roles).build();
         var header = JwsHeader.with(org.springframework.security.oauth2.jose.jws.MacAlgorithm.HS256).build();
         String jwt = jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
-        return new LoginResult(jwt, refreshToken, "Bearer", tokenMinutes * 60, new UserView(userId, email, displayName, roles, timezone));
+        Instant avatarUpdatedAt = findAvatarUpdatedAt(userId);
+        return new LoginResult(jwt, refreshToken, "Bearer", tokenMinutes * 60, new UserView(userId, email, displayName, roles, timezone, avatarUpdatedAt));
     }
 
-    private String issueRefreshToken(UUID userId, UUID explicitId) {
+    private String issueRefreshToken(UUID userId, UUID explicitId, UUID sessionFamilyId) {
         UUID id = explicitId != null ? explicitId : UUID.randomUUID();
         String raw = generateSecureToken();
-        jdbc.update("INSERT INTO refresh_tokens(id,user_id,token_hash,expires_at) VALUES (?,?,?,?)",
-                id, userId, sha256(raw), Timestamp.from(Instant.now().plus(refreshTokenDays, ChronoUnit.DAYS)));
+        jdbc.update("INSERT INTO refresh_tokens(id,user_id,session_family_id,token_hash,expires_at) VALUES (?,?,?,?,?)",
+                id, userId, sessionFamilyId, sha256(raw), Timestamp.from(Instant.now().plus(refreshTokenDays, ChronoUnit.DAYS)));
         return raw;
     }
 
@@ -350,8 +428,22 @@ public class AuthService {
                 rs.getString("display_name"), rs.getString("timezone")), userId);
         if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Account not found");
         UserIdentity identity = rows.getFirst();
+        touchLastActive(userId);
         var roles = jdbc.queryForList("SELECT r.code FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=?", String.class, userId);
-        return new UserView(identity.id(), identity.email(), identity.displayName(), roles, identity.timezone());
+        return new UserView(identity.id(), identity.email(), identity.displayName(), roles, identity.timezone(), findAvatarUpdatedAt(userId));
+    }
+
+    private Instant findAvatarUpdatedAt(UUID userId) {
+        var rows = jdbc.queryForList("SELECT updated_at FROM user_avatars WHERE user_id = ?", Timestamp.class, userId);
+        return rows.isEmpty() || rows.getFirst() == null ? null : rows.getFirst().toInstant();
+    }
+
+    private void touchLastActive(UUID userId) {
+        jdbc.update("""
+                UPDATE users
+                SET last_active_at=now()
+                WHERE id=? AND (last_active_at IS NULL OR last_active_at < now() - interval '5 minutes')
+                """, userId);
     }
 
     /** Updates the account time zone (IANA id, e.g. Asia/Ho_Chi_Minh) and re-times pending care tasks. */
@@ -387,9 +479,9 @@ public class AuthService {
 
     public record Registration(UUID id, String email, String verificationToken, String message, boolean verificationRequired) {}
     public record ForgotPasswordResult(String resetToken, String message) {}
-    public record UserView(UUID id, String email, String displayName, java.util.List<String> roles, String timezone) {}
+    public record UserView(UUID id, String email, String displayName, java.util.List<String> roles, String timezone, Instant avatarUpdatedAt) {}
     public record LoginResult(String accessToken, String refreshToken, String tokenType, int expiresIn, UserView user) {}
     private record UserIdentity(UUID id, String email, String displayName, String timezone) {}
     private record Account(UUID id, String displayName, String passwordHash, String status, String email, String timezone) {}
-    private record RefreshRow(UUID id, UUID userId, Instant expiresAt, Instant revokedAt, String displayName, String status, String timezone, String email) {}
+    private record RefreshRow(UUID id, UUID userId, UUID sessionFamilyId, Instant expiresAt, Instant revokedAt, String displayName, String status, String timezone, String email) {}
 }

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { useAuthSession } from '@/features/auth/AuthSession';
-import { apiRequest, deleteGardenPhoto, fetchCatalogPlants, fetchOwnedPlants, isApiConfigured, updateGarden as updateGardenApi, uploadGardenPhoto, uploadPlantPhoto, type ApiGarden, type ApiOwnedPlant, type PlantCatalogItem } from '@/services/api';
+import { apiBaseUrl, apiRequest, deleteGardenPhoto, fetchCatalogPlants, fetchOwnedPlants, getCatalogPlantPhotoUri, isApiConfigured, updateGarden as updateGardenApi, uploadGardenPhoto, uploadPlantPhoto, type ApiGarden, type ApiOwnedPlant, type PlantCatalogItem } from '@/services/api';
 
 export type PlantProfile = {
   id: string;
@@ -29,6 +29,7 @@ export type PlantProfile = {
   growthRate?: string;
   wateringFrequency?: string;
   nutrition?: string;
+  photoUpdatedAt?: string | null;
 };
 
 export type OwnedPlant = {
@@ -98,6 +99,16 @@ function mapCatalog(plant: PlantCatalogItem): PlantProfile {
     overview: plant.overview ?? undefined,
     morphology: plant.morphology ?? undefined,
     usageAndCaution: plant.toxicityWarning ?? undefined,
+    lifespan: plant.lifespan ?? undefined,
+    floweringSeason: plant.floweringSeason ?? undefined,
+    humidity: plant.humidity ?? undefined,
+    medium: plant.medium ?? undefined,
+    drainage: plant.drainage ?? undefined,
+    matureSize: plant.matureSize ?? undefined,
+    growthRate: plant.growthRate ?? undefined,
+    soilPh: plant.soilPh ?? undefined,
+    nutrition: plant.nutrition ?? undefined,
+    photoUpdatedAt: plant.photoUpdatedAt ?? null,
   };
 }
 
@@ -140,6 +151,19 @@ function parseDate(value: string): string | null {
   return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
 }
 
+async function fetchAllCatalogPlants(size = 100): Promise<PlantCatalogItem[]> {
+  const firstPage = await fetchCatalogPlants({ page: 0, size });
+  if (firstPage.totalPages <= 1) {
+    return firstPage.items;
+  }
+  const remainingPages = await Promise.all(
+    Array.from({ length: firstPage.totalPages - 1 }, (_, index) =>
+      fetchCatalogPlants({ page: index + 1, size }),
+    ),
+  );
+  return [firstPage, ...remainingPages].flatMap((page) => page.items);
+}
+
 export function PlantDataProvider({ children }: { children: ReactNode }) {
   const { accessToken, isReady } = useAuthSession();
   const [catalog, setCatalog] = useState<PlantProfile[]>([]);
@@ -158,13 +182,13 @@ export function PlantDataProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     setApiError('');
     try {
-      const [catalogPage, gardenRows, plantPage, favoriteRows] = await Promise.all([
-        fetchCatalogPlants({ page: 0, size: 100 }),
+      const [catalogItems, gardenRows, plantPage, favoriteRows] = await Promise.all([
+        fetchAllCatalogPlants(100),
         accessToken ? apiRequest<ApiGarden[]>('/api/v1/gardens', { token: accessToken }) : Promise.resolve([] as ApiGarden[]),
         accessToken ? fetchOwnedPlants(accessToken, { page: 0, size: 100 }) : Promise.resolve({ items: [] as ApiOwnedPlant[], page: 0, size: 100, totalElements: 0, totalPages: 0 }),
         accessToken ? apiRequest<PlantCatalogItem[]>('/api/v1/favorites', { token: accessToken }) : Promise.resolve([] as PlantCatalogItem[]),
       ]);
-      const mappedCatalog = catalogPage.items.map(mapCatalog);
+      const mappedCatalog = catalogItems.map(mapCatalog);
       setCatalog(mappedCatalog);
       setGardens(gardenRows.map(mapGarden));
       setOwnedPlants(plantPage.items.map((plant) => mapOwnedPlant(plant, mappedCatalog)));
@@ -280,6 +304,20 @@ export function PlantDataProvider({ children }: { children: ReactNode }) {
   }), [catalog, ownedPlants, gardens, favorites, isLoading, apiError, accessToken, refresh, filterStates, setFilterState]);
 
   return <PlantDataContext.Provider value={value}>{children}</PlantDataContext.Provider>;
+}
+
+export function resolvePlantPhotoUri(
+  plant: { id: string; catalogId?: string; photoUpdatedAt?: string | null },
+  catalog: PlantProfile[],
+): string | null {
+  if (plant.catalogId) {
+    if (plant.photoUpdatedAt && apiBaseUrl) {
+      return `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}`;
+    }
+    const cat = catalog.find((item) => item.id === plant.catalogId);
+    return getCatalogPlantPhotoUri(plant.catalogId, cat?.photoUpdatedAt);
+  }
+  return getCatalogPlantPhotoUri(plant.id, plant.photoUpdatedAt);
 }
 
 export function usePlantData() {

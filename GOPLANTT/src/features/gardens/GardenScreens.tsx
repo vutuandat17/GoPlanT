@@ -1,23 +1,35 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from '@/components/app-primitives';
+import { pickOrCaptureOptimizedImage } from '@/services/imagePicker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from '@/components/app-primitives';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
+import { safeBack } from '@/services/navigation';
 import { AccountButton } from '@/features/auth/AccountButton';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { GardenArtwork } from '@/features/gardens/GardenArtwork';
 import { GardenPickerModal } from '@/features/gardens/GardenPickerModal';
 import { useJournals } from '@/features/journal/JournalStore';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
-import { usePlantData, type OwnedPlant } from '@/features/plants/PlantDataStore';
+import { resolvePlantPhotoUri, usePlantData, type OwnedPlant } from '@/features/plants/PlantDataStore';
 import { CARE_TASK_META, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 import { ApiError, apiBaseUrl, fetchGardenWeather, fetchWeatherProvinces, getGardenPhotoUri, type ApiGardenWeather, type ApiProvince } from '@/services/api';
 
-function GardenHeader({ title }: { title: string }) {
-  return <View style={g.header}><Pressable onPress={() => router.back()} style={g.back}><Text style={g.backText}>‹</Text></Pressable><Text style={g.headerTitle}>{title}</Text><AccountButton size={29} /></View>;
+function getWeatherEmoji(conditionMain?: string | null): string {
+  const main = conditionMain?.toLocaleLowerCase() ?? '';
+  if (main.includes('thunder')) return '⛈️';
+  if (main.includes('rain') || main.includes('drizzle')) return '🌧️';
+  if (main.includes('snow')) return '❄️';
+  if (main.includes('mist') || main.includes('fog') || main.includes('haze') || main.includes('smoke')) return '🌫️';
+  if (main.includes('cloud')) return '⛅';
+  if (main.includes('clear')) return '☀️';
+  return '🌤️';
+}
+
+function GardenHeader({ title, onBack }: { title: string; onBack?: () => void }) {
+  return <View style={g.header}><Pressable onPress={onBack ?? (() => safeBack('/gardens'))} style={g.back}><Text style={g.backText}>‹</Text></Pressable><Text style={g.headerTitle}>{title}</Text><AccountButton size={29} /></View>;
 }
 
 function ActionButton({ label, secondary = false, onPress }: { label: string; secondary?: boolean; onPress: () => void }) {
@@ -35,17 +47,16 @@ export function GardenDetailScreen() {
 
   const replaceGardenPhoto = async () => {
     if (!garden) return;
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Cần quyền truy cập ảnh', 'Cho phép GoPlant truy cập thư viện ảnh để chọn ảnh khu vườn.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [16, 9], quality: 0.85 });
-    if (result.canceled || !result.assets[0]) return;
+    const picked = await pickOrCaptureOptimizedImage({
+      aspect: [16, 9],
+      maxWidth: 1600,
+      quality: 0.8,
+      title: 'Cập nhật ảnh khu vườn',
+    });
+    if (!picked) return;
     setUploadingPhoto(true);
     try {
-      const asset = result.assets[0];
-      await updateGardenPhoto(garden.id, { uri: asset.uri, mimeType: asset.mimeType, fileName: asset.fileName });
+      await updateGardenPhoto(garden.id, picked);
       Alert.alert('Đã cập nhật ảnh', 'Ảnh bìa khu vườn đã được lưu.');
     } catch (error) {
       Alert.alert('Không tải được ảnh', error instanceof Error ? error.message : 'Vui lòng thử ảnh JPEG hoặc PNG dưới 5 MB.');
@@ -97,6 +108,8 @@ export function GardenDetailScreen() {
   const [movingPlant, setMovingPlant] = useState<OwnedPlant | null>(null);
   const [moveBusy, setMoveBusy] = useState(false);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [tasksExpanded, setTasksExpanded] = useState(true);
+  const [plantsExpanded, setPlantsExpanded] = useState(true);
 
   const handleMovePlant = async (nextGardenId: string | null) => {
     if (!movingPlant) return;
@@ -138,7 +151,7 @@ export function GardenDetailScreen() {
       ? `GPS (${garden.latitude.toFixed(3)}, ${garden.longitude.toFixed(3)})`
       : null;
 
-  return <SafeAreaView style={g.safe} edges={['top']}><GardenHeader title="Chi tiết khu vườn"/><ScrollView contentContainerStyle={g.content}>
+  return <SafeAreaView style={g.safe} edges={['top']}><GardenHeader title="Chi tiết khu vườn" onBack={() => router.replace('/gardens' as never)}/><ScrollView contentContainerStyle={g.content}>
     {!garden ? <View style={g.card}><Text style={g.sectionTitle}>Không tìm thấy khu vườn</Text><Text style={g.body}>Danh sách có thể đã thay đổi hoặc khu vườn đã bị xóa.</Text><ActionButton label="Về danh sách vườn" onPress={() => router.replace('/gardens' as never)}/></View> : <>
       <GardenArtwork
         locationType={garden.locationType}
@@ -180,16 +193,25 @@ export function GardenDetailScreen() {
             ) : null}
           </View>
         ) : null}
-        <Pressable onPress={() => router.push('/schedule' as never)}><Text style={g.link}>{pendingTodayCount > 0 ? `◷ ${pendingTodayCount} việc chăm sóc cần làm hôm nay ›` : '◷ Xem lịch chăm sóc ›'}</Text></Pressable>
+        <Pressable onPress={() => router.push({ pathname: '/schedule', params: { returnToGardenId: garden.id } } as never)}><Text style={g.link}>{pendingTodayCount > 0 ? `◷ ${pendingTodayCount} việc chăm sóc cần làm hôm nay ›` : '◷ Xem lịch chăm sóc ›'}</Text></Pressable>
       </View>
 
       {gardenPendingTasks.length > 0 ? (
         <View style={g.taskBannerCard}>
           <View style={g.row}>
-            <Text style={g.sectionTitle}>Hôm nay vườn này có {gardenPendingTasks.length} việc cần làm</Text>
-            <Pressable onPress={() => router.push('/schedule' as never)}><Text style={g.link}>Tất cả ›</Text></Pressable>
+            <Text style={[g.sectionTitle, { flex: 1 }]}>Hôm nay vườn này có {gardenPendingTasks.length} việc cần làm</Text>
+            <View style={g.headerActionsRow}>
+              <Pressable onPress={() => router.push({ pathname: '/schedule', params: { returnToGardenId: garden.id } } as never)}><Text style={g.link}>Tất cả ›</Text></Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={tasksExpanded ? 'Thu gọn danh sách công việc hôm nay' : 'Mở rộng danh sách công việc hôm nay'}
+                onPress={() => setTasksExpanded((prev) => !prev)}
+                style={g.toggleBtn}>
+                <Text style={g.toggleBtnText}>{tasksExpanded ? 'Thu gọn ▲' : 'Mở rộng ▼'}</Text>
+              </Pressable>
+            </View>
           </View>
-          {gardenPendingTasks.slice(0, 4).map((task) => {
+          {tasksExpanded ? gardenPendingTasks.map((task) => {
             const meta = CARE_TASK_META[task.taskType] ?? CARE_TASK_META.other;
             const busy = completingTaskId === task.id;
             return (
@@ -208,7 +230,7 @@ export function GardenDetailScreen() {
                 </Pressable>
               </View>
             );
-          })}
+          }) : null}
         </View>
       ) : null}
       <View style={g.card}>
@@ -235,6 +257,7 @@ export function GardenDetailScreen() {
         ) : weather && weather.temperatureC != null ? (
           <>
             <View style={g.weatherTop}>
+              <Text style={g.weatherIcon}>{getWeatherEmoji(weather.conditionMain)}</Text>
               <Text style={g.weatherTemp}>{Math.round(weather.temperatureC)}°C</Text>
               <View style={g.plantCopy}>
                 <Text style={g.plantName}>{weather.conditionDescription || weather.conditionMain || 'Thời tiết hiện tại'}</Text>
@@ -245,15 +268,15 @@ export function GardenDetailScreen() {
               </View>
             </View>
             <View style={g.metrics}>
-              <View style={g.metric}><Text style={g.metricValue}>{weather.humidityPct != null ? `${weather.humidityPct}%` : '—'}</Text><Text style={g.body}>Độ ẩm</Text></View>
-              <View style={g.metric}><Text style={g.metricValue}>{weather.windSpeedMs != null ? `${weather.windSpeedMs} m/s` : '—'}</Text><Text style={g.body}>Gió</Text></View>
-              <View style={g.metric}><Text style={g.metricValue}>{weather.cloudsPct != null ? `${weather.cloudsPct}%` : '—'}</Text><Text style={g.body}>Mây che</Text></View>
+              <View style={g.metric}><Text style={g.metricValue}>{weather.humidityPct != null ? `${weather.humidityPct}%` : '—'}</Text><Text style={g.body}>💧 Độ ẩm</Text></View>
+              <View style={g.metric}><Text style={g.metricValue}>{weather.windSpeedMs != null ? `${weather.windSpeedMs} m/s` : '—'}</Text><Text style={g.body}>💨 Gió</Text></View>
+              <View style={g.metric}><Text style={g.metricValue}>{weather.cloudsPct != null ? `${weather.cloudsPct}%` : '—'}</Text><Text style={g.body}>☁️ Mây che</Text></View>
             </View>
             {!weather.outdoor ? <Text style={g.note}>Đây là nhiệt độ ngoài trời tham khảo; khu vườn trong nhà/nhà kính có thể chênh lệch.</Text> : null}
             {weather.stale ? <Text style={g.note}>Đang hiển thị dữ liệu lưu gần nhất do chưa làm mới được từ OpenWeatherMap.</Text> : null}
             {weather.plantAlerts.length > 0 ? (
               <View style={g.alertBox}>
-                <Text style={g.alertTitle}>Cảnh báo ngưỡng nhiệt độ ({weather.plantAlerts.length} cây)</Text>
+                <Text style={g.alertTitle}>⚠️ Cảnh báo ngưỡng nhiệt độ ({weather.plantAlerts.length} cây)</Text>
                 {weather.plantAlerts.map((alert) => (
                   <Text key={alert.plantId} style={g.alertText}>
                     • {alert.displayName}: {alert.level === 'too_hot' ? 'Đang nóng hơn' : 'Đang lạnh hơn'} ngưỡng khuyến nghị ({alert.temperatureRange})
@@ -264,25 +287,43 @@ export function GardenDetailScreen() {
           </>
         ) : null}
       </View>
-      <View style={g.row}><Text style={g.sectionTitle}>Cây đang trồng ({plants.length})</Text><Pressable onPress={() => router.push({ pathname: '/garden/add-plant', params: { gardenId: garden.id } } as never)}><Text style={g.link}>＋ Thêm cây</Text></Pressable></View>
-      {plants.map((plant) => (
+      <View style={g.row}>
+        <Text style={[g.sectionTitle, { flex: 1 }]}>Cây đang trồng ({plants.length})</Text>
+        <View style={g.headerActionsRow}>
+          <Pressable onPress={() => router.push({ pathname: '/garden/add-plant', params: { gardenId: garden.id } } as never)}><Text style={g.link}>＋ Thêm cây</Text></Pressable>
+          {plants.length > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={plantsExpanded ? 'Thu gọn danh sách cây đang trồng' : 'Mở rộng danh sách cây đang trồng'}
+              onPress={() => setPlantsExpanded((prev) => !prev)}
+              style={g.toggleBtn}>
+              <Text style={g.toggleBtnText}>{plantsExpanded ? 'Thu gọn ▲' : 'Mở rộng ▼'}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+      {plantsExpanded ? plants.map((plant) => (
         <View key={plant.id} style={g.plantCard}>
-          <PlantArtwork category={catalog.find((item) => item.id === plant.catalogId)?.category ?? 'Cây trồng'} accessToken={accessToken} photoUri={plant.photoUpdatedAt ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}` : null} style={g.plantImage}/>
-          <View style={g.plantCopy}>
-            <Text style={g.plantName}>{plant.name}</Text>
-            <Text style={g.body}>{plant.scientificName} • {plant.location || 'Chưa có vị trí cụ thể'}</Text>
-          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Xem chi tiết ${plant.name}`}
+            onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id, returnToGardenId: garden.id } } as never)}
+            style={g.plantCardMain}>
+            <PlantArtwork category={catalog.find((item) => item.id === plant.catalogId)?.category ?? 'Cây trồng'} accessToken={accessToken} photoUri={resolvePlantPhotoUri(plant, catalog)} style={g.plantImage}/>
+            <View style={g.plantCopy}>
+              <Text style={g.plantName}>{plant.name}</Text>
+              <Text style={g.body}>{plant.scientificName} • {plant.location || 'Chưa có vị trí cụ thể'}</Text>
+            </View>
+            <Text style={g.link}>›</Text>
+          </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel={`Chuyển vườn cho ${plant.name}`} onPress={() => setMovingPlant(plant)} style={g.moveBtn}>
             <Text style={g.moveBtnText}>Chuyển</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={`Xem chi tiết ${plant.name}`} onPress={() => router.push({ pathname: '/plant-detail', params: { name: plant.name, ownedId: plant.id } } as never)}>
-            <Text style={g.link}>›</Text>
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel={`Xóa ${plant.name} khỏi vườn`} onPress={() => Alert.alert('Xóa cây', `Xóa hồ sơ “${plant.name}” khỏi tài khoản?`, [{ text: 'Hủy', style: 'cancel' }, { text: 'Xóa cây', style: 'destructive', onPress: () => void removePlant(plant.id).catch((error) => Alert.alert('Không thể xóa cây', error instanceof Error ? error.message : 'Vui lòng thử lại.')) }])}>
             <Text style={g.deleteLink}>Xóa</Text>
           </Pressable>
         </View>
-      ))}
+      )) : null}
       {plants.length === 0 ? <Text style={g.note}>Khu vườn chưa có cây.</Text> : null}
       <ActionButton label="Chỉnh sửa thông tin vườn" onPress={() => router.push({ pathname: '/garden/create', params: { editGardenId: garden.id } } as never)}/>
       <ActionButton secondary label="Xóa khu vườn" onPress={() => Alert.alert('Xóa khu vườn', 'Cây trong vườn sẽ được giữ lại và chuyển sang trạng thái chưa phân vườn.', [{ text: 'Hủy', style: 'cancel' }, { text: 'Xóa vườn', style: 'destructive', onPress: () => void removeGarden(garden.id).then(() => router.replace('/gardens' as never)).catch((error) => Alert.alert('Không thể xóa vườn', error instanceof Error ? error.message : 'Vui lòng thử lại.')) }])}/>
@@ -501,14 +542,14 @@ function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
     <Text style={g.label}>Mô tả (không bắt buộc)</Text><TextInput value={description} onChangeText={setDescription} placeholder="Thêm ghi chú cho khu vườn..." style={[g.input, g.multiline]} multiline/></> : <>
       {!editId ? <>
         <Text style={g.label}>1. Chọn loại cây</Text>
-        {selectedProfile ? <View style={[g.plantCard, g.selectedPlant]}><PlantArtwork category={selectedProfile.category} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{selectedProfile.name}</Text><Text style={g.body}>{selectedProfile.scientificName} • {selectedProfile.category}</Text></View><Text style={g.link}>Đã chọn</Text></View> : null}
+        {selectedProfile ? <View style={[g.plantCard, g.selectedPlant]}><PlantArtwork category={selectedProfile.category} photoUri={resolvePlantPhotoUri(selectedProfile, catalog)} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{selectedProfile.name}</Text><Text style={g.body}>{selectedProfile.scientificName} • {selectedProfile.category}</Text></View><Text style={g.link}>Đã chọn</Text></View> : null}
         <TextInput value={plantQuery} onChangeText={setPlantQuery} placeholder="Tìm tên cây hoặc tên khoa học" style={g.input}/>
         {!plantQuery.trim() && !selectedProfile ? <Text style={g.note}>Nhập tên cây để tìm trong thư viện {catalog.length} loại. Danh sách chỉ hiện kết quả phù hợp.</Text> : null}
-        {filteredCatalog.map((plant) => <Pressable key={plant.id} onPress={() => { setSelected(plant.id); if (!name.trim() || catalog.some((item) => item.name === name)) setName(plant.name); }} style={[g.plantCard, selected === plant.id && g.choiceActive]}><PlantArtwork category={plant.category} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{plant.name}</Text><Text style={g.body}>{plant.scientificName} • {plant.category}</Text></View><Text style={g.link}>{selected === plant.id ? '✓ Đã chọn' : 'Chọn'}</Text></Pressable>)}
+        {filteredCatalog.map((plant) => <Pressable key={plant.id} onPress={() => { setSelected(plant.id); if (!name.trim() || catalog.some((item) => item.name === name)) setName(plant.name); }} style={[g.plantCard, selected === plant.id && g.choiceActive]}><PlantArtwork category={plant.category} photoUri={resolvePlantPhotoUri(plant, catalog)} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{plant.name}</Text><Text style={g.body}>{plant.scientificName} • {plant.category}</Text></View><Text style={g.link}>{selected === plant.id ? '✓ Đã chọn' : 'Chọn'}</Text></Pressable>)}
         {plantQuery.trim() && filteredCatalog.length === 0 ? <Text style={g.note}>Không tìm thấy loại cây phù hợp. Thử tên thường gọi hoặc tên khoa học khác.</Text> : null}
         {matchingCatalog.length > 20 ? <Text style={g.note}>Hiển thị 20 kết quả đầu. Nhập thêm ký tự để thu hẹp tìm kiếm.</Text> : null}
         {catalog.length === 0 ? <Text style={g.note}>Thư viện chưa có cây nào. Vui lòng thử lại sau.</Text> : null}
-      </> : selectedProfile ? <View style={g.plantCard}><PlantArtwork category={selectedProfile.category} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{selectedProfile.name}</Text><Text style={g.body}>{selectedProfile.scientificName}</Text></View></View> : <Text style={g.note}>Không tìm thấy loại cây của hồ sơ này.</Text>}
+      </> : selectedProfile ? <View style={g.plantCard}><PlantArtwork category={selectedProfile.category} photoUri={resolvePlantPhotoUri(selectedProfile, catalog)} style={g.plantImage}/><View style={g.plantCopy}><Text style={g.plantName}>{selectedProfile.name}</Text><Text style={g.body}>{selectedProfile.scientificName}</Text></View></View> : <Text style={g.note}>Không tìm thấy loại cây của hồ sơ này.</Text>}
       {selectedProfile ? <><Text style={g.label}>Tên hiển thị <Text style={g.required}>*</Text></Text><TextInput value={name} onChangeText={setName} placeholder="Tên cây trong hồ sơ của bạn" style={[g.input, error && !name.trim() && g.inputError]}/><Text style={g.label}>2. Chọn vườn nhận cây</Text><Text style={g.body}>{gardenId ? `Cây sẽ được thêm vào ${gardens.find((garden) => garden.id === gardenId)?.name ?? 'vườn đã chọn'}. Bạn có thể đổi vườn bên dưới.` : 'Chọn nơi trồng hoặc để cây ở trạng thái chưa phân vườn.'}</Text><View style={g.choices}><Pressable onPress={() => setGardenId('')} style={[g.choice, !gardenId && g.choiceActive]}><Text style={g.body}>Chưa phân vườn</Text></Pressable>{gardens.map((garden) => <Pressable key={garden.id} onPress={() => setGardenId(garden.id)} style={[g.choice, gardenId === garden.id && g.choiceActive]}><Text style={g.body}>{garden.name}</Text></Pressable>)}</View>{gardens.length === 0 ? <Text style={g.note}>Bạn chưa tạo vườn. Có thể tiếp tục và phân vườn sau.</Text> : null}<Text style={g.label}>Vị trí cụ thể trong vườn (không bắt buộc)</Text><TextInput value={place} onChangeText={setPlace} placeholder="Ví dụ: Kệ cạnh cửa sổ" style={g.input}/><Text style={g.label}>Ngày trồng / bắt đầu chăm sóc (không bắt buộc)</Text><TextInput value={plantedAt} onChangeText={setPlantedAt} placeholder="dd/mm/yyyy" style={g.input}/><Text style={g.label}>Ghi chú (không bắt buộc)</Text><TextInput value={note} onChangeText={setNote} placeholder="Ghi chú về cây" style={[g.input, g.multiline]} multiline/></> : null}
       </>}
     {addPlant && !editId && suggestedCatalog.length > 0 ? (
@@ -529,7 +570,7 @@ function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
               const isSelected = selected === plant.id;
               return (
                 <View key={plant.id} style={[g.plantCard, isSelected && g.choiceActive]}>
-                  <PlantArtwork category={plant.category} style={g.plantImage} />
+                  <PlantArtwork category={plant.category} photoUri={resolvePlantPhotoUri(plant, catalog)} style={g.plantImage} />
                   <View style={g.plantCopy}>
                     <Text style={g.plantName}>{plant.name}</Text>
                     <Text style={g.body}>{plant.scientificName} • {plant.category}</Text>
@@ -564,14 +605,16 @@ export function AddGardenPlantScreen() { return <GardenForm addPlant/>; }
 
 const g = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.background }, header: { height: 52, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, back: { width: 34 }, backText: { color: C.forest, fontSize: 29 }, headerTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 }, profile: { width: 29, height: 29, borderRadius: 15, overflow: 'hidden', backgroundColor: C.forest, color: C.surface, textAlign: 'center', textAlignVertical: 'center', fontFamily: F.bold }, deleteLink: { color: '#A12D24', fontFamily: F.semiBold, fontSize: 10 },
-  content: { padding: 13, gap: 9, paddingBottom: 24 }, hero: { height: 180, borderRadius: 15, backgroundColor: '#DCEDE0', alignItems: 'center', justifyContent: 'center' }, heroPlant: { color: '#508664', fontSize: 64 }, heroLabel: { color: C.forest, fontFamily: F.bold, fontSize: 10, letterSpacing: 1 }, title: { color: C.forest, fontFamily: F.bold, fontSize: 19 }, body: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11, lineHeight: 17 }, metrics: { flexDirection: 'row', gap: 7 }, metric: { flex: 1, padding: 9, borderRadius: 11, backgroundColor: C.surface }, metricValue: { color: C.forest, fontFamily: F.bold, fontSize: 15 }, card: { padding: 11, borderRadius: 14, backgroundColor: C.surface, gap: 8 }, sectionTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 }, row: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'space-between' }, link: { color: C.primary, fontFamily: F.semiBold, fontSize: 11 }, icon: { color: C.forest, fontSize: 16 }, time: { color: C.primary, fontFamily: F.semiBold, fontSize: 10 }, plantCard: { minHeight: 66, padding: 8, borderRadius: 12, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 9 }, selectedPlant: { borderWidth: 1, borderColor: C.primary, backgroundColor: '#E5F4E9' }, plantImage: { width: 46, height: 46, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: C.softSurface }, plantEmoji: { fontSize: 22 }, plantCopy: { flex: 1 }, plantName: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 }, action: { minHeight: 44, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, actionText: { color: C.surface, fontFamily: F.semiBold, fontSize: 12 }, actionSecondary: { backgroundColor: C.softSurface }, actionTextSecondary: { color: C.forest }, note: { color: C.mutedText, fontFamily: F.regular, fontSize: 9, textAlign: 'center' },
+  content: { padding: 13, gap: 9, paddingBottom: 24 }, hero: { height: 180, borderRadius: 15, backgroundColor: '#DCEDE0', alignItems: 'center', justifyContent: 'center' }, heroPlant: { color: '#508664', fontSize: 64 }, heroLabel: { color: C.forest, fontFamily: F.bold, fontSize: 10, letterSpacing: 1 }, title: { color: C.forest, fontFamily: F.bold, fontSize: 19 }, body: { color: C.secondaryText, fontFamily: F.regular, fontSize: 11, lineHeight: 17 }, metrics: { flexDirection: 'row', gap: 7 }, metric: { flex: 1, padding: 9, borderRadius: 11, backgroundColor: C.surface }, metricValue: { color: C.forest, fontFamily: F.bold, fontSize: 15 }, card: { padding: 11, borderRadius: 14, backgroundColor: C.surface, gap: 8 }, sectionTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 }, row: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'space-between' }, link: { color: C.primary, fontFamily: F.semiBold, fontSize: 11 }, icon: { color: C.forest, fontSize: 16 }, time: { color: C.primary, fontFamily: F.semiBold, fontSize: 10 }, plantCard: { minHeight: 66, padding: 8, borderRadius: 12, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 9 }, plantCardMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 9 }, selectedPlant: { borderWidth: 1, borderColor: C.primary, backgroundColor: '#E5F4E9' }, plantImage: { width: 46, height: 46, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: C.softSurface }, plantEmoji: { fontSize: 22 }, plantCopy: { flex: 1 }, plantName: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 }, action: { minHeight: 44, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, actionText: { color: C.surface, fontFamily: F.semiBold, fontSize: 12 }, actionSecondary: { backgroundColor: C.softSurface }, actionTextSecondary: { color: C.forest }, note: { color: C.mutedText, fontFamily: F.regular, fontSize: 9, textAlign: 'center' },
   tip: { padding: 12, borderRadius: 12, backgroundColor: C.softSurface, gap: 4 }, label: { color: C.text, fontFamily: F.semiBold, fontSize: 12, marginTop: 4 }, required: { color: C.terracotta }, input: { minHeight: 44, paddingHorizontal: 12, borderRadius: 9, backgroundColor: C.surface, color: C.text, fontFamily: F.regular, fontSize: 12 }, inputError: { borderWidth: 1, borderColor: '#C62828' }, multiline: { height: 80, textAlignVertical: 'top', paddingTop: 10 }, choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, choice: { paddingHorizontal: 10, paddingVertical: 9, borderRadius: 9, backgroundColor: C.surface }, choiceActive: { borderWidth: 1, borderColor: C.primary, backgroundColor: '#E0F2E6' }, heroSmall: { height: 100, borderRadius: 12, backgroundColor: '#E0EEE3', alignItems: 'center', justifyContent: 'center' }, error: { color: '#B42318', fontFamily: F.regular, fontSize: 11 },
   weatherTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  weatherIcon: { fontSize: 30, lineHeight: 36 },
   weatherTemp: { color: C.forest, fontFamily: F.bold, fontSize: 28 },
   alertBox: { padding: 10, borderRadius: 10, backgroundColor: C.peach, gap: 4 },
   alertTitle: { color: C.terracotta, fontFamily: F.bold, fontSize: 11 },
   alertText: { color: C.terracotta, fontFamily: F.regular, fontSize: 11, lineHeight: 16 },
   suggestSection: { gap: 8, marginTop: 4 },
+  headerActionsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   toggleBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99, backgroundColor: C.softSurface, borderWidth: 1, borderColor: '#CBE3D3' },
   toggleBtnText: { color: C.forest, fontFamily: F.semiBold, fontSize: 11 },
   suggestList: { gap: 8 },

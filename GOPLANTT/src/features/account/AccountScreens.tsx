@@ -5,11 +5,15 @@ import { SafeAreaView } from '@/components/app-primitives';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
 import { BackButton } from '@/components/BackButton';
+import { UserAvatar } from '@/components/UserAvatar';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { useAppPreferences } from '@/features/preferences/AppPreferences';
 import { ensureCareNotificationPermissions } from '@/features/schedule/localNotifications';
 import { useCareSchedules } from '@/features/schedule/CareScheduleStore';
-import { changePassword, forgotPassword } from '@/services/api';
+import { changePassword, deleteMyAvatar, fetchMyAuthEvents, forgotPassword, getMyAvatarUri, uploadMyAvatar, type ApiAuthEvent } from '@/services/api';
+import { pickOrCaptureOptimizedImage } from '@/services/imagePicker';
+import { AUTH_EVENT_META, formatAuthEventTime } from '@/features/account/AdminAuthHistoryScreen';
+import { safeBack } from '@/services/navigation';
 
 type AccountPage = 'overview' | 'profile' | 'credentials' | 'security' | 'notifications' | 'settings' | 'privacy';
 const paths: Record<Exclude<AccountPage, 'overview'>, string> = {
@@ -32,7 +36,7 @@ const menu: { page: Exclude<AccountPage, 'overview'>; icon: string; title: strin
 function Page({ page, children }: { page: AccountPage; children: ReactNode }) {
   return <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
     <View style={s.header}>
-      <BackButton onPress={() => { if (router.canGoBack()) router.back(); else router.replace('/home' as never); }} />
+      <BackButton onPress={() => safeBack('/home')} />
       <Text numberOfLines={1} style={s.headerTitle}>{titles[page]}</Text>
       <View style={s.headerRight}><Text style={s.userMark}>♙</Text></View>
     </View>
@@ -45,7 +49,7 @@ function Field({ label, value, onChangeText, placeholder, secureTextEntry = fals
   return <View style={s.field}><Label>{label}</Label><TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={C.mutedText} secureTextEntry={secureTextEntry} editable={Boolean(onChangeText)} style={[s.input, !onChangeText && s.readOnly]} /></View>;
 }
 function ActionButton({ label, onPress, tone = 'primary', disabled = false }: { label: string; onPress: () => void; tone?: 'primary' | 'soft' | 'danger'; disabled?: boolean }) {
-  return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={[s.button, tone === 'soft' && s.buttonSoft, tone === 'danger' && s.buttonDanger, disabled && s.buttonDisabled]}><Text style={[s.buttonText, tone === 'soft' && s.buttonSoftText]}>{label}</Text></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={[s.button, tone === 'soft' && s.buttonSoft, tone === 'danger' && s.buttonDanger, disabled && s.buttonDisabled]}><Text style={[s.buttonText, tone === 'soft' && s.buttonSoftText, tone === 'danger' && s.buttonDangerText]}>{label}</Text></Pressable>;
 }
 function unavailable(feature: string) { Alert.alert('Chưa có dịch vụ', `${feature} hiện chỉ là giao diện tham khảo. Tác vụ cần backend hoặc API hệ thống chưa được kết nối.`); }
 function Row({ icon, title, caption, onPress }: { icon: string; title: string; caption: string; onPress: () => void }) {
@@ -58,12 +62,15 @@ function ToggleRow({ title, description, value, onValueChange }: { title: string
 }
 
 export function AccountOverviewScreen() {
-  const { user, signOut } = useAuthSession();
+  const { user, accessToken, signOut } = useAuthSession();
   const logOut = () => Alert.alert('Đăng xuất', 'Bạn muốn kết thúc phiên đăng nhập hiện tại?', [{ text: 'Hủy', style: 'cancel' }, { text: 'Đăng xuất', style: 'destructive', onPress: () => { signOut(); router.replace('/auth/login'); } }]);
   return <Page page="overview">
-    <Card style={s.identity}><View style={s.avatar}><Text style={s.avatarText}>{user?.name.trim().charAt(0).toUpperCase() || 'G'}</Text></View><View style={s.flex}><Text style={s.identityName}>{user?.name ?? 'Khách GoPlant'}</Text><Text style={s.caption}>{user?.email ?? 'Chưa đăng nhập'}</Text><Text style={s.roleBadge}>{user?.role === 'admin' ? 'Quản trị viên' : 'Thành viên'}</Text></View></Card>
+    <Card style={s.identity}><UserAvatar name={user?.name} avatarUri={getMyAvatarUri(user?.avatarUpdatedAt)} accessToken={accessToken} size={60} /><View style={s.flex}><Text style={s.identityName}>{user?.name ?? 'Khách GoPlant'}</Text><Text style={s.caption}>{user?.email ?? 'Chưa đăng nhập'}</Text><Text style={s.roleBadge}>{user?.role === 'admin' ? 'Quản trị viên' : user?.role === 'moderator' ? 'Kiểm duyệt viên' : 'Thành viên'}</Text></View></Card>
     <SectionHeading detail="6 mục quản lý">Trung tâm cài đặt</SectionHeading>
-    {user?.role === 'admin' ? <Row icon="♧" title="Quản lý danh mục cây" caption="Thêm và xuất bản cây mới cho mọi người dùng" onPress={() => router.push('/admin/catalog' as never)} /> : null}
+    {user?.role === 'admin' || user?.role === 'moderator' ? <Row icon="♧" title="Quản lý danh mục cây" caption="Thêm và xuất bản cây mới cho mọi người dùng" onPress={() => router.push('/admin/catalog' as never)} /> : null}
+    {user?.role === 'admin' ? <Row icon="♙" title="Quản lý tài khoản người dùng" caption="Xem danh sách, khóa/mở khóa và phân quyền quản trị" onPress={() => router.push('/admin/users' as never)} /> : null}
+    {user?.role === 'admin' ? <Row icon="◷" title="Lịch sử đăng nhập & đăng xuất" caption="Theo dõi các lần vào/ra hệ thống của người dùng" onPress={() => router.push('/admin/auth-history' as never)} /> : null}
+    {user?.role === 'admin' ? <Row icon="▤" title="Nhật ký kiểm toán quản trị" caption="Xem toàn bộ lịch sử khóa, mở khóa và đổi quyền" onPress={() => router.push('/admin/audit-logs' as never)} /> : null}
     {menu.map((item) => <Row key={item.page} icon={item.icon} title={item.title} caption={item.caption} onPress={() => router.push(paths[item.page] as never)} />)}
     <Card style={s.infoCard}><Text style={s.menuTitle}>GoPlant</Text><Text style={s.caption}>Quản lý tài khoản và thông tin khu vườn của bạn.</Text></Card>
     <ActionButton label="⇥  Đăng xuất tài khoản" tone="danger" onPress={logOut} />
@@ -71,11 +78,57 @@ export function AccountOverviewScreen() {
 }
 
 export function AccountProfileScreen() {
-  const { user, updateDisplayName } = useAuthSession();
+  const { user, accessToken, updateDisplayName, updateUserAvatar } = useAuthSession();
   const [name, setName] = useState(user?.name ?? '');
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => { setName(user?.name ?? ''); }, [user?.name]);
+
+  const pickAvatar = async () => {
+    if (!accessToken || uploadingAvatar) return;
+    const picked = await pickOrCaptureOptimizedImage({
+      aspect: [1, 1],
+      maxWidth: 512,
+      quality: 0.8,
+      title: 'Cập nhật ảnh đại diện',
+    });
+    if (!picked) return;
+    setUploadingAvatar(true);
+    setError('');
+    try {
+      const updated = await uploadMyAvatar(accessToken, picked);
+      updateUserAvatar(updated.avatarUpdatedAt ?? new Date().toISOString());
+      Alert.alert('Đã cập nhật', 'Ảnh đại diện mới đã được lưu.');
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : 'Không thể tải ảnh đại diện.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const removeAvatar = () => {
+    if (!accessToken || !user?.avatarUpdatedAt || uploadingAvatar) return;
+    Alert.alert('Xóa ảnh đại diện', 'Quay lại hiển thị chữ cái đầu cho ảnh đại diện của bạn?', [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Xóa ảnh',
+        style: 'destructive',
+        onPress: () => {
+          setUploadingAvatar(true);
+          void deleteMyAvatar(accessToken)
+            .then(() => {
+              updateUserAvatar(null);
+            })
+            .catch((err) => {
+              setError(err instanceof Error ? err.message : 'Không thể xóa ảnh đại diện.');
+            })
+            .finally(() => setUploadingAvatar(false));
+        },
+      },
+    ]);
+  };
+
   const save = async () => {
     const displayName = name.trim();
     if (!displayName || displayName.length > 120) {
@@ -94,10 +147,24 @@ export function AccountProfileScreen() {
     }
   };
   return <Page page="profile">
-    <Card style={s.profileHero}><View style={s.avatarLarge}><Text style={s.avatarText}>{name.trim().charAt(0).toUpperCase() || 'G'}</Text></View><Text style={s.identityName}>{name || 'Tên hiển thị'}</Text><Text style={s.caption}>Hồ sơ tài khoản</Text></Card>
+    <Card style={s.profileHero}>
+      <UserAvatar name={name || user?.name} avatarUri={getMyAvatarUri(user?.avatarUpdatedAt)} accessToken={accessToken} size={90} />
+      <Text style={s.identityName}>{name || 'Tên hiển thị'}</Text>
+      <Text style={s.caption}>Hồ sơ tài khoản</Text>
+      <View style={s.avatarActions}>
+        <Pressable disabled={uploadingAvatar} onPress={() => void pickAvatar()} style={[s.avatarBtn, uploadingAvatar && s.buttonDisabled]}>
+          <Text style={s.avatarBtnText}>{uploadingAvatar ? 'Đang tải...' : 'Đổi ảnh đại diện'}</Text>
+        </Pressable>
+        {user?.avatarUpdatedAt ? (
+          <Pressable disabled={uploadingAvatar} onPress={removeAvatar} style={[s.avatarBtn, s.avatarDeleteBtn, uploadingAvatar && s.buttonDisabled]}>
+            <Text style={s.avatarDeleteText}>Xóa ảnh</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </Card>
     <Card><Field label="Họ và tên" value={name} onChangeText={setName} placeholder="Nhập họ và tên"/><Field label="Tên tài khoản" value={user?.email.split('@')[0] ?? ''}/><Field label="Hộp thư điện tử" value={user?.email ?? ''}/></Card>
     {error ? <Text style={s.error}>{error}</Text> : null}
-    <ActionButton label={saving ? 'Đang lưu…' : '✓  Lưu thay đổi'} disabled={saving} onPress={() => void save()}/><ActionButton label="Hủy bỏ" tone="soft" disabled={saving} onPress={() => router.back()}/>
+    <ActionButton label={saving ? 'Đang lưu…' : '✓  Lưu thay đổi'} disabled={saving} onPress={() => void save()}/><ActionButton label="Hủy bỏ" tone="soft" disabled={saving} onPress={() => safeBack('/account')}/>
   </Page>;
 }
 
@@ -186,12 +253,84 @@ export function AccountCredentialsScreen() {
 export function AccountSecurityScreen() {
   return <Page page="security">
     <Card style={s.banner}><Text style={s.bannerTitle}>Bảo mật tài khoản</Text><Text style={s.caption}>Phiên đăng nhập được bảo vệ bằng mã truy cập tài khoản.</Text></Card>
-    <Card><SectionHeading>Mật khẩu tài khoản</SectionHeading><Text style={s.caption}>Để thay đổi mật khẩu, vui lòng sử dụng quy trình khôi phục tài khoản.</Text></Card>
+    <Card><SectionHeading>Mật khẩu tài khoản</SectionHeading><Text style={s.caption}>Để thay đổi mật khẩu, vui lòng sử dụng mục Quản lý thông tin đăng nhập.</Text></Card>
     <Card><SectionHeading>Xác thực email</SectionHeading><Text style={s.value}>Trạng thái được quản lý bởi máy chủ</Text><Text style={s.caption}>Đăng nhập chỉ khả dụng sau khi xác minh email.</Text></Card>
     <Card><SectionHeading>Xác thực số điện thoại</SectionHeading><Text style={s.value}>Chưa liên kết</Text><Text style={s.caption}>OTP chưa được hỗ trợ.</Text></Card>
-    <Card><SectionHeading>Thiết bị đăng nhập</SectionHeading><Text style={s.caption}>Không có danh sách phiên thiết bị từ backend.</Text></Card>
+    <Card>
+      <SectionHeading>Lịch sử đăng nhập & phiên</SectionHeading>
+      <Text style={s.caption}>Xem chi tiết các lần đăng nhập, đăng xuất, đổi mật khẩu và thiết bị đã truy cập tài khoản của bạn.</Text>
+      <ActionButton label="Xem lịch sử phiên ›" tone="soft" onPress={() => router.push('/account/auth-history' as never)} />
+    </Card>
     <Card style={s.warning}><Text style={s.menuTitle}>Phiên đăng nhập hiện tại</Text><Text style={s.caption}>Bạn có thể kết thúc phiên từ trang tổng quan tài khoản.</Text><ActionButton label="Đăng xuất" tone="soft" onPress={() => router.replace('/account' as never)}/></Card>
   </Page>;
+}
+
+export function AccountAuthHistoryScreen() {
+  const { accessToken } = useAuthSession();
+  const [events, setEvents] = useState<ApiAuthEvent[]>([]);
+  const [page, setPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const load = (nextPage = 0, append = false) => {
+    if (!accessToken) return;
+    if (append) setLoadingMore(true);
+    else setLoading(true);
+    void fetchMyAuthEvents(accessToken, { page: nextPage, size: 20 })
+      .then((res) => {
+        setEvents((prev) => (append ? [...prev, ...res.items] : res.items));
+        setPage(res.page);
+        setTotalPages(res.totalPages);
+      })
+      .catch(() => {})
+      .finally(() => {
+        setLoading(false);
+        setLoadingMore(false);
+      });
+  };
+
+  useEffect(() => {
+    load(0, false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken]);
+
+  return (
+    <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
+      <View style={s.header}>
+        <BackButton onPress={() => safeBack('/account/security')} />
+        <Text numberOfLines={1} style={s.headerTitle}>Lịch sử phiên đăng nhập</Text>
+        <View style={s.headerRight}><Text style={s.userMark}>◷</Text></View>
+      </View>
+      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+        <Card style={s.banner}>
+          <Text style={s.bannerTitle}>Hoạt động đăng nhập & đăng xuất</Text>
+          <Text style={s.caption}>Theo dõi các lần vào/ra hệ thống và thiết bị đã sử dụng tài khoản của bạn.</Text>
+        </Card>
+        {loading ? <Text style={s.caption}>Đang tải lịch sử phiên…</Text> : null}
+        {!loading && events.length === 0 ? (
+          <Card><Text style={s.caption}>Chưa có lịch sử đăng nhập/đăng xuất nào được ghi nhận.</Text></Card>
+        ) : null}
+        {events.map((ev) => {
+          const meta = AUTH_EVENT_META[ev.eventType] ?? AUTH_EVENT_META.LOGIN_SUCCESS;
+          return (
+            <Card key={ev.id} style={s.authHistoryCard}>
+              <View style={s.authEventTop}>
+                <Text style={[s.authEventBadge, { backgroundColor: meta.bg, color: meta.fg }]}>{meta.label}</Text>
+                <Text style={s.caption}>{formatAuthEventTime(ev.createdAt)}</Text>
+              </View>
+              <Text style={s.menuTitle}>{ev.deviceLabel || ev.platform || 'Thiết bị'}</Text>
+              {ev.ipAddress ? <Text style={s.caption}>Địa chỉ IP: {ev.ipAddress}</Text> : null}
+              {ev.detail ? <Text style={s.caption}>{ev.detail}</Text> : null}
+            </Card>
+          );
+        })}
+        {page + 1 < totalPages ? (
+          <ActionButton label={loadingMore ? 'Đang tải…' : 'Tải thêm lịch sử'} tone="soft" disabled={loadingMore} onPress={() => load(page + 1, true)} />
+        ) : null}
+      </ScrollView>
+    </SafeAreaView>
+  );
 }
 
 export function AccountNotificationsScreen() {
@@ -259,5 +398,9 @@ export function AccountPrivacyScreen() {
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: C.background }, header: { minHeight: 56, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 12 }, headerGlyph: { width: 34, height: 34, borderRadius: 17, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, headerGlyphText: { color: C.surface, fontSize: 20 }, headerTitle: { flex: 1, color: C.forest, fontFamily: F.semiBold, fontSize: 17 }, headerRight: { width: 32, height: 32, borderRadius: 16, backgroundColor: C.forest, alignItems: 'center', justifyContent: 'center' }, userMark: { color: C.surface, fontSize: 17 }, headerSpacer: { width: 8 }, content: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 28, gap: 12 }, card: { padding: 14, borderRadius: 15, backgroundColor: C.surface, gap: 11 }, identity: { flexDirection: 'row', alignItems: 'center', gap: 13, padding: 16, backgroundColor: C.surface }, avatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#DDECE1', alignItems: 'center', justifyContent: 'center' }, avatarLarge: { width: 90, height: 90, borderRadius: 45, marginBottom: 8, backgroundColor: '#DDECE1', alignItems: 'center', justifyContent: 'center' }, avatarText: { color: C.primary, fontFamily: F.bold, fontSize: 29 }, flex: { flex: 1, gap: 3 }, identityName: { color: C.forest, fontFamily: F.semiBold, fontSize: 18 }, caption: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12, lineHeight: 18 }, roleBadge: { alignSelf: 'flex-start', marginTop: 4, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20, backgroundColor: '#E4F1E8', color: C.primary, fontFamily: F.semiBold, fontSize: 10 }, sectionHeading: { gap: 2, paddingTop: 4 }, sectionTitle: { color: C.text, fontFamily: F.semiBold, fontSize: 17 }, menuRow: { minHeight: 74, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 15, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 12 }, menuIcon: { width: 43, height: 43, borderRadius: 13, backgroundColor: '#E7F0E9', alignItems: 'center', justifyContent: 'center' }, menuIconText: { color: C.forest, fontSize: 22 }, menuTitle: { color: C.text, fontFamily: F.semiBold, fontSize: 15 }, chevron: { color: '#A5B3A9', fontSize: 25 }, infoCard: { backgroundColor: C.softSurface }, banner: { backgroundColor: '#E5F1E8', padding: 17 }, bannerTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 18 }, profileHero: { alignItems: 'center', paddingVertical: 20 }, field: { gap: 6 }, label: { color: C.secondaryText, fontFamily: F.semiBold, fontSize: 12 }, input: { minHeight: 44, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.softSurface, color: C.text, fontFamily: F.regular, fontSize: 14 }, readOnly: { color: C.secondaryText }, error: { color: '#B42318', fontFamily: F.regular, fontSize: 12 }, value: { color: C.forest, fontFamily: F.semiBold, fontSize: 15 }, button: { minHeight: 46, paddingHorizontal: 14, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, buttonDisabled: { opacity: 0.55 }, buttonText: { color: C.surface, fontFamily: F.semiBold, fontSize: 14 }, buttonSoft: { backgroundColor: '#E7F0E9' }, buttonSoftText: { color: C.forest }, buttonDanger: { backgroundColor: '#FBDCD7' }, choiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, choice: { flexGrow: 1, minHeight: 38, paddingHorizontal: 11, borderRadius: 9, backgroundColor: C.softSurface, alignItems: 'center', justifyContent: 'center' }, choiceSelected: { backgroundColor: C.primary }, choiceText: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12 }, choiceTextSelected: { color: C.surface, fontFamily: F.semiBold }, toggleRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 12 }, divider: { height: StyleSheet.hairlineWidth, backgroundColor: '#DDE7DF' }, warning: { backgroundColor: '#FBEEEA' }, dangerTitle: { color: '#B42318', fontFamily: F.bold, fontSize: 17 }, inlineChoices: { flexDirection: 'row', gap: 5 }, unitChoice: { minWidth: 40, minHeight: 34, paddingHorizontal: 8, borderRadius: 8, backgroundColor: C.softSurface, alignItems: 'center', justifyContent: 'center' },
+  safe: { flex: 1, backgroundColor: C.background }, header: { minHeight: 56, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 12 }, headerGlyph: { width: 34, height: 34, borderRadius: 17, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, headerGlyphText: { color: C.surface, fontSize: 20 }, headerTitle: { flex: 1, color: C.forest, fontFamily: F.semiBold, fontSize: 17 }, headerRight: { width: 32, height: 32, borderRadius: 16, backgroundColor: C.forest, alignItems: 'center', justifyContent: 'center' }, userMark: { color: C.surface, fontSize: 17 }, headerSpacer: { width: 8 }, content: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 28, gap: 12 }, card: { padding: 14, borderRadius: 15, backgroundColor: C.surface, gap: 11 }, identity: { flexDirection: 'row', alignItems: 'center', gap: 13, padding: 16, backgroundColor: C.surface }, avatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#DDECE1', alignItems: 'center', justifyContent: 'center' }, avatarLarge: { width: 90, height: 90, borderRadius: 45, marginBottom: 8, backgroundColor: '#DDECE1', alignItems: 'center', justifyContent: 'center' }, avatarText: { color: C.primary, fontFamily: F.bold, fontSize: 29 }, avatarActions: { flexDirection: 'row', gap: 8, marginTop: 6 }, avatarBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 99, backgroundColor: '#E4F1E8' }, avatarBtnText: { color: C.forest, fontFamily: F.semiBold, fontSize: 12 }, avatarDeleteBtn: { backgroundColor: '#FEE2E2' }, avatarDeleteText: { color: '#B42318', fontFamily: F.semiBold, fontSize: 12 }, flex: { flex: 1, gap: 3 }, identityName: { color: C.forest, fontFamily: F.semiBold, fontSize: 18 }, caption: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12, lineHeight: 18 }, roleBadge: { alignSelf: 'flex-start', marginTop: 4, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20, backgroundColor: '#E4F1E8', color: C.primary, fontFamily: F.semiBold, fontSize: 10 }, sectionHeading: { gap: 2, paddingTop: 4 }, sectionTitle: { color: C.text, fontFamily: F.semiBold, fontSize: 17 }, menuRow: { minHeight: 74, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 15, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', gap: 12 }, menuIcon: { width: 43, height: 43, borderRadius: 13, backgroundColor: '#E7F0E9', alignItems: 'center', justifyContent: 'center' }, menuIconText: { color: C.forest, fontSize: 22 }, menuTitle: { color: C.text, fontFamily: F.semiBold, fontSize: 15 }, chevron: { color: '#A5B3A9', fontSize: 25 }, infoCard: { backgroundColor: C.softSurface }, banner: { backgroundColor: '#E5F1E8', padding: 17 }, bannerTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 18 }, profileHero: { alignItems: 'center', paddingVertical: 20 }, field: { gap: 6 }, label: { color: C.secondaryText, fontFamily: F.semiBold, fontSize: 12 }, input: { minHeight: 44, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.softSurface, color: C.text, fontFamily: F.regular, fontSize: 14 }, readOnly: { color: C.secondaryText }, error: { color: '#B42318', fontFamily: F.regular, fontSize: 12 }, value: { color: C.forest, fontFamily: F.semiBold, fontSize: 15 }, button: { minHeight: 46, paddingHorizontal: 14, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, buttonDisabled: { opacity: 0.55 }, buttonText: { color: C.surface, fontFamily: F.semiBold, fontSize: 14 }, buttonSoft: { backgroundColor: '#E7F0E9' }, buttonSoftText: { color: C.forest }, buttonDanger: { backgroundColor: '#D92D20' }, buttonDangerText: { color: C.surface, fontFamily: F.bold }, choiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, choice: { flexGrow: 1, minHeight: 38, paddingHorizontal: 11, borderRadius: 9, backgroundColor: C.softSurface, alignItems: 'center', justifyContent: 'center' }, choiceSelected: { backgroundColor: C.primary }, choiceText: { color: C.secondaryText, fontFamily: F.regular, fontSize: 12 }, choiceTextSelected: { color: C.surface, fontFamily: F.semiBold }, toggleRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 12 }, divider: { height: StyleSheet.hairlineWidth, backgroundColor: '#DDE7DF' }, warning: { backgroundColor: '#FBEEEA' }, dangerTitle: { color: '#B42318', fontFamily: F.bold, fontSize: 17 }, inlineChoices: { flexDirection: 'row', gap: 5 }, unitChoice: { minWidth: 40, minHeight: 34, paddingHorizontal: 8, borderRadius: 8, backgroundColor: C.softSurface, alignItems: 'center', justifyContent: 'center' },
+  authEventRow: { paddingTop: 9, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#DDE7DF', gap: 4 },
+  authEventTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  authEventBadge: { overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 99, fontFamily: F.semiBold, fontSize: 10 },
+  authHistoryCard: { gap: 5 },
 });

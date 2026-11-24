@@ -1,6 +1,6 @@
 import { useEffect, useState, type ComponentProps } from 'react';
 import { StyleSheet, Text, View } from '@/components/app-primitives';
-import { Image as ExpoImage } from 'expo-image';
+import { AuthorizedImage } from '@/components/AuthorizedImage';
 
 type Props = {
   locationType: string;
@@ -20,11 +20,10 @@ export function GardenArtwork({ locationType, photoUri, accessToken, style, glyp
       <Text style={glyphStyle}>♧</Text>
       <Text style={labelStyle}>{locationType.toLocaleUpperCase()}</Text>
       {photoUri && accessToken && !photoFailed ? (
-        <ExpoImage
-          key={photoUri}
-          source={{ uri: photoUri, headers: { Authorization: `Bearer ${accessToken}` } }}
+        <AuthorizedImage
+          uri={photoUri}
+          accessToken={accessToken}
           contentFit="cover"
-          cachePolicy="none"
           onError={() => setPhotoFailed(true)}
           style={StyleSheet.absoluteFill}
         />
