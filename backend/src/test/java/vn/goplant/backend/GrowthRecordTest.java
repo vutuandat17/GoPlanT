@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -116,6 +117,42 @@ class GrowthRecordTest {
                         .header("Authorization", token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].heightCm").value(22.5));
+
+        when(jdbc.queryForList(contains("SELECT timezone FROM users WHERE id=?"), eq(String.class), eq(userId)))
+                .thenReturn(List.of("Asia/Ho_Chi_Minh"));
+        mockMvc.perform(post("/api/v1/plants/{plantId}/growth-records", plantId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"heightCm":23.0}
+                                """))
+                .andExpect(status().isCreated());
+
+        GrowthRecordController.GrowthRecord updated = new GrowthRecordController.GrowthRecord(
+                recordId, plantId, LocalDate.of(2026, 11, 19), new BigDecimal("24.0"), 9, "flowering", "Đang ra hoa", Instant.now());
+        when(jdbc.update(contains("UPDATE plant_growth_records r"), any(Object[].class))).thenReturn(1);
+        when(jdbc.queryForObject(contains("FROM plant_growth_records WHERE id=?"), any(RowMapper.class), eq(recordId)))
+                .thenReturn(updated);
+
+        mockMvc.perform(put("/api/v1/growth-records/{id}", recordId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"recordedDate":"2026-11-19","heightCm":24.0,"leafCount":9,"bloomStage":"flowering","note":"Đang ra hoa"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.heightCm").value(24.0))
+                .andExpect(jsonPath("$.bloomStage").value("flowering"));
+
+        UUID foreignRecordId = UUID.randomUUID();
+        when(jdbc.update(contains("UPDATE plant_growth_records r"), any(Object[].class))).thenReturn(0);
+        mockMvc.perform(put("/api/v1/growth-records/{id}", foreignRecordId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"heightCm":24.0}
+                                """))
+                .andExpect(status().isNotFound());
 
         mockMvc.perform(delete("/api/v1/growth-records/{id}", recordId)
                         .header("Authorization", token))

@@ -9,8 +9,10 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.sql.Date;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -22,6 +24,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -42,9 +45,11 @@ public class GrowthRecordController {
             rs.getTimestamp("created_at").toInstant());
 
     private final JdbcTemplate jdbc;
+    private final Clock clock;
 
-    public GrowthRecordController(JdbcTemplate jdbc) {
+    public GrowthRecordController(JdbcTemplate jdbc, Clock clock) {
         this.jdbc = jdbc;
+        this.clock = clock;
     }
 
     @GetMapping("/plants/{plantId}/growth-records")
@@ -66,18 +71,37 @@ public class GrowthRecordController {
                                @Valid @RequestBody GrowthRecordRequest request) {
         UUID owner = UUID.fromString(jwt.getSubject());
         ensurePlantOwned(owner, plantId);
-        String bloomStage = blankToNull(request.bloomStage());
-        if (request.heightCm() == null && request.leafCount() == null && bloomStage == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Vui lòng nhập ít nhất một chỉ số (chiều cao, số lá hoặc giai đoạn sinh trưởng).");
-        }
-        LocalDate recordedDate = request.recordedDate() != null ? request.recordedDate() : LocalDate.now();
+        String bloomStage = requireAtLeastOneMetric(request);
+        LocalDate recordedDate = resolveRecordedDate(owner, request.recordedDate());
         UUID id = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO plant_growth_records(id,user_plant_id,owner_user_id,recorded_date,height_cm,leaf_count,bloom_stage,note)
                 VALUES (?,?,?,?,?,?,?,?)
                 """, id, plantId, owner, Date.valueOf(recordedDate), request.heightCm(), request.leafCount(), bloomStage,
                 blankToNull(request.note()));
+        return jdbc.queryForObject("""
+                SELECT id,user_plant_id,recorded_date,height_cm,leaf_count,bloom_stage,note,created_at
+                FROM plant_growth_records WHERE id=?
+                """, RECORD_MAPPER, id);
+    }
+
+    @PutMapping("/growth-records/{id}")
+    public GrowthRecord update(@AuthenticationPrincipal Jwt jwt,
+                               @PathVariable UUID id,
+                               @Valid @RequestBody GrowthRecordRequest request) {
+        UUID owner = UUID.fromString(jwt.getSubject());
+        String bloomStage = requireAtLeastOneMetric(request);
+        LocalDate recordedDate = resolveRecordedDate(owner, request.recordedDate());
+        int changed = jdbc.update("""
+                UPDATE plant_growth_records r
+                SET recorded_date=?, height_cm=?, leaf_count=?, bloom_stage=?, note=?, updated_at=now()
+                FROM user_plants p
+                WHERE r.id=? AND r.owner_user_id=? AND p.id=r.user_plant_id AND p.archived_at IS NULL
+                """, Date.valueOf(recordedDate), request.heightCm(), request.leafCount(), bloomStage,
+                blankToNull(request.note()), id, owner);
+        if (changed == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
         return jdbc.queryForObject("""
                 SELECT id,user_plant_id,recorded_date,height_cm,leaf_count,bloom_stage,note,created_at
                 FROM plant_growth_records WHERE id=?
@@ -92,6 +116,30 @@ public class GrowthRecordController {
         if (changed == 0) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
+    }
+
+    private String requireAtLeastOneMetric(GrowthRecordRequest request) {
+        String bloomStage = blankToNull(request.bloomStage());
+        if (request.heightCm() == null && request.leafCount() == null && bloomStage == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Vui lòng nhập ít nhất một chỉ số (chiều cao, số lá hoặc giai đoạn sinh trưởng).");
+        }
+        return bloomStage;
+    }
+
+    private LocalDate resolveRecordedDate(UUID owner, LocalDate requestedDate) {
+        if (requestedDate != null) {
+            return requestedDate;
+        }
+        return LocalDate.now(clock.withZone(userZone(owner)));
+    }
+
+    private ZoneId userZone(UUID owner) {
+        var zones = jdbc.queryForList("SELECT timezone FROM users WHERE id=?", String.class, owner);
+        if (zones.isEmpty() || zones.getFirst() == null || zones.getFirst().isBlank()) {
+            return ZoneId.of("Asia/Ho_Chi_Minh");
+        }
+        return ZoneId.of(zones.getFirst());
     }
 
     private void ensurePlantOwned(UUID owner, UUID plantId) {

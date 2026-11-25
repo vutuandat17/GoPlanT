@@ -32,6 +32,7 @@ spring:
     enabled: true
 server:
   port: ${PORT:8080}
+  forward-headers-strategy: framework
   error:
     include-message: never
 management:
@@ -59,6 +60,9 @@ goplant:
     require-email-verification: ${GOPLANT_AUTH_REQUIRE_EMAIL_VERIFICATION:false}
     action-token-retention-days: ${GOPLANT_AUTH_ACTION_TOKEN_RETENTION_DAYS:7}
     pending-user-retention-days: ${GOPLANT_AUTH_PENDING_USER_RETENTION_DAYS:30}
+    ip-rate-limit-enabled: ${GOPLANT_AUTH_IP_RATE_LIMIT_ENABLED:true}
+    ip-rate-limit-max-requests: ${GOPLANT_AUTH_IP_RATE_LIMIT_MAX_REQUESTS:25}
+    ip-rate-limit-window-seconds: ${GOPLANT_AUTH_IP_RATE_LIMIT_WINDOW_SECONDS:60}
   email:
     from: ${GOPLANT_EMAIL_FROM:no-reply@goplant.local}
     verification-base-url: ${GOPLANT_PUBLIC_API_URL:}

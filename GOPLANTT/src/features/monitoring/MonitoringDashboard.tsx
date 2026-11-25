@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from '@/components/app-primitives';
+import { AuthorizedImage } from '@/components/AuthorizedImage';
 import { router } from 'expo-router';
 
 import { GoPlantColors as C, GoPlantTypography as F } from '@/constants/theme';
@@ -41,12 +42,13 @@ function addDaysIso(isoDate: string, deltaDays: number): string {
 
 export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter }: Props) {
   const { accessToken } = useAuthSession();
-  const { ownedPlants, gardens, catalog } = usePlantData();
+  const { ownedPlants, gardens, catalog, favorites, setFilterState } = usePlantData();
   const { journals } = useJournals();
   const { todayTasks, schedules, loadCalendar } = useCareSchedules();
 
   const [calendarTasks30d, setCalendarTasks30d] = useState<ApiCareTask[]>([]);
   const [weatherByGarden, setWeatherByGarden] = useState<Record<string, ApiGardenWeather>>({});
+  const [recentExpanded, setRecentExpanded] = useState(true);
 
   const todayIso = toLocalIsoDate();
   const thirtyDaysAgoIso = useMemo(() => addDaysIso(todayIso, -29), [todayIso]);
@@ -60,10 +62,7 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
   );
 
   useEffect(() => {
-    if (!accessToken) {
-      setCalendarTasks30d([]);
-      return;
-    }
+    if (!accessToken) return;
     let active = true;
     void loadCalendar(thirtyDaysAgoIso, todayIso)
       .then((view) => {
@@ -78,10 +77,7 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
   }, [accessToken, loadCalendar, thirtyDaysAgoIso, todayIso, todayTasks]);
 
   useEffect(() => {
-    if (!accessToken || !locatedGardenIdsKey) {
-      setWeatherByGarden({});
-      return;
-    }
+    if (!accessToken || !locatedGardenIdsKey) return;
     const ids = locatedGardenIdsKey.split(',').filter(Boolean);
     let active = true;
     void Promise.allSettled(ids.map((id) => fetchGardenWeather(id, accessToken))).then((results) => {
@@ -99,10 +95,44 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
     };
   }, [accessToken, locatedGardenIdsKey]);
 
-  const filteredPlants = useMemo(
-    () => ownedPlants.filter((plant) => matchesPlantFilters(toOwnedFilterPlant(plant, journals, todayTasks, schedules), pageFilters)),
-    [ownedPlants, journals, todayTasks, schedules, pageFilters],
+  const effectiveCalendarTasks30d = useMemo(
+    () => (accessToken ? calendarTasks30d : []),
+    [accessToken, calendarTasks30d],
   );
+  const effectiveWeatherByGarden = useMemo(
+    () => (accessToken && locatedGardenIdsKey ? weatherByGarden : {}),
+    [accessToken, locatedGardenIdsKey, weatherByGarden],
+  );
+
+  const hasActiveFilters = useMemo(
+    () => Object.values(pageFilters).some((values) => values.length > 0),
+    [pageFilters],
+  );
+
+  const filteredPlants = useMemo(
+    () =>
+      ownedPlants.filter((plant) =>
+        matchesPlantFilters(
+          toOwnedFilterPlant(
+            plant,
+            journals,
+            todayTasks,
+            schedules,
+            favorites.includes(plant.catalogId),
+            gardens,
+          ),
+          pageFilters,
+        ),
+      ),
+    [ownedPlants, journals, todayTasks, schedules, favorites, gardens, pageFilters],
+  );
+
+  const filteredPlantIds = useMemo(() => new Set(filteredPlants.map((p) => p.id)), [filteredPlants]);
+  const visibleGardens = useMemo(() => {
+    if (!hasActiveFilters) return filteredGardens;
+    const activeGardenIds = new Set(filteredPlants.map((p) => p.gardenId).filter(Boolean));
+    return gardens.filter((g) => activeGardenIds.has(g.id));
+  }, [hasActiveFilters, filteredGardens, filteredPlants, gardens]);
 
   // Latest journal per owned plant (journals from API are ordered newest-first, sort defensively by entryDate/createdAt).
   const latestJournalByPlant = useMemo(() => {
@@ -136,7 +166,7 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
   const weatherAlerts = useMemo<WeatherAlertBannerItem[]>(() => {
     const items: WeatherAlertBannerItem[] = [];
     for (const garden of gardens) {
-      const w = weatherByGarden[garden.id];
+      const w = effectiveWeatherByGarden[garden.id];
       if (!w || w.status === 'NO_LOCATION' || !w.plantAlerts.length) continue;
       const placeLabel = w.provinceName || w.locationName || garden.name;
       for (const alert of w.plantAlerts) {
@@ -150,7 +180,7 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
       }
     }
     return items;
-  }, [gardens, weatherByGarden]);
+  }, [gardens, effectiveWeatherByGarden]);
 
   const weatherAlertPlantIds = useMemo(
     () => new Set(weatherAlerts.map((a) => a.plantId)),
@@ -201,7 +231,7 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
     // Eco Care Score (0 - 100):
     // 70 pts from 30-day care task completion rate (completed / active tasks; neutral 70% of 70 if no tasks scheduled yet)
     // 30 pts from 30-day journal logging frequency relative to plant count
-    const relevantTasks30d = calendarTasks30d.filter((t) => t.status === 'completed' || t.status === 'pending');
+    const relevantTasks30d = effectiveCalendarTasks30d.filter((t) => t.status === 'completed' || t.status === 'pending');
     const completedTasks30d = relevantTasks30d.filter((t) => t.status === 'completed').length;
     const recentJournals30d = journals.filter((j) => j.entryDate >= thirtyDaysAgoIso);
 
@@ -231,7 +261,7 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
     latestJournalByPlant,
     overdueTasksByPlant,
     weatherAlertPlantIds,
-    calendarTasks30d,
+    effectiveCalendarTasks30d,
     journals,
     thirtyDaysAgoIso,
   ]);
@@ -239,9 +269,9 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
   const locatedWeatherList = useMemo(
     () =>
       gardens
-        .map((g) => ({ garden: g, weather: weatherByGarden[g.id] }))
+        .map((g) => ({ garden: g, weather: effectiveWeatherByGarden[g.id] }))
         .filter((item) => item.weather && item.weather.temperatureC != null),
-    [gardens, weatherByGarden],
+    [gardens, effectiveWeatherByGarden],
   );
 
   const ecoLabel =
@@ -253,12 +283,21 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
           ? 'Nhịp chăm sóc ổn định'
           : 'Cần tăng cường chăm sóc & ghi nhật ký';
 
-  const recentJournals = useMemo(() => journals.slice(0, 5), [journals]);
+  const recentJournals = useMemo(() => {
+    const source = hasActiveFilters ? journals.filter((entry) => filteredPlantIds.has(entry.plantId)) : journals;
+    return source.slice(0, 8);
+  }, [journals, hasActiveFilters, filteredPlantIds]);
 
   return (
     <>
       <View style={s.managementActions}>
-        <ActionChip label="Lọc cây theo dõi" onPress={onOpenFilter} />
+        <ActionChip
+          label={hasActiveFilters ? `Lọc cây theo dõi (${filteredPlants.length})` : 'Lọc cây theo dõi'}
+          onPress={onOpenFilter}
+        />
+        {hasActiveFilters ? (
+          <ActionChip label="Xóa lọc" onPress={() => setFilterState('monitoring', {})} />
+        ) : null}
         <ActionChip label="＋ Ghi nhật ký" primary onPress={() => router.push('/journal/new' as never)} />
       </View>
 
@@ -400,8 +439,8 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
       </Section>
 
       {/* Khu vườn */}
-      <Section title="Khu vườn" hint={`${filteredGardens.length} khu vực`}>
-        {filteredGardens.length === 0 ? (
+      <Section title="Khu vườn" hint={`${visibleGardens.length} khu vực`}>
+        {visibleGardens.length === 0 ? (
           <View style={s.emptyCard}>
             <Text style={s.cardTitle}>{gardens.length ? 'Không có vườn khớp bộ lọc' : 'Chưa có khu vườn'}</Text>
             <Text style={s.body}>Tạo hoặc chọn một khu vườn để mở chi tiết thời tiết & cây trồng.</Text>
@@ -410,8 +449,8 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
             ) : null}
           </View>
         ) : (
-          filteredGardens.map((garden) => {
-            const w = weatherByGarden[garden.id];
+          visibleGardens.map((garden) => {
+            const w = effectiveWeatherByGarden[garden.id];
             const count = ownedPlants.filter((plant) => plant.gardenId === garden.id).length;
             const weatherSummary =
               w && w.temperatureC != null ? ` • ${Math.round(w.temperatureC)}°C (${w.humidityPct ?? '—'}%)` : '';
@@ -440,27 +479,57 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
       </Section>
 
       {/* Lịch sử ghi nhận gần đây */}
-      <Section title="Lịch sử ghi nhận gần đây" hint={`${recentJournals.length} mục`}>
+      <Section
+        title="Lịch sử ghi nhận gần đây"
+        hint={`${recentJournals.length} mục`}
+        rightAction={
+          recentJournals.length > 0 ? (
+            <Pressable onPress={() => setRecentExpanded((prev) => !prev)} style={s.toggleBtn}>
+              <Text style={s.toggleBtnText}>{recentExpanded ? 'Thu gọn ▲' : 'Mở rộng ▼'}</Text>
+            </Pressable>
+          ) : undefined
+        }>
         {recentJournals.length === 0 ? (
           <View style={s.emptyCard}>
-            <Text style={s.cardTitle}>Chưa có ghi nhận</Text>
-            <Text style={s.body}>Ghi nhật ký chăm sóc đầu tiên để theo dõi diễn biến sức khỏe cây.</Text>
+            <Text style={s.cardTitle}>{hasActiveFilters ? 'Không có ghi nhận khớp bộ lọc' : 'Chưa có ghi nhận'}</Text>
+            <Text style={s.body}>
+              {hasActiveFilters
+                ? 'Thử xóa bớt điều kiện lọc để xem toàn bộ lịch sử ghi nhận.'
+                : 'Ghi nhật ký chăm sóc đầu tiên để theo dõi diễn biến sức khỏe cây.'}
+            </Text>
           </View>
-        ) : (
+        ) : recentExpanded ? (
           recentJournals.map((entry) => {
             const healthMeta = JOURNAL_HEALTH_META[entry.healthStatus] ?? JOURNAL_HEALTH_META.healthy;
             const logMeta = JOURNAL_LOG_TYPE_META[entry.logType] ?? JOURNAL_LOG_TYPE_META.other;
+            const matchedPlant = ownedPlants.find((p) => p.id === entry.plantId);
+            const journalPhotoUri =
+              entry.photoIds.length > 0
+                ? `${apiBaseUrl}/api/v1/journals/${entry.id}/photos/${entry.photoIds[0]}`
+                : null;
             return (
               <Pressable
                 key={entry.id}
-                onPress={() => router.push({ pathname: '/journal/detail', params: { journalId: entry.id } } as never)}
+                onPress={() =>
+                  router.push({
+                    pathname: '/journal/detail',
+                    params: { plantId: entry.plantId, date: entry.entryDate },
+                  } as never)
+                }
                 style={s.rowCard}>
-                <View style={[s.logBadge, { backgroundColor: logMeta.color }]}>
-                  <Text style={s.logEmoji}>{logMeta.emoji}</Text>
-                </View>
+                {journalPhotoUri ? (
+                  <AuthorizedImage uri={journalPhotoUri} accessToken={accessToken} style={s.plantImage} />
+                ) : (
+                  <PlantArtwork
+                    style={s.plantImage}
+                    category={matchedPlant?.category ?? 'Cây trồng'}
+                    accessToken={accessToken}
+                    photoUri={matchedPlant ? resolvePlantPhotoUri(matchedPlant, catalog) : null}
+                  />
+                )}
                 <View style={s.cardCopy}>
                   <Text style={s.cardTitle} numberOfLines={1}>
-                    {entry.plantName} · {logMeta.label}
+                    {entry.plantName} · {logMeta.emoji} {logMeta.label}
                   </Text>
                   <Text style={s.body} numberOfLines={1}>
                     {formatDateVi(entry.entryDate)} — {entry.title || entry.note}
@@ -472,18 +541,33 @@ export function MonitoringDashboard({ filteredGardens, pageFilters, onOpenFilter
               </Pressable>
             );
           })
+        ) : (
+          <Text style={s.body}>Đang thu gọn {recentJournals.length} ghi nhận gần đây. Nhấn “Mở rộng” để xem.</Text>
         )}
       </Section>
     </>
   );
 }
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+function Section({
+  title,
+  hint,
+  rightAction,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  rightAction?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <View style={s.section}>
       <View style={s.sectionHeading}>
         <Text style={s.sectionTitle}>{title}</Text>
-        {hint ? <Text style={s.hint}>{hint}</Text> : null}
+        <View style={s.sectionHeadingRight}>
+          {hint ? <Text style={s.hint}>{hint}</Text> : null}
+          {rightAction ?? null}
+        </View>
       </View>
       {children}
     </View>
@@ -521,7 +605,10 @@ const s = StyleSheet.create({
   eco: { padding: 12, borderRadius: 14, backgroundColor: C.surface, borderWidth: 1, borderColor: 'rgba(30, 75, 56, 0.08)', flexDirection: 'row', alignItems: 'center', gap: 10 },
   ecoScore: { width: 46, height: 46, overflow: 'hidden', borderRadius: 23, backgroundColor: C.mint, color: C.forest, fontFamily: F.bold, fontSize: 16, lineHeight: 46, textAlign: 'center' },
   section: { gap: 8 },
-  sectionHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sectionHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  sectionHeadingRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  toggleBtn: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 99, backgroundColor: C.softSurface, borderWidth: 1, borderColor: '#CBE3D3' },
+  toggleBtnText: { color: C.forest, fontFamily: F.semiBold, fontSize: 10 },
   sectionTitle: { color: C.forest, fontFamily: F.semiBold, fontSize: 14 },
   hint: { color: C.mutedText, fontFamily: F.regular, fontSize: 10 },
   attentionCard: { padding: 10, borderRadius: 14, backgroundColor: '#F9EFE9', borderWidth: 1, borderColor: 'rgba(153, 70, 25, 0.22)', flexDirection: 'row', alignItems: 'center', gap: 10 },

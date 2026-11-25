@@ -28,7 +28,25 @@ import {
   type LocalPhotoDraft,
 } from '@/features/journal/JournalStore';
 import { formatDateVi } from '@/features/schedule/CareScheduleStore';
-import { apiBaseUrl, toLocalIsoDate, type JournalHealthStatus, type JournalLogType } from '@/services/api';
+import { DailyCalendarView } from '@/features/monitoring/DailyCalendarView';
+import {
+  apiBaseUrl,
+  createPlantGrowthRecord,
+  fetchPlantGrowthRecords,
+  toLocalIsoDate,
+  type ApiGrowthRecord,
+  type BloomStage,
+  type JournalHealthStatus,
+  type JournalLogType,
+} from '@/services/api';
+
+const BLOOM_STAGE_META: Record<BloomStage, string> = {
+  seedling: 'Mầm',
+  budding: 'Nụ',
+  flowering: 'Hoa',
+  fruiting: 'Kết trái',
+};
+const BLOOM_STAGES: BloomStage[] = ['seedling', 'budding', 'flowering', 'fruiting'];
 
 const MAX_PHOTOS = 5;
 
@@ -65,7 +83,15 @@ function Header({ title }: { title: string }) {
   );
 }
 
-export function JournalDetailScreen({ plantId }: { plantId?: string }) {
+export function JournalDetailScreen({
+  plantId,
+  journalId,
+  initialDate,
+}: {
+  plantId?: string;
+  journalId?: string;
+  initialDate?: string;
+}) {
   const { accessToken } = useAuthSession();
   const { ownedPlants } = usePlantData();
   const { journals, isLoading, removeJournal, refresh } = useJournals();
@@ -74,19 +100,54 @@ export function JournalDetailScreen({ plantId }: { plantId?: string }) {
   const [logFilter, setLogFilter] = useState<JournalLogFilter>('all');
   const [healthFilter, setHealthFilter] = useState<JournalHealthFilter>('all');
   const [previewPhotoUri, setPreviewPhotoUri] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(initialDate ?? null);
+  const [growthRecords, setGrowthRecords] = useState<ApiGrowthRecord[]>([]);
 
-  const targetPlantId = plantId ?? journals[0]?.plantId ?? ownedPlants[0]?.id;
+  const journalFromId = journalId ? journals.find((entry) => entry.id === journalId) : undefined;
+  const targetPlantId = plantId ?? journalFromId?.plantId ?? journals[0]?.plantId ?? ownedPlants[0]?.id;
   const plant = ownedPlants.find((p) => p.id === targetPlantId);
+
+  useEffect(() => {
+    if (initialDate) setSelectedDate(initialDate);
+    else if (journalFromId?.entryDate) setSelectedDate(journalFromId.entryDate);
+  }, [initialDate, journalFromId?.entryDate]);
+
+  useEffect(() => {
+    if (!targetPlantId || !accessToken) {
+      setGrowthRecords([]);
+      return;
+    }
+    let active = true;
+    void fetchPlantGrowthRecords(targetPlantId, accessToken)
+      .then((rows) => {
+        if (active) setGrowthRecords(rows);
+      })
+      .catch(() => {
+        if (active) setGrowthRecords([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [targetPlantId, accessToken]);
+
   const plantJournals = useMemo(
     () => (targetPlantId ? journals.filter((entry) => entry.plantId === targetPlantId) : []),
     [journals, targetPlantId],
   );
-  const filteredJournals = useMemo(
-    () => filterJournalEntries(plantJournals, { query: searchQuery, logType: logFilter, healthStatus: healthFilter }),
-    [plantJournals, searchQuery, logFilter, healthFilter],
-  );
+  const journalCountByDate = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const entry of plantJournals) {
+      map.set(entry.entryDate, (map.get(entry.entryDate) ?? 0) + 1);
+    }
+    return map;
+  }, [plantJournals]);
+  const filteredJournals = useMemo(() => {
+    const base = filterJournalEntries(plantJournals, { query: searchQuery, logType: logFilter, healthStatus: healthFilter });
+    return selectedDate ? base.filter((entry) => entry.entryDate === selectedDate) : base;
+  }, [plantJournals, searchQuery, logFilter, healthFilter, selectedDate]);
   const latestHealth = plantJournals[0]?.healthStatus;
   const latestHealthMeta = latestHealth ? JOURNAL_HEALTH_META[latestHealth] : null;
+  const latestGrowth = growthRecords[growthRecords.length - 1];
 
   const confirmDelete = (journalId: string) => {
     Alert.alert('Xóa ghi nhận', 'Bài nhật ký và các ảnh đính kèm sẽ bị xóa vĩnh viễn.', [
@@ -124,9 +185,16 @@ export function JournalDetailScreen({ plantId }: { plantId?: string }) {
               )}
             </View>
             <Pressable
-              onPress={() => router.push({ pathname: '/journal/new', params: { plantId: plant.id } } as never)}
+              onPress={() =>
+                router.push({
+                  pathname: '/journal/new',
+                  params: selectedDate ? { plantId: plant.id, date: selectedDate } : { plantId: plant.id },
+                } as never)
+              }
               style={j.addInlineBtn}>
-              <Text style={j.addInlineText}>＋ Ghi mới</Text>
+              <Text style={j.addInlineText}>
+                {selectedDate ? `＋ Ghi ngày ${formatDateVi(selectedDate)}` : '＋ Ghi mới'}
+              </Text>
             </Pressable>
           </View>
         ) : (
@@ -155,23 +223,39 @@ export function JournalDetailScreen({ plantId }: { plantId?: string }) {
               </View>
             ))}
           </View>
+          {latestGrowth ? (
+            <Text style={j.body}>
+              Chỉ số gần nhất ({formatDateVi(latestGrowth.recordedDate)}):
+              {latestGrowth.heightCm != null ? ` Cao ${latestGrowth.heightCm} cm` : ''}
+              {latestGrowth.leafCount != null ? ` • ${latestGrowth.leafCount} lá` : ''}
+              {latestGrowth.bloomStage ? ` • ${BLOOM_STAGE_META[latestGrowth.bloomStage]}` : ''}
+            </Text>
+          ) : null}
         </View>
 
         <View style={j.card}>
           <View style={j.row}>
-            <Text style={j.sectionTitle}>Nhật ký theo thời gian</Text>
+            <Text style={j.sectionTitle}>Nhật ký theo lịch từng ngày</Text>
             <Text style={j.tag}>{filteredJournals.length}/{plantJournals.length} ghi nhận</Text>
           </View>
 
           {plantJournals.length > 0 ? (
-            <JournalFilterBar
-              query={searchQuery}
-              onQueryChange={setSearchQuery}
-              logType={logFilter}
-              onLogTypeChange={setLogFilter}
-              healthStatus={healthFilter}
-              onHealthStatusChange={setHealthFilter}
-            />
+            <>
+              <DailyCalendarView
+                selectedDate={selectedDate}
+                onSelectDate={setSelectedDate}
+                journalCountByDate={journalCountByDate}
+                initialDate={initialDate}
+              />
+              <JournalFilterBar
+                query={searchQuery}
+                onQueryChange={setSearchQuery}
+                logType={logFilter}
+                onLogTypeChange={setLogFilter}
+                healthStatus={healthFilter}
+                onHealthStatusChange={setHealthFilter}
+              />
+            </>
           ) : null}
 
           {isLoading && plantJournals.length === 0 ? (
@@ -265,12 +349,14 @@ function JournalForm({
   initialPlantId,
   careTaskId,
   initialLogType,
+  initialDate,
   journalId,
 }: {
   editing?: boolean;
   initialPlantId?: string;
   careTaskId?: string;
   initialLogType?: JournalLogType;
+  initialDate?: string;
   journalId?: string;
 }) {
   const { accessToken } = useAuthSession();
@@ -286,10 +372,15 @@ function JournalForm({
   const [logType, setLogType] = useState<JournalLogType>(existing?.logType ?? initialLogType ?? 'growth');
   const [healthStatus, setHealthStatus] = useState<JournalHealthStatus>(existing?.healthStatus ?? 'healthy');
   const [entryDate, setEntryDate] = useState(() =>
-    existing ? formatDateVi(existing.entryDate) : formatDateVi(toLocalIsoDate()),
+    existing
+      ? formatDateVi(existing.entryDate)
+      : formatDateVi(initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) ? initialDate : toLocalIsoDate()),
   );
   const [newPhotos, setNewPhotos] = useState<LocalPhotoDraft[]>([]);
   const [existingPhotoIds, setExistingPhotoIds] = useState<string[]>(existing?.photoIds ?? []);
+  const [heightInput, setHeightInput] = useState('');
+  const [leafInput, setLeafInput] = useState('');
+  const [bloomInput, setBloomInput] = useState<BloomStage | null>(null);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -304,6 +395,25 @@ function JournalForm({
       setExistingPhotoIds(existing.photoIds);
     }
   }, [existing]);
+
+  useEffect(() => {
+    if (!editing || !existing?.plantId || !accessToken) return;
+    let active = true;
+    void fetchPlantGrowthRecords(existing.plantId, accessToken)
+      .then((rows) => {
+        if (!active) return;
+        const matched = [...rows].reverse().find((r) => r.recordedDate === existing.entryDate);
+        if (matched) {
+          setHeightInput(matched.heightCm != null ? String(matched.heightCm) : '');
+          setLeafInput(matched.leafCount != null ? String(matched.leafCount) : '');
+          setBloomInput(matched.bloomStage ?? null);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [editing, existing?.plantId, existing?.entryDate, accessToken]);
 
   const selectedPlant = ownedPlants.find((p) => p.id === plantId);
   const matchingPlants = plantQuery.trim()
@@ -362,6 +472,17 @@ function JournalForm({
       setErrorMsg('Ngày ghi nhận không đúng định dạng (DD/MM/YYYY hoặc YYYY-MM-DD).');
       return;
     }
+    const parsedHeight = heightInput.trim() ? Number(heightInput.trim().replace(',', '.')) : null;
+    if (parsedHeight !== null && (Number.isNaN(parsedHeight) || parsedHeight < 0 || parsedHeight > 9999.9)) {
+      setErrorMsg('Chiều cao (cm) phải nằm trong khoảng 0 – 9999.9.');
+      return;
+    }
+    const parsedLeaf = leafInput.trim() ? Number(leafInput.trim()) : null;
+    if (parsedLeaf !== null && (!Number.isInteger(parsedLeaf) || parsedLeaf < 0 || parsedLeaf > 100000)) {
+      setErrorMsg('Số lá phải là số nguyên từ 0 trở lên.');
+      return;
+    }
+    const hasGrowthMetrics = parsedHeight !== null || parsedLeaf !== null || bloomInput !== null;
     setSaving(true);
     try {
       if (editing && existing) {
@@ -370,6 +491,15 @@ function JournalForm({
           { entryDate: isoDate, logType, healthStatus, title: title.trim() || null, note: note.trim() },
           newPhotos,
         );
+        if (hasGrowthMetrics && accessToken) {
+          await createPlantGrowthRecord(existing.plantId, accessToken, {
+            recordedDate: isoDate,
+            heightCm: parsedHeight,
+            leafCount: parsedLeaf,
+            bloomStage: bloomInput,
+            note: title.trim() || null,
+          });
+        }
         if (result.failedPhotoCount > 0) {
           Alert.alert(
             'Đã lưu nội dung nhật ký',
@@ -394,6 +524,15 @@ function JournalForm({
           },
           newPhotos,
         );
+        if (hasGrowthMetrics && accessToken) {
+          await createPlantGrowthRecord(plantId, accessToken, {
+            recordedDate: isoDate,
+            heightCm: parsedHeight,
+            leafCount: parsedLeaf,
+            bloomStage: bloomInput,
+            note: title.trim() || null,
+          });
+        }
         if (result.failedPhotoCount > 0) {
           Alert.alert(
             'Đã lưu nội dung nhật ký',
@@ -565,6 +704,39 @@ function JournalForm({
           style={j.input}
         />
 
+        <Text style={j.label}>7. Chỉ số sinh trưởng (tùy chọn)</Text>
+        <View style={j.growthRow}>
+          <TextInput
+            value={heightInput}
+            onChangeText={setHeightInput}
+            placeholder="Chiều cao (cm)"
+            placeholderTextColor={C.mutedText}
+            keyboardType="decimal-pad"
+            style={[j.input, { flex: 1 }]}
+          />
+          <TextInput
+            value={leafInput}
+            onChangeText={setLeafInput}
+            placeholder="Số lá"
+            placeholderTextColor={C.mutedText}
+            keyboardType="number-pad"
+            style={[j.input, { flex: 1 }]}
+          />
+        </View>
+        <View style={j.chips}>
+          {BLOOM_STAGES.map((stage) => {
+            const active = bloomInput === stage;
+            return (
+              <Pressable
+                key={stage}
+                onPress={() => setBloomInput((curr) => (curr === stage ? null : stage))}
+                style={[j.chip, active && j.selected]}>
+                <Text style={[j.chipText, active && j.chipTextSelected]}>{BLOOM_STAGE_META[stage]}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
         {errorMsg ? <Text style={j.errorText}>⚠️ {errorMsg}</Text> : null}
 
         <Pressable disabled={saving} onPress={() => void save()} style={[j.submit, saving && j.btnDisabled]}>
@@ -581,12 +753,21 @@ export function NewJournalScreen({
   initialPlantId,
   careTaskId,
   initialLogType,
+  initialDate,
 }: {
   initialPlantId?: string;
   careTaskId?: string;
   initialLogType?: JournalLogType;
+  initialDate?: string;
 }) {
-  return <JournalForm initialPlantId={initialPlantId} careTaskId={careTaskId} initialLogType={initialLogType} />;
+  return (
+    <JournalForm
+      initialPlantId={initialPlantId}
+      careTaskId={careTaskId}
+      initialLogType={initialLogType}
+      initialDate={initialDate}
+    />
+  );
 }
 
 export function EditJournalScreen({ journalId }: { journalId?: string }) {
@@ -647,6 +828,7 @@ const j = StyleSheet.create({
   photoRemoveText: { color: '#FFFFFF', fontSize: 11, fontFamily: F.bold },
   addPhoto: { width: 96, height: 90, borderRadius: 10, borderWidth: 1, borderColor: '#D5E3D8', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface },
   photoAdd: { color: C.primary, fontSize: 20 },
+  growthRow: { flexDirection: 'row', gap: 8 },
   input: { minHeight: 44, paddingHorizontal: 12, borderRadius: 9, backgroundColor: C.surface, fontFamily: F.regular, fontSize: 13, color: C.text, borderWidth: StyleSheet.hairlineWidth, borderColor: '#DDE8E0' },
   multiline: { minHeight: 96, paddingTop: 10, textAlignVertical: 'top' },
   errorBorder: { borderWidth: 1, borderColor: '#B42318' },

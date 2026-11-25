@@ -141,7 +141,7 @@ export function FilterScreen() {
   });
   const rows = useMemo<FilterPlant[]>(() => [
     ...(context === 'gardens' || context === 'schedule' ? gardens.map((garden) => ({ id: garden.id, name: garden.name, scientificName: '', category: ({ balcony: 'Ban công', rooftop: 'Sân thượng', garden: 'Sân vườn', indoor: 'Trong nhà', greenhouse: 'Nhà kính', other: 'Khác' } as Record<string, string>)[garden.locationType] ?? 'Khác', location: garden.locationDetail, isFavorite: false })) : []),
-    ...(!['gardens', 'schedule'].includes(context) ? ownedPlants : []).map((plant) => toOwnedFilterPlant(plant, journals, todayTasks, schedules, favorites.includes(plant.catalogId))),
+    ...(!['gardens', 'schedule'].includes(context) ? ownedPlants : []).map((plant) => toOwnedFilterPlant(plant, journals, todayTasks, schedules, favorites.includes(plant.catalogId), gardens)),
     ...(!context || context === 'home' ? catalog : []).map((plant) => ({ ...plant, isFavorite: favorites.includes(plant.id) })),
   ], [context, gardens, ownedPlants, catalog, favorites, journals, todayTasks, schedules]);
   const groups = context === 'gardens' || context === 'schedule' ? gardenFilterGroups

@@ -197,7 +197,7 @@ function EmptyPage({ kind }: { kind: PageKind }) {
     const normalized = plantQuery.trim().toLocaleLowerCase();
     const visiblePlants = ownedPlants.filter((plant) => (
       `${plant.name} ${plant.scientificName} ${plant.location}`.toLocaleLowerCase().includes(normalized)
-      && matchesPlantFilters(toOwnedFilterPlant(plant, journals, todayTasks, schedules, favorites.includes(plant.catalogId)), pageFilters)
+      && matchesPlantFilters(toOwnedFilterPlant(plant, journals, todayTasks, schedules, favorites.includes(plant.catalogId), gardens), pageFilters)
     ));
     const favoritePlants = catalog.filter((plant) => favorites.includes(plant.id));
     return <>
@@ -300,7 +300,7 @@ function EmptyPage({ kind }: { kind: PageKind }) {
   if (kind === 'journal') {
     const journalPlants = new Set(journals.map((item) => item.plantId)).size;
     const latestEntryDate = journals[0] ? formatDateVi(journals[0].entryDate) : '—';
-    const matchingJournalPlants = ownedPlants.filter((plant) => matchesPlantFilters(toOwnedFilterPlant(plant, journals, todayTasks, schedules, favorites.includes(plant.catalogId)), pageFilters));
+    const matchingJournalPlants = ownedPlants.filter((plant) => matchesPlantFilters(toOwnedFilterPlant(plant, journals, todayTasks, schedules, favorites.includes(plant.catalogId), gardens), pageFilters));
     const filteredJournals = filterJournalEntries(journals, {
       query: journalQuery,
       logType: journalLogFilter,
@@ -363,7 +363,7 @@ function EmptyPage({ kind }: { kind: PageKind }) {
             const typeMeta = JOURNAL_LOG_TYPE_META[entry.logType] ?? JOURNAL_LOG_TYPE_META.other;
             const healthMeta = JOURNAL_HEALTH_META[entry.healthStatus] ?? JOURNAL_HEALTH_META.healthy;
             return (
-              <Pressable key={entry.id} onPress={() => router.push({ pathname: '/journal/detail', params: { plantId: entry.plantId } } as never)} style={s.card}>
+              <Pressable key={entry.id} onPress={() => router.push({ pathname: '/journal/detail', params: { plantId: entry.plantId, date: entry.entryDate } } as never)} style={s.card}>
                 <View style={s.rowTop}>
                   <Tag tone="mint">{typeMeta.emoji} {typeMeta.label}</Tag>
                   <Tag tone={entry.healthStatus === 'healthy' ? 'mint' : 'peach'}>{healthMeta.label}</Tag>
