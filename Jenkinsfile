@@ -1,6 +1,14 @@
 pipeline {
     agent any
 
+    // Configure these exact names under Manage Jenkins > Tools.
+    // NodeJS requires the NodeJS plugin; JDK and Maven require their Jenkins tool installers.
+    tools {
+        nodejs 'Node24'
+        jdk 'JDK21'
+        maven 'Maven3.10.2'
+    }
+
     options {
         timestamps()
         disableConcurrentBuilds()
