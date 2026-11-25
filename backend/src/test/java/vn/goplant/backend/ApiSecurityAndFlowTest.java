@@ -1369,4 +1369,132 @@ class ApiSecurityAndFlowTest {
                         .header("Authorization", moderatorBearer))
                 .andExpect(status().isNoContent());
     }
+
+    @Test
+    void careScheduleAndTaskEndpointsEnforceAuthValidationAndTransitions() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID plantId = UUID.randomUUID();
+        UUID scheduleId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        String userBearer = bearerToken(userId, "user");
+        java.time.LocalDate today = java.time.LocalDate.now();
+        Instant dueAt = Instant.now();
+
+        mockMvc.perform(get("/api/v1/schedules/today"))
+                .andExpect(status().isUnauthorized());
+
+        when(jdbc.queryForObject(contains("FROM user_plants WHERE id=? AND owner_user_id=?"), eq(Integer.class), eq(plantId), eq(userId)))
+                .thenReturn(1);
+        when(jdbc.queryForList("SELECT timezone FROM users WHERE id=?", String.class, userId))
+                .thenReturn(List.of("Asia/Ho_Chi_Minh"));
+
+        mockMvc.perform(post("/api/v1/plants/{plantId}/schedules", plantId)
+                        .header("Authorization", userBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"taskType":"watering","repeatType":"WEEKLY","daysOfWeek":[]}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        when(jdbc.queryForList(contains("SELECT id FROM care_schedules WHERE owner_user_id=?"), eq(UUID.class), eq(userId)))
+                .thenReturn(List.of());
+        when(jdbc.query(contains("WHERE t.owner_user_id=? AND p.archived_at IS NULL"), any(RowMapper.class),
+                eq(userId), any(java.time.LocalDate.class), any(java.time.LocalDate.class), any(java.time.LocalDate.class)))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/schedules/today").header("Authorization", userBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tasks").isArray())
+                .andExpect(jsonPath("$.summary.total").value(0));
+
+        when(jdbc.query(contains("SELECT t.care_schedule_id,t.due_date,t.status,s.timezone"), any(RowMapper.class), eq(taskId), eq(userId)))
+                .thenReturn(List.of());
+
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/complete", taskId)
+                        .header("Authorization", userBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"note":"Tưới xong"}
+                                """))
+                .andExpect(status().isNotFound());
+
+        when(jdbc.query(contains("SELECT t.care_schedule_id,t.due_date,t.status,s.timezone"), any(RowMapper.class), eq(taskId), eq(userId)))
+                .thenAnswer(inv -> {
+                    RowMapper<?> mapper = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    when(rs.getObject("care_schedule_id", UUID.class)).thenReturn(scheduleId);
+                    when(rs.getObject("due_date", java.time.LocalDate.class)).thenReturn(today);
+                    when(rs.getString("status")).thenReturn("pending");
+                    when(rs.getString("timezone")).thenReturn("Asia/Ho_Chi_Minh");
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+
+        when(jdbc.queryForObject(contains("WHERE t.id=? AND t.owner_user_id=?"), any(RowMapper.class), eq(taskId), eq(userId)))
+                .thenReturn(new vn.goplant.backend.care.CareScheduleService.Task(
+                        taskId, scheduleId, plantId, "Trầu bà", "watering", "Tưới nước",
+                        today, dueAt, "completed", Instant.now(), null, "Đã tưới đẫm", false))
+                .thenReturn(new vn.goplant.backend.care.CareScheduleService.Task(
+                        taskId, scheduleId, plantId, "Trầu bà", "watering", "Tưới nước",
+                        today, dueAt, "skipped", null, Instant.now(), "Trời mưa", false));
+
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/complete", taskId)
+                        .header("Authorization", userBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"note":"Đã tưới đẫm"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("completed"))
+                .andExpect(jsonPath("$.note").value("Đã tưới đẫm"));
+
+        mockMvc.perform(post("/api/v1/tasks/{taskId}/skip", taskId)
+                        .header("Authorization", userBearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"note":"Trời mưa"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("skipped"))
+                .andExpect(jsonPath("$.note").value("Trời mưa"));
+    }
+
+    @Test
+    void ipRateLimitBlocksBurstFromSameIpWithoutBlockingOtherIps() throws Exception {
+        String attackerIp = "203.0.113.55";
+        String normalIp = "203.0.113.56";
+
+        when(jdbc.query(contains("WHERE e.normalized_email = ? AND u.status = 'active'"), any(RowMapper.class), anyString()))
+                .thenReturn(List.of());
+
+        for (int i = 0; i < 25; i++) {
+            mockMvc.perform(post("/api/v1/auth/forgot-password")
+                            .header("X-Forwarded-For", attackerIp)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"email":"spray@goplant.test"}
+                                    """))
+                    .andExpect(status().isOk());
+        }
+
+        mockMvc.perform(post("/api/v1/auth/forgot-password")
+                        .header("X-Forwarded-For", attackerIp)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"spray@goplant.test"}
+                                """))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().exists("Retry-After"))
+                .andExpect(jsonPath("$.detail").isNotEmpty());
+
+        mockMvc.perform(post("/api/v1/auth/forgot-password")
+                        .header("X-Forwarded-For", normalIp)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"normal@goplant.test"}
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/health").header("X-Forwarded-For", attackerIp))
+                .andExpect(status().isOk());
+    }
 }

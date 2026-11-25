@@ -54,7 +54,6 @@ export function GrowthChart({ records }: Props) {
       <Svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
         {[0, 0.5, 1].map((step) => {
           const y = padTop + chartH * step;
-          const labelVal = Math.round((top - (top - base) * step) * 10) / 10;
           return (
             <Line
               key={step}

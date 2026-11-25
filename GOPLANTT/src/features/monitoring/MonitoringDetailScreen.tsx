@@ -10,8 +10,10 @@ import { AccountButton } from '@/features/auth/AccountButton';
 import { useAuthSession } from '@/features/auth/AuthSession';
 import { JOURNAL_HEALTH_META, JOURNAL_LOG_TYPE_META, useJournals } from '@/features/journal/JournalStore';
 import { GrowthChart } from '@/features/monitoring/GrowthChart';
+import { DailyCalendarView } from '@/features/monitoring/DailyCalendarView';
 import { PlantArtwork } from '@/features/plants/PlantArtwork';
 import { resolvePlantPhotoUri, usePlantData, type PlantProfile } from '@/features/plants/PlantDataStore';
+import { pickOrCaptureOptimizedImage } from '@/services/imagePicker';
 import { CARE_TASK_META, formatDateVi, formatScheduleRepeat, formatTimeShort, useCareSchedules } from '@/features/schedule/CareScheduleStore';
 import {
   apiBaseUrl,
@@ -20,6 +22,7 @@ import {
   fetchGardenWeather,
   fetchPlantGrowthRecords,
   toLocalIsoDate,
+  type ApiCareTask,
   type ApiGardenWeather,
   type ApiGrowthRecord,
   type ApiJournalEntry,
@@ -59,44 +62,66 @@ function computePlantAgeText(plantedOn?: string): string {
   return `${diffDays} ngày tuổi`;
 }
 
-function buildMicroclimateAssessment(weather: ApiGardenWeather | null, species?: PlantProfile): string {
+type MicroclimateAssessment = {
+  text: string;
+  level: 'danger' | 'warning' | 'normal' | 'neutral';
+};
+
+function buildMicroclimateAssessment(weather: ApiGardenWeather | null, species?: PlantProfile): MicroclimateAssessment {
   if (!weather || weather.temperatureC == null) {
-    return 'Chưa có dữ liệu thời tiết từ khu vườn để đối chiếu vi khí hậu.';
+    return {
+      text: 'Chưa có dữ liệu thời tiết từ khu vườn để đối chiếu vi khí hậu.',
+      level: 'neutral',
+    };
   }
   const temp = weather.temperatureC;
   const humidity = weather.humidityPct;
   const range = parseTempRange(species?.temperature);
   const parts: string[] = [];
+  let level: MicroclimateAssessment['level'] = 'normal';
 
   if (range) {
     if (temp > range.max) {
-      parts.push(`Nhiệt độ (${Math.round(temp)}°C) đang cao hơn ngưỡng lý tưởng (${species?.temperature}) — nên che nắng và tăng ẩm.`);
+      level = 'danger';
+      parts.push(`Cảnh báo cao: Nhiệt độ (${Math.round(temp)}°C) vượt ngưỡng lý tưởng (${species?.temperature}) — nên che nắng và tăng ẩm.`);
     } else if (temp < range.min) {
-      parts.push(`Nhiệt độ (${Math.round(temp)}°C) đang thấp hơn ngưỡng lý tưởng (${species?.temperature}) — cần giữ ấm cho cây.`);
+      level = 'danger';
+      parts.push(`Cảnh báo cao: Nhiệt độ (${Math.round(temp)}°C) thấp hơn ngưỡng lý tưởng (${species?.temperature}) — cần giữ ấm cho cây.`);
     } else {
-      parts.push(`Nhiệt độ (${Math.round(temp)}°C) nằm trong khoảng sinh trưởng lý tưởng (${species?.temperature}).`);
+      parts.push(`Bình thường: Nhiệt độ (${Math.round(temp)}°C) nằm trong khoảng sinh trưởng lý tưởng (${species?.temperature}).`);
     }
   } else {
     parts.push(`Nhiệt độ ngoài trời hiện tại là ${Math.round(temp)}°C.`);
   }
 
   if (humidity != null) {
-    if (humidity < 45) parts.push(`Độ ẩm không khí (${humidity}%) hơi khô, cân nhắc phun sương nhẹ.`);
-    else if (humidity > 85) parts.push(`Độ ẩm không khí (${humidity}%) cao, lưu ý thông thoáng tránh nấm bệnh.`);
-    else parts.push(`Độ ẩm không khí (${humidity}%) phù hợp.`);
+    if (humidity < 35) {
+      level = 'danger';
+      parts.push(`Độ ẩm không khí (${humidity}%) quá khô — cần bổ sung ẩm ngay.`);
+    } else if (humidity < 45) {
+      if (level === 'normal') level = 'warning';
+      parts.push(`Độ ẩm không khí (${humidity}%) hơi khô, cân nhắc phun sương nhẹ.`);
+    } else if (humidity > 85) {
+      level = 'danger';
+      parts.push(`Độ ẩm không khí (${humidity}%) quá cao — lưu ý thông thoáng tránh nấm bệnh.`);
+    } else {
+      parts.push(`Độ ẩm không khí (${humidity}%) phù hợp.`);
+    }
   }
-  return parts.join(' ');
+  return { text: parts.join(' '), level };
 }
 
 export default function MonitoringDetailScreen() {
-  const params = useLocalSearchParams<{ type?: string; plantId?: string; gardenId?: string; name?: string }>();
+  const params = useLocalSearchParams<{ type?: string; plantId?: string; gardenId?: string; name?: string; tab?: string }>();
   const { accessToken } = useAuthSession();
-  const { ownedPlants, gardens, catalog } = usePlantData();
+  const { ownedPlants, gardens, catalog, updatePlantPhoto } = usePlantData();
   const { journals } = useJournals();
-  const { schedules, todayTasks } = useCareSchedules();
+  const { schedules, todayTasks, loadCalendar, completeTask } = useCareSchedules();
 
   const isGardenMode = Boolean(params.gardenId) || params.type === 'garden';
-  const [tab, setTab] = useState<TabKey>('overview');
+  const [tab, setTab] = useState<TabKey>(
+    params.tab === 'history' || params.tab === 'care' ? params.tab : 'overview',
+  );
   const [weather, setWeather] = useState<ApiGardenWeather | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [growthRecords, setGrowthRecords] = useState<ApiGrowthRecord[]>([]);
@@ -108,6 +133,12 @@ export default function MonitoringDetailScreen() {
   const [growthNoteInput, setGrowthNoteInput] = useState('');
   const [growthError, setGrowthError] = useState('');
   const [savingGrowth, setSavingGrowth] = useState(false);
+  const [uploadingInitialPhoto, setUploadingInitialPhoto] = useState(false);
+  const [overviewLogsExpanded, setOverviewLogsExpanded] = useState(true);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
+  const [monthCareTasks, setMonthCareTasks] = useState<ApiCareTask[]>([]);
+  const [previewPhotoUri, setPreviewPhotoUri] = useState<string | null>(null);
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
 
   const plant = !isGardenMode && params.plantId ? ownedPlants.find((p) => p.id === params.plantId) : undefined;
   const species = plant ? catalog.find((c) => c.id === plant.catalogId) : undefined;
@@ -232,36 +263,103 @@ export default function MonitoringDetailScreen() {
     () => (plant ? schedules.filter((s) => s.plantId === plant.id && s.active) : []),
     [schedules, plant],
   );
-  const specialCareJournals = useMemo(
-    () => plantJournals.filter((j) => j.logType === 'pest' || j.logType === 'pruning' || j.healthStatus !== 'healthy'),
-    [plantJournals],
+
+  const handleUploadInitialPhoto = async () => {
+    if (!plant?.id || uploadingInitialPhoto) return;
+    const picked = await pickOrCaptureOptimizedImage({
+      maxWidth: 1600,
+      quality: 0.85,
+      title: 'Chọn ảnh ngày đầu trồng',
+    });
+    if (!picked) return;
+    setUploadingInitialPhoto(true);
+    try {
+      await updatePlantPhoto(plant.id, picked);
+      Alert.alert('Đã cập nhật', 'Đã bổ sung ảnh ngày đầu trồng cho cây.');
+    } catch (error) {
+      Alert.alert('Không thể tải ảnh', error instanceof Error ? error.message : 'Vui lòng thử lại.');
+    } finally {
+      setUploadingInitialPhoto(false);
+    }
+  };
+
+  const handleMonthRangeChange = useCallback(
+    (fromIso: string, toIso: string) => {
+      if (isGardenMode || !plant?.id || !accessToken) {
+        setMonthCareTasks([]);
+        return;
+      }
+      void loadCalendar(fromIso, toIso)
+        .then((view) => {
+          setMonthCareTasks((view.tasks ?? []).filter((task) => task.plantId === plant.id));
+        })
+        .catch(() => {
+          setMonthCareTasks([]);
+        });
+    },
+    [isGardenMode, plant, accessToken, loadCalendar],
   );
 
-  // Oldest journal photo vs current plant photo (or newest journal photo) for growth comparison
+  const journalCountByDate = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const entry of plantJournals) {
+      map.set(entry.entryDate, (map.get(entry.entryDate) ?? 0) + 1);
+    }
+    return map;
+  }, [plantJournals]);
+
+  const careCountByDate = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const task of monthCareTasks) {
+      map.set(task.dueDate, (map.get(task.dueDate) ?? 0) + 1);
+    }
+    return map;
+  }, [monthCareTasks]);
+
+  const filteredDayJournals = useMemo(
+    () => (selectedCalendarDate ? plantJournals.filter((j) => j.entryDate === selectedCalendarDate) : plantJournals),
+    [plantJournals, selectedCalendarDate],
+  );
+
+  const filteredDayCareTasks = useMemo(
+    () => (selectedCalendarDate ? monthCareTasks.filter((t) => t.dueDate === selectedCalendarDate) : []),
+    [monthCareTasks, selectedCalendarDate],
+  );
+
+  const handleQuickCompleteTask = async (taskId: string) => {
+    if (completingTaskId) return;
+    setCompletingTaskId(taskId);
+    try {
+      await completeTask(taskId);
+      setMonthCareTasks((prev) =>
+        prev.map((item) => (item.id === taskId ? { ...item, status: 'completed' } : item)),
+      );
+    } catch (error) {
+      Alert.alert('Không thể cập nhật', error instanceof Error ? error.message : 'Vui lòng thử lại.');
+    } finally {
+      setCompletingTaskId(null);
+    }
+  };
+
+  // Plant initial/profile photo ("Ngày đầu trồng") vs newest journal photo ("Ảnh cây trồng mới nhất")
   const photoComparison = useMemo(() => {
     if (!plant) return null;
-    const withPhotosOldestFirst = [...plantJournals]
-      .filter((j) => j.photoIds.length > 0)
-      .sort((a, b) => a.entryDate.localeCompare(b.entryDate) || a.createdAt.localeCompare(b.createdAt));
-    const oldestEntry = withPhotosOldestFirst[0];
-    const newestEntry = withPhotosOldestFirst[withPhotosOldestFirst.length - 1];
-    const initialPhotoUri = oldestEntry
-      ? `${apiBaseUrl}/api/v1/journals/${oldestEntry.id}/photos/${oldestEntry.photoIds[0]}`
-      : null;
-    const currentPhotoUri = plant.photoUpdatedAt
+    const newestEntry = plantJournals.find((j) => j.photoIds.length > 0);
+    const initialPhotoUri = plant.photoUpdatedAt
       ? `${apiBaseUrl}/api/v1/plants/${plant.id}/photo?v=${encodeURIComponent(plant.photoUpdatedAt)}`
-      : newestEntry
-        ? `${apiBaseUrl}/api/v1/journals/${newestEntry.id}/photos/${newestEntry.photoIds[0]}`
-        : null;
+      : null;
+    const currentPhotoUri = newestEntry
+      ? `${apiBaseUrl}/api/v1/journals/${newestEntry.id}/photos/${newestEntry.photoIds[0]}`
+      : null;
     return {
       initialPhotoUri,
-      initialDateLabel: oldestEntry ? formatDateVi(oldestEntry.entryDate) : 'Chưa có ảnh nhật ký đầu',
+      initialDateLabel: plant.photoUpdatedAt
+        ? plant.plantedAt
+          ? formatDateVi(plant.plantedAt)
+          : 'Ảnh ngày đầu trồng'
+        : 'Chưa có ảnh ngày đầu',
       currentPhotoUri,
-      currentDateLabel: plant.photoUpdatedAt
-        ? 'Ảnh hồ sơ hiện tại'
-        : newestEntry
-          ? formatDateVi(newestEntry.entryDate)
-          : 'Chưa có ảnh hiện tại',
+      currentDateLabel: newestEntry ? formatDateVi(newestEntry.entryDate) : 'Chưa có ảnh nhật ký mới',
     };
   }, [plant, plantJournals]);
 
@@ -391,11 +489,30 @@ export default function MonitoringDetailScreen() {
 
               {weather && weather.temperatureC != null ? (
                 <>
-                  {!isGardenMode ? (
-                    <View style={m.assessmentBox}>
-                      <Text style={m.assessmentText}>{buildMicroclimateAssessment(weather, species)}</Text>
-                    </View>
-                  ) : null}
+                  {!isGardenMode
+                    ? (() => {
+                        const assessment = buildMicroclimateAssessment(weather, species);
+                        const boxStyle =
+                          assessment.level === 'danger'
+                            ? m.assessmentDanger
+                            : assessment.level === 'warning'
+                              ? m.assessmentWarning
+                              : assessment.level === 'normal'
+                                ? m.assessmentNormal
+                                : m.assessmentBox;
+                        const textStyle =
+                          assessment.level === 'danger'
+                            ? m.assessmentDangerText
+                            : assessment.level === 'warning'
+                              ? m.assessmentWarningText
+                              : m.assessmentText;
+                        return (
+                          <View style={[m.assessmentBox, boxStyle]}>
+                            <Text style={[m.assessmentText, textStyle]}>{assessment.text}</Text>
+                          </View>
+                        );
+                      })()
+                    : null}
                   {[
                     ['Nhiệt độ hiện tại', `${Math.round(weather.temperatureC)}°C${weather.feelsLikeC != null ? ` (Cảm giác ${Math.round(weather.feelsLikeC)}°C)` : ''}`],
                     ['Độ ẩm không khí', weather.humidityPct != null ? `${weather.humidityPct}%` : 'Chưa có dữ liệu'],
@@ -485,18 +602,23 @@ export default function MonitoringDetailScreen() {
                   ))}
                 </View>
 
-                {/* So sánh ảnh Ngày đầu trồng vs Ảnh hiện tại */}
+                {/* So sánh ảnh Ngày đầu trồng vs Ảnh cây trồng mới nhất */}
                 {photoComparison ? (
                   <View style={m.card}>
                     <Text style={m.section}>So sánh phát triển qua hình ảnh</Text>
                     <View style={m.compareRow}>
                       <View style={m.compareCol}>
                         {photoComparison.initialPhotoUri ? (
-                          <AuthorizedImage
-                            uri={photoComparison.initialPhotoUri}
-                            accessToken={accessToken}
-                            style={m.compareImg}
-                          />
+                          <Pressable
+                            style={{ width: '100%' }}
+                            onPress={() => setPreviewPhotoUri(photoComparison.initialPhotoUri)}
+                            accessibilityLabel="Phóng to ảnh ngày đầu trồng">
+                            <AuthorizedImage
+                              uri={photoComparison.initialPhotoUri}
+                              accessToken={accessToken}
+                              style={m.compareImg}
+                            />
+                          </Pressable>
                         ) : (
                           <View style={[m.compareImg, m.compareEmpty]}>
                             <Text style={m.body}>Chưa có ảnh</Text>
@@ -504,20 +626,37 @@ export default function MonitoringDetailScreen() {
                         )}
                         <Text style={m.compareLabel}>Ngày đầu trồng</Text>
                         <Text style={m.body}>{photoComparison.initialDateLabel}</Text>
+                        <Pressable
+                          disabled={uploadingInitialPhoto}
+                          onPress={() => void handleUploadInitialPhoto()}
+                          style={m.initialPhotoBtn}>
+                          <Text style={m.initialPhotoBtnText}>
+                            {uploadingInitialPhoto
+                              ? 'Đang tải...'
+                              : photoComparison.initialPhotoUri
+                                ? 'Đổi ảnh đầu'
+                                : '＋ Bổ sung ảnh'}
+                          </Text>
+                        </Pressable>
                       </View>
                       <View style={m.compareCol}>
                         {photoComparison.currentPhotoUri ? (
-                          <AuthorizedImage
-                            uri={photoComparison.currentPhotoUri}
-                            accessToken={accessToken}
-                            style={m.compareImg}
-                          />
+                          <Pressable
+                            style={{ width: '100%' }}
+                            onPress={() => setPreviewPhotoUri(photoComparison.currentPhotoUri)}
+                            accessibilityLabel="Phóng to ảnh cây trồng mới nhất">
+                            <AuthorizedImage
+                              uri={photoComparison.currentPhotoUri}
+                              accessToken={accessToken}
+                              style={m.compareImg}
+                            />
+                          </Pressable>
                         ) : (
                           <View style={[m.compareImg, m.compareEmpty]}>
                             <Text style={m.body}>Chưa có ảnh</Text>
                           </View>
                         )}
-                        <Text style={m.compareLabel}>Ảnh hiện tại</Text>
+                        <Text style={m.compareLabel}>Ảnh cây trồng mới nhất</Text>
                         <Text style={m.body}>{photoComparison.currentDateLabel}</Text>
                       </View>
                     </View>
@@ -530,78 +669,242 @@ export default function MonitoringDetailScreen() {
 
         {tab === 'history' || tab === 'overview' ? (
           <View style={m.card}>
-            <View style={m.row}>
-              <Text style={m.section}>
-                {isGardenMode
-                  ? 'Nhật ký vườn gần đây'
-                  : tab === 'overview'
-                    ? 'Sâu bệnh, Cắt tỉa & Chú ý gần nhất'
-                    : 'Toàn bộ lịch sử nhật ký'}
-              </Text>
-              <Text style={m.body}>
-                {isGardenMode
-                  ? `${gardenJournals.length} bản ghi`
-                  : `${(tab === 'overview' ? specialCareJournals : plantJournals).length} bản ghi`}
-              </Text>
-            </View>
-
-            {(isGardenMode
-              ? gardenJournals.slice(0, 6)
-              : (tab === 'overview' ? (specialCareJournals.length > 0 ? specialCareJournals : plantJournals).slice(0, 5) : plantJournals)
-            ).length === 0 ? (
-              <Text style={m.body}>Chưa có ghi nhận chăm sóc hoặc sâu bệnh nào.</Text>
-            ) : (
-              (isGardenMode
-                ? gardenJournals.slice(0, 6)
-                : (tab === 'overview' ? (specialCareJournals.length > 0 ? specialCareJournals : plantJournals).slice(0, 5) : plantJournals)
-              ).map((entry) => {
-                const logMeta = JOURNAL_LOG_TYPE_META[entry.logType] ?? JOURNAL_LOG_TYPE_META.other;
-                const healthMeta = JOURNAL_HEALTH_META[entry.healthStatus] ?? JOURNAL_HEALTH_META.healthy;
-                return (
-                  <Pressable
-                    key={entry.id}
-                    onPress={() => router.push({ pathname: '/journal/detail', params: { journalId: entry.id } } as never)}
-                    style={m.journalRow}>
-                    <View style={m.row}>
-                      <Text style={m.journalTitle}>
-                        {logMeta.emoji} {isGardenMode ? `${entry.plantName} · ` : ''}
-                        {logMeta.label} ({formatDateVi(entry.entryDate)})
-                      </Text>
-                      <Text style={[m.healthTag, { backgroundColor: healthMeta.bg, color: healthMeta.fg }]}>
-                        {healthMeta.label}
-                      </Text>
-                    </View>
-                    <Text style={m.body} numberOfLines={2}>
-                      {entry.title ? `${entry.title}: ` : ''}
-                      {entry.note}
-                    </Text>
-                    {entry.photoIds.length > 0 ? (
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={m.photoRow}>
-                        {entry.photoIds.map((photoId) => (
-                          <AuthorizedImage
-                            key={photoId}
-                            uri={`${apiBaseUrl}/api/v1/journals/${entry.id}/photos/${photoId}`}
-                            accessToken={accessToken}
-                            style={m.evidencePhoto}
-                          />
-                        ))}
-                      </ScrollView>
+            {isGardenMode ? (
+              <>
+                <View style={m.row}>
+                  <Text style={m.section}>Nhật ký cây trồng</Text>
+                  <View style={m.rowRight}>
+                    <Text style={m.body}>{gardenPlants.length} cây</Text>
+                    {gardenPlants.length > 0 ? (
+                      <Pressable onPress={() => setOverviewLogsExpanded((prev) => !prev)} style={m.toggleBtn}>
+                        <Text style={m.toggleBtnText}>{overviewLogsExpanded ? 'Thu gọn ▲' : 'Mở rộng ▼'}</Text>
+                      </Pressable>
                     ) : null}
-                  </Pressable>
-                );
-              })
+                  </View>
+                </View>
+
+                {gardenPlants.length === 0 ? (
+                  <Text style={m.body}>Khu vườn chưa có cây nào để ghi nhận nhật ký.</Text>
+                ) : overviewLogsExpanded ? (
+                  gardenPlants.map((gp) => {
+                    const gpJournals = gardenJournals.filter((j) => j.plantId === gp.id);
+                    const gpSchedules = schedules.filter((s) => s.plantId === gp.id && s.active);
+                    const latest = gpJournals[0];
+                    const hMeta = latest ? JOURNAL_HEALTH_META[latest.healthStatus] : null;
+                    return (
+                      <Pressable
+                        key={gp.id}
+                        onPress={() =>
+                          router.push({
+                            pathname: '/monitoring/detail',
+                            params: { type: 'plant', plantId: gp.id, name: gp.name, tab: 'history' },
+                          } as never)
+                        }
+                        style={m.plantRowCard}>
+                        <PlantArtwork
+                          style={m.plantRowThumb}
+                          category={gp.category}
+                          accessToken={accessToken}
+                          photoUri={resolvePlantPhotoUri(gp, catalog)}
+                        />
+                        <View style={m.copy}>
+                          <Text style={m.journalTitle} numberOfLines={1}>{gp.name}</Text>
+                          <Text style={m.body}>
+                            {gpJournals.length} nhật ký • {gpSchedules.length} lịch chăm sóc
+                            {latest ? ` • Gần nhất ${formatDateVi(latest.entryDate)}` : ''}
+                          </Text>
+                        </View>
+                        {hMeta ? (
+                          <Text style={[m.healthTag, { backgroundColor: hMeta.bg, color: hMeta.fg }]}>
+                            {hMeta.label}
+                          </Text>
+                        ) : null}
+                        <Text style={m.link}>Lịch ngày ›</Text>
+                      </Pressable>
+                    );
+                  })
+                ) : (
+                  <Text style={m.body}>Đang thu gọn nhật ký của {gardenPlants.length} cây. Nhấn “Mở rộng” để xem.</Text>
+                )}
+              </>
+            ) : tab === 'overview' ? (
+              <>
+                <View style={m.row}>
+                  <Text style={m.section}>Nhật ký ghi nhận gần đây</Text>
+                  <View style={m.rowRight}>
+                    <Text style={m.body}>{plantJournals.length} bản ghi</Text>
+                    {plantJournals.length > 0 ? (
+                      <Pressable onPress={() => setOverviewLogsExpanded((prev) => !prev)} style={m.toggleBtn}>
+                        <Text style={m.toggleBtnText}>{overviewLogsExpanded ? 'Thu gọn ▲' : 'Mở rộng ▼'}</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </View>
+
+                {plantJournals.length === 0 ? (
+                  <Text style={m.body}>Chưa có ghi nhận chăm sóc hoặc sâu bệnh nào.</Text>
+                ) : overviewLogsExpanded ? (
+                  plantJournals.slice(0, 5).map((entry) => {
+                    const logMeta = JOURNAL_LOG_TYPE_META[entry.logType] ?? JOURNAL_LOG_TYPE_META.other;
+                    const healthMeta = JOURNAL_HEALTH_META[entry.healthStatus] ?? JOURNAL_HEALTH_META.healthy;
+                    return (
+                      <Pressable
+                        key={entry.id}
+                        onPress={() =>
+                          router.push({
+                            pathname: '/journal/detail',
+                            params: { plantId: entry.plantId, date: entry.entryDate },
+                          } as never)
+                        }
+                        style={m.journalRow}>
+                        <View style={m.row}>
+                          <Text style={m.journalTitle}>
+                            {logMeta.emoji} {logMeta.label} ({formatDateVi(entry.entryDate)})
+                          </Text>
+                          <Text style={[m.healthTag, { backgroundColor: healthMeta.bg, color: healthMeta.fg }]}>
+                            {healthMeta.label}
+                          </Text>
+                        </View>
+                        <Text style={m.body} numberOfLines={2}>
+                          {entry.title ? `${entry.title}: ` : ''}
+                          {entry.note}
+                        </Text>
+                        {entry.photoIds.length > 0 ? (
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={m.photoRow}>
+                            {entry.photoIds.map((photoId) => (
+                              <AuthorizedImage
+                                key={photoId}
+                                uri={`${apiBaseUrl}/api/v1/journals/${entry.id}/photos/${photoId}`}
+                                accessToken={accessToken}
+                                style={m.evidencePhoto}
+                              />
+                            ))}
+                          </ScrollView>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })
+                ) : (
+                  <Text style={m.body}>Đang thu gọn {plantJournals.length} bản ghi. Nhấn “Mở rộng” để xem.</Text>
+                )}
+              </>
+            ) : (
+              <>
+                <View style={m.row}>
+                  <Text style={m.section}>Lịch nhật ký & chăm sóc theo ngày</Text>
+                  <Text style={m.body}>{filteredDayJournals.length} nhật ký</Text>
+                </View>
+
+                <DailyCalendarView
+                  selectedDate={selectedCalendarDate}
+                  onSelectDate={setSelectedCalendarDate}
+                  journalCountByDate={journalCountByDate}
+                  careCountByDate={careCountByDate}
+                  onMonthRangeChange={handleMonthRangeChange}
+                />
+
+                {selectedCalendarDate && filteredDayCareTasks.length > 0 ? (
+                  <View style={m.dayCareBox}>
+                    <Text style={m.journalTitle}>Lịch chăm sóc ngày {formatDateVi(selectedCalendarDate)}</Text>
+                    {filteredDayCareTasks.map((task) => {
+                      const meta = CARE_TASK_META[task.taskType] ?? CARE_TASK_META.other;
+                      const timeText = new Date(task.dueAt).toLocaleTimeString('vi-VN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      });
+                      return (
+                        <View key={task.id} style={m.dataRow}>
+                          <Text style={[m.body, { flex: 1 }]}>
+                            {meta.emoji} {task.title || meta.label} ({timeText})
+                          </Text>
+                          {task.status === 'pending' ? (
+                            <Pressable
+                              disabled={completingTaskId === task.id}
+                              onPress={() => void handleQuickCompleteTask(task.id)}
+                              style={m.quickDoneBtn}>
+                              <Text style={m.quickDoneText}>
+                                {completingTaskId === task.id ? 'Đang lưu...' : '✓ Hoàn thành'}
+                              </Text>
+                            </Pressable>
+                          ) : (
+                            <Text style={m.value}>
+                              {task.status === 'completed' ? 'Đã xong' : 'Bỏ qua'}
+                            </Text>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : null}
+
+                {filteredDayJournals.length === 0 ? (
+                  <Text style={m.body}>
+                    {selectedCalendarDate
+                      ? `Không có bản nhật ký nào vào ngày ${formatDateVi(selectedCalendarDate)}.`
+                      : 'Chưa có ghi nhận chăm sóc hoặc sâu bệnh nào.'}
+                  </Text>
+                ) : (
+                  filteredDayJournals.map((entry) => {
+                    const logMeta = JOURNAL_LOG_TYPE_META[entry.logType] ?? JOURNAL_LOG_TYPE_META.other;
+                    const healthMeta = JOURNAL_HEALTH_META[entry.healthStatus] ?? JOURNAL_HEALTH_META.healthy;
+                    return (
+                      <Pressable
+                        key={entry.id}
+                        onPress={() =>
+                          router.push({
+                            pathname: '/journal/detail',
+                            params: { plantId: entry.plantId, date: entry.entryDate },
+                          } as never)
+                        }
+                        style={m.journalRow}>
+                        <View style={m.row}>
+                          <Text style={m.journalTitle}>
+                            {logMeta.emoji} {logMeta.label} ({formatDateVi(entry.entryDate)})
+                          </Text>
+                          <Text style={[m.healthTag, { backgroundColor: healthMeta.bg, color: healthMeta.fg }]}>
+                            {healthMeta.label}
+                          </Text>
+                        </View>
+                        <Text style={m.body} numberOfLines={2}>
+                          {entry.title ? `${entry.title}: ` : ''}
+                          {entry.note}
+                        </Text>
+                        {entry.photoIds.length > 0 ? (
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={m.photoRow}>
+                            {entry.photoIds.map((photoId) => (
+                              <AuthorizedImage
+                                key={photoId}
+                                uri={`${apiBaseUrl}/api/v1/journals/${entry.id}/photos/${photoId}`}
+                                accessToken={accessToken}
+                                style={m.evidencePhoto}
+                              />
+                            ))}
+                          </ScrollView>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })
+                )}
+              </>
             )}
 
             <Pressable
               onPress={() =>
                 router.push(
                   plant
-                    ? ({ pathname: '/journal/new', params: { plantId: plant.id } } as never)
+                    ? ({
+                        pathname: '/journal/new',
+                        params: selectedCalendarDate ? { plantId: plant.id, date: selectedCalendarDate } : { plantId: plant.id },
+                      } as never)
                     : ('/journal/new' as never),
                 )
               }
               style={m.button}>
-              <Text style={m.buttonText}>＋ Mở biểu mẫu ghi nhận</Text>
+              <Text style={m.buttonText}>
+                {selectedCalendarDate && !isGardenMode && tab === 'history'
+                  ? `＋ Ghi nhật ký ngày ${formatDateVi(selectedCalendarDate)}`
+                  : '＋ Mở biểu mẫu ghi nhận'}
+              </Text>
             </Pressable>
           </View>
         ) : null}
@@ -721,6 +1024,21 @@ export default function MonitoringDetailScreen() {
           </View>
         </View>
       </Modal>
+      <Modal visible={Boolean(previewPhotoUri)} transparent animationType="fade" onRequestClose={() => setPreviewPhotoUri(null)}>
+        <Pressable style={m.lightboxBackdrop} onPress={() => setPreviewPhotoUri(null)}>
+          <Pressable style={m.lightboxClose} onPress={() => setPreviewPhotoUri(null)} accessibilityRole="button" accessibilityLabel="Đóng ảnh">
+            <Text style={m.lightboxCloseText}>✕</Text>
+          </Pressable>
+          {previewPhotoUri ? (
+            <AuthorizedImage
+              uri={previewPhotoUri}
+              accessToken={accessToken}
+              contentFit="contain"
+              style={m.lightboxImage}
+            />
+          ) : null}
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -751,7 +1069,26 @@ const m = StyleSheet.create({
   section: { color: C.forest, fontFamily: F.semiBold, fontSize: 13 },
   link: { color: C.primary, fontFamily: F.semiBold, fontSize: 11 },
   assessmentBox: { padding: 10, borderRadius: 10, backgroundColor: '#E6F5ED' },
+  assessmentNormal: { backgroundColor: '#E6F5ED', borderWidth: 1, borderColor: 'rgba(30, 75, 56, 0.16)' },
+  assessmentWarning: { backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: 'rgba(217, 119, 6, 0.3)' },
+  assessmentDanger: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: 'rgba(220, 38, 38, 0.35)' },
   assessmentText: { color: C.forest, fontFamily: F.regular, fontSize: 12, lineHeight: 17 },
+  assessmentWarningText: { color: '#92400E', fontFamily: F.semiBold },
+  assessmentDangerText: { color: '#991B1B', fontFamily: F.semiBold },
+  rowRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  toggleBtn: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 99, backgroundColor: C.softSurface, borderWidth: 1, borderColor: '#CBE3D3' },
+  toggleBtnText: { color: C.forest, fontFamily: F.semiBold, fontSize: 10 },
+  initialPhotoBtn: { marginTop: 2, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99, backgroundColor: C.softSurface, borderWidth: 1, borderColor: '#CBE3D3' },
+  initialPhotoBtnText: { color: C.forest, fontFamily: F.semiBold, fontSize: 10 },
+  plantRowCard: { paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E3EBE5', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  plantRowThumb: { width: 42, height: 42, borderRadius: 10 },
+  dayCareBox: { padding: 10, borderRadius: 10, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: 'rgba(217, 119, 6, 0.25)', gap: 4 },
+  quickDoneBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99, backgroundColor: C.primary },
+  quickDoneText: { color: C.surface, fontFamily: F.semiBold, fontSize: 10 },
+  lightboxBackdrop: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.88)', alignItems: 'center', justifyContent: 'center', padding: 16 },
+  lightboxClose: { position: 'absolute', top: 44, right: 18, zIndex: 2, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+  lightboxCloseText: { color: '#FFFFFF', fontFamily: F.bold, fontSize: 16 },
+  lightboxImage: { width: '100%', height: '75%' },
   dataRow: { minHeight: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E3EBE5', paddingVertical: 4 },
   value: { color: C.forest, fontFamily: F.semiBold, fontSize: 11, flexShrink: 1, textAlign: 'right' },
   alertCard: { padding: 12, borderRadius: 13, backgroundColor: C.peach, gap: 4 },

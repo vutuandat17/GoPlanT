@@ -1,5 +1,14 @@
 import type { ApiCareSchedule, ApiCareTask, ApiJournalEntry, JournalHealthStatus } from '@/services/api';
-import type { OwnedPlant, PlantProfile } from './PlantDataStore';
+import type { GardenProfile, OwnedPlant, PlantProfile } from './PlantDataStore';
+
+const GARDEN_LOCATION_LABELS: Record<string, string> = {
+  balcony: 'Ban công',
+  rooftop: 'Sân thượng',
+  garden: 'Sân vườn',
+  indoor: 'Trong nhà',
+  greenhouse: 'Nhà kính',
+  other: 'Khác',
+};
 
 const HEALTH_LABELS: Record<JournalHealthStatus, string> = {
   healthy: 'Khỏe mạnh',
@@ -75,10 +84,17 @@ export function toOwnedFilterPlant(
   todayTasks: ApiCareTask[],
   schedules: ApiCareSchedule[],
   isFavorite = false,
+  gardens: GardenProfile[] = [],
 ): FilterPlant {
+  const garden = plant.gardenId ? gardens.find((g) => g.id === plant.gardenId) : undefined;
+  const gardenSpace = garden ? (GARDEN_LOCATION_LABELS[garden.locationType] ?? 'Khác') : '';
+  const combinedLocation = [plant.location?.trim(), gardenSpace, garden?.locationDetail?.trim()]
+    .filter(Boolean)
+    .join(' • ');
   return {
     ...plant,
     id: plant.catalogId,
+    location: combinedLocation || 'Chưa xác định',
     isFavorite,
     health: getLatestHealthLabel(plant.id, journals),
     care: getCareStatusLabel(plant.id, todayTasks, schedules),
