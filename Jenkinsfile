@@ -64,6 +64,23 @@ pipeline {
                 }
             }
         }
+
+        // Configure matching names under Manage Jenkins > Tools and
+        // Manage Jenkins > System > SonarQube installations.
+        stage('SonarQube analysis') {
+            steps {
+                script {
+                    def scannerHome = tool 'SonarScanner'
+                    withSonarQubeEnv('GoPlanT-Sonar') {
+                        if (isUnix()) {
+                            sh "${scannerHome}/bin/sonar-scanner"
+                        } else {
+                            bat "${scannerHome}\\bin\\sonar-scanner.bat"
+                        }
+                    }
+                }
+            }
+        }
     }
 
     post {
