@@ -108,16 +108,20 @@ export function JournalDetailScreen({
   const plant = ownedPlants.find((p) => p.id === targetPlantId);
 
   useEffect(() => {
-    if (initialDate) setSelectedDate(initialDate);
-    else if (journalFromId?.entryDate) setSelectedDate(journalFromId.entryDate);
+    const timer = setTimeout(() => {
+      if (initialDate) setSelectedDate(initialDate);
+      else if (journalFromId?.entryDate) setSelectedDate(journalFromId.entryDate);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [initialDate, journalFromId?.entryDate]);
 
   useEffect(() => {
-    if (!targetPlantId || !accessToken) {
-      setGrowthRecords([]);
-      return;
-    }
     let active = true;
+    const timer = setTimeout(() => {
+      if (!targetPlantId || !accessToken) {
+        setGrowthRecords([]);
+        return;
+      }
     void fetchPlantGrowthRecords(targetPlantId, accessToken)
       .then((rows) => {
         if (active) setGrowthRecords(rows);
@@ -125,8 +129,10 @@ export function JournalDetailScreen({
       .catch(() => {
         if (active) setGrowthRecords([]);
       });
+    }, 0);
     return () => {
       active = false;
+      clearTimeout(timer);
     };
   }, [targetPlantId, accessToken]);
 
@@ -385,15 +391,18 @@ function JournalForm({
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
-    if (existing) {
-      setPlantId(existing.plantId);
-      setTitle(existing.title ?? '');
-      setNote(existing.note);
-      setLogType(existing.logType);
-      setHealthStatus(existing.healthStatus);
-      setEntryDate(formatDateVi(existing.entryDate));
-      setExistingPhotoIds(existing.photoIds);
-    }
+    const timer = setTimeout(() => {
+      if (existing) {
+        setPlantId(existing.plantId);
+        setTitle(existing.title ?? '');
+        setNote(existing.note);
+        setLogType(existing.logType);
+        setHealthStatus(existing.healthStatus);
+        setEntryDate(formatDateVi(existing.entryDate));
+        setExistingPhotoIds(existing.photoIds);
+      }
+    }, 0);
+    return () => clearTimeout(timer);
   }, [existing]);
 
   useEffect(() => {

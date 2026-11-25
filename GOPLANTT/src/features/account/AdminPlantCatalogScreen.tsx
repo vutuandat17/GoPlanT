@@ -159,7 +159,8 @@ export default function AdminPlantCatalogScreen() {
   }, [accessToken, isPrivileged]);
 
   useEffect(() => {
-    void loadPlants();
+    const timer = setTimeout(() => void loadPlants(), 0);
+    return () => clearTimeout(timer);
   }, [loadPlants]);
 
   const setField = (key: keyof FormState, value: string) =>

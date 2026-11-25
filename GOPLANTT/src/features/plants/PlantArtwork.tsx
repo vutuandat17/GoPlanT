@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentProps } from 'react';
+import { useState, type ComponentProps } from 'react';
 import { StyleSheet, View } from '@/components/app-primitives';
 import Svg, { Circle, Ellipse, Path, Rect } from 'react-native-svg';
 
@@ -13,8 +13,8 @@ type Props = {
 };
 
 export function PlantArtwork({ category, photoUri, accessToken, style }: Props) {
-  const [photoFailed, setPhotoFailed] = useState(false);
-  useEffect(() => setPhotoFailed(false), [photoUri]);
+  const [failedPhotoUri, setFailedPhotoUri] = useState<string | null>(null);
+  const photoFailed = Boolean(photoUri && failedPhotoUri === photoUri);
 
   const flower = /hoa|lan/i.test(category);
   const fruit = /quả|trái/i.test(category);
@@ -42,7 +42,7 @@ export function PlantArtwork({ category, photoUri, accessToken, style }: Props) 
         uri={photoUri}
         accessToken={accessToken}
         contentFit="cover"
-        onError={() => setPhotoFailed(true)}
+          onError={() => setFailedPhotoUri(photoUri ?? null)}
         style={StyleSheet.absoluteFill}
       />
     ) : null}

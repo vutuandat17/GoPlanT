@@ -83,7 +83,10 @@ export function AccountProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { setName(user?.name ?? ''); }, [user?.name]);
+  useEffect(() => {
+    const timer = setTimeout(() => setName(user?.name ?? ''), 0);
+    return () => clearTimeout(timer);
+  }, [user?.name]);
 
   const pickAvatar = async () => {
     if (!accessToken || uploadingAvatar) return;
@@ -291,7 +294,8 @@ export function AccountAuthHistoryScreen() {
   };
 
   useEffect(() => {
-    load(0, false);
+    const timer = setTimeout(() => load(0, false), 0);
+    return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken]);
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { StyleSheet, Text, View } from '@/components/app-primitives';
 
 import { AuthorizedImage } from '@/components/AuthorizedImage';
@@ -25,11 +25,8 @@ export function UserAvatar({
   backgroundColor = '#DDECE1',
   textColor = C.primary,
 }: UserAvatarProps) {
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    setFailed(false);
-  }, [avatarUri]);
+  const [failedAvatarUri, setFailedAvatarUri] = useState<string | null>(null);
+  const failed = Boolean(avatarUri && failedAvatarUri === avatarUri);
 
   const initial = name?.trim().charAt(0).toLocaleUpperCase() || 'G';
   const fontSize = Math.max(12, Math.round(size * 0.42));
@@ -51,7 +48,7 @@ export function UserAvatar({
           uri={avatarUri}
           accessToken={accessToken}
           contentFit="cover"
-          onError={() => setFailed(true)}
+          onError={() => setFailedAvatarUri(avatarUri)}
           style={StyleSheet.absoluteFill}
         />
       ) : null}

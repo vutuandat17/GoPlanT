@@ -101,7 +101,9 @@ export function JournalProvider({ children }: { children: ReactNode }) {
   }, [accessToken]);
 
   useEffect(() => {
-    if (isReady) void refresh();
+    if (!isReady) return;
+    const timer = setTimeout(() => void refresh(), 0);
+    return () => clearTimeout(timer);
   }, [isReady, refresh]);
 
   const value = useMemo<JournalContextValue>(() => ({

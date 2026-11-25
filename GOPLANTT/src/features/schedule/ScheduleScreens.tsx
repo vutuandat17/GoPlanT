@@ -173,6 +173,17 @@ export function ScheduleListScreen() {
   const [detailTask, setDetailTask] = useState<ApiCareTask | null>(null);
   const [todayCollapsed, setTodayCollapsed] = useState(false);
   const [schedulesCollapsed, setSchedulesCollapsed] = useState(false);
+  const [nowMs, setNowMs] = useState(0);
+
+  useEffect(() => {
+    const updateClock = () => setNowMs(Date.now());
+    const firstUpdate = setTimeout(updateClock, 0);
+    const interval = setInterval(updateClock, 30_000);
+    return () => {
+      clearTimeout(firstUpdate);
+      clearInterval(interval);
+    };
+  }, []);
 
   const plantGardenMap = useMemo(() => {
     const map = new Map<string, string | null>();
@@ -202,9 +213,9 @@ export function ScheduleListScreen() {
   }, [loadCalendar, weekDates]);
 
   useEffect(() => {
-    if (viewMode === 'calendar') {
-      void fetchGlobalWeek();
-    }
+    if (viewMode !== 'calendar') return;
+    const timer = setTimeout(() => void fetchGlobalWeek(), 0);
+    return () => clearTimeout(timer);
   }, [viewMode, fetchGlobalWeek]);
 
   const filteredSchedules = schedules.filter(
@@ -252,7 +263,7 @@ export function ScheduleListScreen() {
     const busy = busyTaskId === task.id;
     const localTime = formatDueTimeLocal(task.dueAt);
     const dueMs = Date.parse(task.dueAt);
-    const isTimeReached = Number.isFinite(dueMs) && dueMs <= Date.now();
+    const isTimeReached = nowMs > 0 && Number.isFinite(dueMs) && dueMs <= nowMs;
     return (
       <View key={task.id} style={[sc.todayTaskCard, task.overdue && sc.todayTaskOverdue]}>
         <View style={[sc.taskIconBox, { backgroundColor: meta.color }]}>
@@ -831,33 +842,36 @@ export function CreateScheduleScreen() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (editingSchedule) {
-      setPlantId(editingSchedule.plantId);
-      setPlantQuery(editingSchedule.plantName);
-      setTaskType(editingSchedule.taskType);
-      setTitle(editingSchedule.title ?? '');
-      setNote(editingSchedule.note ?? '');
-      setStartDate(formatDateVi(editingSchedule.startDate));
-      setEndDate(editingSchedule.endDate ? formatDateVi(editingSchedule.endDate) : '');
-      setTime(formatTimeShort(editingSchedule.timeOfDay));
-      if (editingSchedule.repeatType === 'WEEKLY') {
-        setRepeatOption('weekly');
-        if (editingSchedule.daysOfWeek?.length) setDaysOfWeek(editingSchedule.daysOfWeek);
-      } else if (editingSchedule.frequencyDays === 1) {
-        setRepeatOption('daily');
-      } else if (editingSchedule.frequencyDays === 2) {
-        setRepeatOption('alternate');
-      } else {
-        setRepeatOption('custom');
-        setCustomDays(String(editingSchedule.frequencyDays ?? 3));
+    const timer = setTimeout(() => {
+      if (editingSchedule) {
+        setPlantId(editingSchedule.plantId);
+        setPlantQuery(editingSchedule.plantName);
+        setTaskType(editingSchedule.taskType);
+        setTitle(editingSchedule.title ?? '');
+        setNote(editingSchedule.note ?? '');
+        setStartDate(formatDateVi(editingSchedule.startDate));
+        setEndDate(editingSchedule.endDate ? formatDateVi(editingSchedule.endDate) : '');
+        setTime(formatTimeShort(editingSchedule.timeOfDay));
+        if (editingSchedule.repeatType === 'WEEKLY') {
+          setRepeatOption('weekly');
+          if (editingSchedule.daysOfWeek?.length) setDaysOfWeek(editingSchedule.daysOfWeek);
+        } else if (editingSchedule.frequencyDays === 1) {
+          setRepeatOption('daily');
+        } else if (editingSchedule.frequencyDays === 2) {
+          setRepeatOption('alternate');
+        } else {
+          setRepeatOption('custom');
+          setCustomDays(String(editingSchedule.frequencyDays ?? 3));
+        }
+        return;
       }
-      return;
-    }
-    if (params.plantId) {
-      setPlantId(params.plantId);
-      const matched = ownedPlants.find((p) => p.id === params.plantId);
-      if (matched) setPlantQuery(matched.name);
-    }
+      if (params.plantId) {
+        setPlantId(params.plantId);
+        const matched = ownedPlants.find((p) => p.id === params.plantId);
+        if (matched) setPlantQuery(matched.name);
+      }
+    }, 0);
+    return () => clearTimeout(timer);
   }, [editingSchedule, params.plantId, ownedPlants]);
 
   const matchingPlants = plantQuery.trim()
@@ -1209,6 +1223,11 @@ export function ScheduleDetailScreen({ scheduleId }: { scheduleId?: string }) {
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
 
   const entry = scheduleId ? schedules.find((s) => s.id === scheduleId) : schedules[0];
+  const moveWeek = (delta: number) => {
+    const nextOffset = weekOffset + delta;
+    setWeekOffset(nextOffset);
+    setSelectedIso(toLocalIsoDate(getWeekBounds(nextOffset).dates[0]));
+  };
 
   const fetchWeekTasks = useCallback(async () => {
     if (!entry) return;
@@ -1226,15 +1245,14 @@ export function ScheduleDetailScreen({ scheduleId }: { scheduleId?: string }) {
   }, [entry, weekDates, loadCalendar]);
 
   useEffect(() => {
-    void fetchWeekTasks();
+    const timer = setTimeout(() => void fetchWeekTasks(), 0);
+    return () => clearTimeout(timer);
   }, [fetchWeekTasks]);
 
-  useEffect(() => {
-    const inWeek = weekDates.some((d) => toLocalIsoDate(d) === selectedIso);
-    if (!inWeek) setSelectedIso(toLocalIsoDate(weekDates[0]));
-  }, [weekDates, selectedIso]);
+  const selectedDateIsInWeek = weekDates.some((d) => toLocalIsoDate(d) === selectedIso);
+  const displayedSelectedIso = selectedDateIsInWeek ? selectedIso : toLocalIsoDate(weekDates[0]);
 
-  const tasksForDay = calendarTasks.filter((t) => t.dueDate === selectedIso);
+  const tasksForDay = calendarTasks.filter((t) => t.dueDate === displayedSelectedIso);
 
   const handleAction = async (taskId: string, action: 'complete' | 'skip') => {
     setBusyTaskId(taskId);
@@ -1322,11 +1340,11 @@ export function ScheduleDetailScreen({ scheduleId }: { scheduleId?: string }) {
 
         {/* ── Thanh chọn tuần ── */}
         <View style={sc.monthRow}>
-          <Pressable onPress={() => setWeekOffset((w) => w - 1)} style={sc.weekArrowBtn}>
+          <Pressable onPress={() => moveWeek(-1)} style={sc.weekArrowBtn}>
             <Text style={sc.monthArrow}>‹</Text>
           </Pressable>
           <Text style={sc.monthLabel}>Tháng {monthLabel}</Text>
-          <Pressable onPress={() => setWeekOffset((w) => w + 1)} style={sc.weekArrowBtn}>
+          <Pressable onPress={() => moveWeek(1)} style={sc.weekArrowBtn}>
             <Text style={sc.monthArrow}>›</Text>
           </Pressable>
         </View>
@@ -1335,7 +1353,7 @@ export function ScheduleDetailScreen({ scheduleId }: { scheduleId?: string }) {
         <View style={sc.weekStrip}>
           {weekDates.map((d, i) => {
             const iso = toLocalIsoDate(d);
-            const active = selectedIso === iso;
+            const active = displayedSelectedIso === iso;
             const isToday = iso === todayIso;
             const hasTask = calendarTasks.some((t) => t.dueDate === iso);
             return (
@@ -1358,7 +1376,7 @@ export function ScheduleDetailScreen({ scheduleId }: { scheduleId?: string }) {
 
         {/* ── Tóm tắt ngày ── */}
         <View style={sc.summaryCard}>
-          <Text style={sc.summaryTitle}>Ngày {formatDateVi(selectedIso)}</Text>
+          <Text style={sc.summaryTitle}>Ngày {formatDateVi(displayedSelectedIso)}</Text>
           <Text style={sc.summaryBody}>
             {tasksForDay.length > 0
               ? `${tasksForDay.length} lượt chăm sóc được lên lịch`

@@ -16,17 +16,15 @@ type AuthorizedImageProps = {
  * and Web (via fetch + Blob ObjectURL, since browser <img> cannot send Authorization headers).
  */
 export function useAuthorizedImageSource(uri?: string | null, accessToken?: string | null) {
-  const [webObjectUrl, setWebObjectUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [webImage, setWebImage] = useState<{ uri: string; accessToken: string; objectUrl: string } | null>(null);
+  const [failedSource, setFailedSource] = useState<{ uri: string; accessToken: string } | null>(null);
+  const failed = Boolean(uri && accessToken && failedSource?.uri === uri && failedSource.accessToken === accessToken);
 
   useEffect(() => {
-    setFailed(false);
     if (Platform.OS !== 'web') {
-      setWebObjectUrl(null);
       return;
     }
     if (!uri || !accessToken) {
-      setWebObjectUrl(null);
       return;
     }
     let active = true;
@@ -44,12 +42,11 @@ export function useAuthorizedImageSource(uri?: string | null, accessToken?: stri
       .then((blob) => {
         if (!active) return;
         createdUrl = URL.createObjectURL(blob);
-        setWebObjectUrl(createdUrl);
+        setWebImage({ uri, accessToken, objectUrl: createdUrl });
       })
       .catch((err) => {
         if (!active || (err instanceof Error && err.name === 'AbortError')) return;
-        setWebObjectUrl(null);
-        setFailed(true);
+        setFailedSource({ uri, accessToken });
       });
 
     return () => {
@@ -65,7 +62,8 @@ export function useAuthorizedImageSource(uri?: string | null, accessToken?: stri
     return { source: null, failed };
   }
   if (Platform.OS === 'web') {
-    return { source: webObjectUrl ? { uri: webObjectUrl } : null, failed };
+    const objectUrl = webImage?.uri === uri && webImage.accessToken === accessToken ? webImage.objectUrl : null;
+    return { source: objectUrl ? { uri: objectUrl } : null, failed };
   }
   return {
     source: { uri, headers: { Authorization: `Bearer ${accessToken}` } },

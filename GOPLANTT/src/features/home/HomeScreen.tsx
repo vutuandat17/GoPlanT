@@ -89,24 +89,28 @@ export default function HomeScreen() {
   const [weatherLoading, setWeatherLoading] = useState(false);
 
   useEffect(() => {
-    if (!accessToken || !weatherGarden) {
-      setWeather(null);
-      return;
-    }
     let active = true;
-    setWeatherLoading(true);
-    void fetchGardenWeather(weatherGarden.id, accessToken)
-      .then((data) => {
-        if (active) setWeather(data);
-      })
-      .catch(() => {
-        if (active) setWeather(null);
-      })
-      .finally(() => {
-        if (active) setWeatherLoading(false);
-      });
+    const timer = setTimeout(() => {
+      if (!accessToken || !weatherGarden) {
+        setWeather(null);
+        setWeatherLoading(false);
+        return;
+      }
+      setWeatherLoading(true);
+      void fetchGardenWeather(weatherGarden.id, accessToken)
+        .then((data) => {
+          if (active) setWeather(data);
+        })
+        .catch(() => {
+          if (active) setWeather(null);
+        })
+        .finally(() => {
+          if (active) setWeatherLoading(false);
+        });
+    }, 0);
     return () => {
       active = false;
+      clearTimeout(timer);
     };
   }, [accessToken, weatherGarden?.id]);
 
@@ -141,16 +145,8 @@ export default function HomeScreen() {
     return categoryMatch && matchesPlantFilters(plant, filterStates.home ?? {});
   });
   const featuredPlants = useMemo(() => {
-    const shuffle = <T,>(items: T[]) => {
-      const copy = [...items];
-      for (let i = copy.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [copy[i], copy[j]] = [copy[j], copy[i]];
-      }
-      return copy;
-    };
-    const unfavorited = shuffle(discoveries.filter((plant) => !favorites.includes(plant.id)));
-    const favorited = shuffle(discoveries.filter((plant) => favorites.includes(plant.id)));
+    const unfavorited = discoveries.filter((plant) => !favorites.includes(plant.id));
+    const favorited = discoveries.filter((plant) => favorites.includes(plant.id));
     return [...unfavorited, ...favorited].slice(0, 2);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catalog, ownedCatalogIds, favorites, category, filterStates.home]);

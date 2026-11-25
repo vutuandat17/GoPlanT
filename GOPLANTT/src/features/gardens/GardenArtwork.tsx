@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentProps } from 'react';
+import { useState, type ComponentProps } from 'react';
 import { StyleSheet, Text, View } from '@/components/app-primitives';
 import { AuthorizedImage } from '@/components/AuthorizedImage';
 
@@ -12,8 +12,8 @@ type Props = {
 };
 
 export function GardenArtwork({ locationType, photoUri, accessToken, style, glyphStyle, labelStyle }: Props) {
-  const [photoFailed, setPhotoFailed] = useState(false);
-  useEffect(() => setPhotoFailed(false), [photoUri]);
+  const [failedPhotoUri, setFailedPhotoUri] = useState<string | null>(null);
+  const photoFailed = Boolean(photoUri && failedPhotoUri === photoUri);
 
   return (
     <View style={[s.frame, style]}>
@@ -24,7 +24,7 @@ export function GardenArtwork({ locationType, photoUri, accessToken, style, glyp
           uri={photoUri}
           accessToken={accessToken}
           contentFit="cover"
-          onError={() => setPhotoFailed(true)}
+          onError={() => setFailedPhotoUri(photoUri ?? null)}
           style={StyleSheet.absoluteFill}
         />
       ) : null}

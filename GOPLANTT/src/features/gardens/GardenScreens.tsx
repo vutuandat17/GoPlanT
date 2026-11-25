@@ -142,7 +142,8 @@ export function GardenDetailScreen() {
   }, [gardenId, accessToken]);
 
   useEffect(() => {
-    void loadWeather(false);
+    const timer = setTimeout(() => void loadWeather(false), 0);
+    return () => clearTimeout(timer);
   }, [loadWeather]);
 
   const locationSummary = garden?.provinceName
@@ -377,12 +378,7 @@ function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
   const [suggestionsExpanded, setSuggestionsExpanded] = useState(true);
   const suggestedCatalog = useMemo(() => {
     if (!addPlant || editId || catalog.length === 0) return [];
-    const copy = [...catalog];
-    for (let i = copy.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [copy[i], copy[j]] = [copy[j], copy[i]];
-    }
-    return copy.slice(0, 5);
+    return catalog.slice(0, 5);
   }, [addPlant, editId, catalog]);
   const title = editId ? 'Chỉnh sửa hồ sơ cây' : editGardenId ? 'Cập nhật khu vườn' : addPlant ? 'Thêm cây trồng' : 'Tạo khu vườn mới';
   const selectedProfile = catalog.find((plant) => plant.id === selected);
@@ -404,30 +400,39 @@ function GardenForm({ addPlant = false }: { addPlant?: boolean }) {
   }, [addPlant]);
 
   useEffect(() => {
-    if (initialCatalogPlant && (!name || name === initialCatalogPlant.name)) setName(initialCatalogPlant.name);
+    const timer = setTimeout(() => {
+      if (initialCatalogPlant && (!name || name === initialCatalogPlant.name)) setName(initialCatalogPlant.name);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [initialCatalogPlant, name]);
   useEffect(() => {
-    if (editingPlant) {
-      setName(editingPlant.name);
-      setPlace(editingPlant.location);
-      setPlantedAt(editingPlant.plantedAt);
-      setNote(editingPlant.note);
-      setSelected(editingPlant.catalogId);
-      setGardenId(editingPlant.gardenId ?? '');
-    }
+    const timer = setTimeout(() => {
+      if (editingPlant) {
+        setName(editingPlant.name);
+        setPlace(editingPlant.location);
+        setPlantedAt(editingPlant.plantedAt);
+        setNote(editingPlant.note);
+        setSelected(editingPlant.catalogId);
+        setGardenId(editingPlant.gardenId ?? '');
+      }
+    }, 0);
+    return () => clearTimeout(timer);
   }, [editingPlant]);
   useEffect(() => {
-    if (editingGarden) {
-      setName(editingGarden.name);
-      setPlace(editingGarden.locationDetail);
-      setGardenType(editingGarden.locationType);
-      setDescription(editingGarden.description);
-      setLocationMode(editingGarden.locationSource ?? 'none');
-      setProvinceCode(editingGarden.provinceCode ?? '');
-      setGpsCoords(editingGarden.locationSource === 'gps' && editingGarden.latitude != null && editingGarden.longitude != null
-        ? { latitude: editingGarden.latitude, longitude: editingGarden.longitude }
-        : null);
-    }
+    const timer = setTimeout(() => {
+      if (editingGarden) {
+        setName(editingGarden.name);
+        setPlace(editingGarden.locationDetail);
+        setGardenType(editingGarden.locationType);
+        setDescription(editingGarden.description);
+        setLocationMode(editingGarden.locationSource ?? 'none');
+        setProvinceCode(editingGarden.provinceCode ?? '');
+        setGpsCoords(editingGarden.locationSource === 'gps' && editingGarden.latitude != null && editingGarden.longitude != null
+          ? { latitude: editingGarden.latitude, longitude: editingGarden.longitude }
+          : null);
+      }
+    }, 0);
+    return () => clearTimeout(timer);
   }, [editingGarden]);
 
   const pickCurrentGps = async () => {

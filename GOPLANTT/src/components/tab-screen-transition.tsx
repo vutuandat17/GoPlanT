@@ -1,9 +1,9 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Animated, Easing, Platform, StyleSheet } from 'react-native';
 import { useIsFocused } from 'expo-router';
 
 export function TabScreenTransition({ children }: { children: ReactNode }) {
-  const progress = useRef(new Animated.Value(0)).current;
+  const [progress] = useState(() => new Animated.Value(0));
   const isFocused = useIsFocused();
 
   useEffect(() => {

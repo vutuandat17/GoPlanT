@@ -179,7 +179,8 @@ export default function AdminUsersScreen() {
   }, [accessToken, user?.role, appliedQuery, statusFilter, roleFilter, activityFilter, loadStats]);
 
   useEffect(() => {
-    void loadUsers(0, false);
+    const timer = setTimeout(() => void loadUsers(0, false), 0);
+    return () => clearTimeout(timer);
   }, [loadUsers]);
 
   const openDetail = async (userId: string) => {

@@ -95,7 +95,8 @@ export default function AdminAuditLogsScreen() {
   }, [accessToken, user?.role, actionFilter]);
 
   useEffect(() => {
-    void loadLogs(0, false);
+    const timer = setTimeout(() => void loadLogs(0, false), 0);
+    return () => clearTimeout(timer);
   }, [loadLogs]);
 
   if (user?.role !== 'admin') {

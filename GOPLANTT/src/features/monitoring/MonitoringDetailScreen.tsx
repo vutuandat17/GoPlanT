@@ -165,7 +165,8 @@ export default function MonitoringDetailScreen() {
   );
 
   useEffect(() => {
-    void loadWeather(false);
+    const timer = setTimeout(() => void loadWeather(false), 0);
+    return () => clearTimeout(timer);
   }, [loadWeather]);
 
   const loadGrowth = useCallback(async () => {
@@ -179,10 +180,11 @@ export default function MonitoringDetailScreen() {
     } catch {
       setGrowthRecords([]);
     }
-  }, [isGardenMode, plant?.id, accessToken]);
+  }, [isGardenMode, plant, accessToken]);
 
   useEffect(() => {
-    void loadGrowth();
+    const timer = setTimeout(() => void loadGrowth(), 0);
+    return () => clearTimeout(timer);
   }, [loadGrowth]);
 
   const handleSaveGrowth = async () => {

@@ -92,7 +92,8 @@ export default function AdminAuthHistoryScreen() {
   }, [accessToken, user?.role, scopedUserId, eventFilter, appliedQuery]);
 
   useEffect(() => {
-    void loadEvents(0, false);
+    const timer = setTimeout(() => void loadEvents(0, false), 0);
+    return () => clearTimeout(timer);
   }, [loadEvents]);
 
   if (user?.role !== 'admin') {
