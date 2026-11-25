@@ -32,6 +32,7 @@ pipeline {
                 dir('GOPLANTT') {
                     script {
                         if (isUnix()) {
+                            sh 'echo "PATH=$PATH"; command -v node || true; command -v npm || true; node --version || true; npm --version || true'
                             sh 'npm ci'
                             sh 'npm test'
                             sh 'npm run lint'
