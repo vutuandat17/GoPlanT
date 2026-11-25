@@ -1,0 +1,9 @@
+node_modules/
+.expo/
+web-build/
+.git/
+.idea/
+.vscode/
+PDF/
+design-reference/
+*.log
