@@ -1,5 +1,14 @@
+
 pipeline {
     agent any
+
+    parameters {
+        booleanParam(
+            name: 'RUN_SONAR',
+            defaultValue: false,
+            description: 'Enable SonarQube analysis (requires SonarQube server to be running)'
+        )
+    }
 
     options {
         timestamps()
@@ -13,7 +22,7 @@ pipeline {
         FRONTEND_DIR          = 'GOPLANTT'
         SONAR_SERVER          = 'SonarQube-Server'
         SONAR_PROJECT         = 'goplant-backend'
-        MAVEN_CLI_OPTS        = '-B -Dmaven.wagon.http.retryHandler.count=5'
+        MAVEN_CLI_OPTS        = '-B -ntp -Dmaven.wagon.http.retryHandler.count=5'
         CI                    = 'true'
         COMPOSE_PROJECT_NAME  = 'goplant'
     }
@@ -58,16 +67,17 @@ pipeline {
                 dir("${env.BACKEND_DIR}") {
                     script {
                         if (isUnix()) {
-                            sh "mvn ${env.MAVEN_CLI_OPTS} test"
+                            sh "mvn ${env.MAVEN_CLI_OPTS} -DforkCount=1 -DreuseForks=true test"
                         } else {
-                            bat "mvn ${env.MAVEN_CLI_OPTS} test"
+                            bat "mvn ${env.MAVEN_CLI_OPTS} -DforkCount=1 -DreuseForks=true test"
                         }
                     }
                 }
             }
             post {
                 always {
-                    junit allowEmptyResults: true, testResults: "${env.BACKEND_DIR}/target/surefire-reports/*.xml"
+                    junit allowEmptyResults: true,
+                          testResults: "${env.BACKEND_DIR}/target/surefire-reports/*.xml"
                 }
             }
         }
@@ -83,16 +93,23 @@ pipeline {
                         }
                     }
                 }
-                archiveArtifacts artifacts: "${env.BACKEND_DIR}/target/*.jar", fingerprint: true
+                archiveArtifacts artifacts: "${env.BACKEND_DIR}/target/*.jar",
+                                 fingerprint: true
             }
         }
 
         stage('5. SonarQube analysis') {
+            when {
+                expression {
+                    return params.RUN_SONAR == true
+                }
+            }
             steps {
                 dir("${env.BACKEND_DIR}") {
                     withSonarQubeEnv("${env.SONAR_SERVER}") {
                         script {
                             def sonarCommand = "mvn ${env.MAVEN_CLI_OPTS} org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar -Dsonar.projectKey=${env.SONAR_PROJECT} -Dsonar.projectName=GoPlant-Backend"
+
                             if (isUnix()) {
                                 sh sonarCommand
                             } else {
@@ -151,6 +168,7 @@ pipeline {
         success {
             echo 'GoPlant is running locally: frontend http://localhost:8081, API http://localhost:8082, Prometheus http://localhost:9090, Grafana http://localhost:3000.'
         }
+
         failure {
             script {
                 if (isUnix()) {
@@ -160,8 +178,10 @@ pipeline {
                 }
             }
         }
+
         always {
             echo "Finished pipeline #${env.BUILD_NUMBER}."
         }
     }
 }
+
