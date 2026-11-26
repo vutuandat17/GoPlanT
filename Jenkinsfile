@@ -8,49 +8,53 @@ pipeline {
     }
 
     environment {
-        APP_NAME        = 'GoPlant'
-        BACKEND_DIR     = 'backend'
-        FRONTEND_DIR    = 'GOPLANTT'
-        SONAR_SERVER    = 'SonarQube-Server'
-        SONAR_PROJECT   = 'goplant-backend'
-        MAVEN_CLI_OPTS  = '-B -Dmaven.wagon.http.retryHandler.count=5'
-        CI              = 'true'
+        APP_NAME              = 'GoPlant'
+        BACKEND_DIR           = 'backend'
+        FRONTEND_DIR          = 'GOPLANTT'
+        SONAR_SERVER          = 'SonarQube-Server'
+        SONAR_PROJECT         = 'goplant-backend'
+        MAVEN_CLI_OPTS        = '-B -Dmaven.wagon.http.retryHandler.count=5'
+        CI                    = 'true'
+        COMPOSE_PROJECT_NAME  = 'goplant'
     }
 
     stages {
-        stage('1. Checkout Source Code') {
+        stage('1. Checkout source') {
             steps {
-                echo "=== [1/6] Checkout mã nguồn dự án ${env.APP_NAME} ==="
                 checkout scm
             }
         }
 
-        stage('2. Verify Build Environment') {
+        stage('2. Verify Jenkins agent') {
             steps {
-                echo "=== [2/6] Kiểm tra công cụ build (Java 21, Maven, Node.js, npm) ==="
                 script {
                     if (isUnix()) {
                         sh '''
                             java -version
                             mvn -version
-                            node -v
-                            npm -v
+                            node --version
+                            npm --version
+                            docker --version
+                            docker compose version
+                            docker info > /dev/null
                         '''
                     } else {
                         bat '''
                             java -version
                             mvn -version
-                            node -v
-                            call npm -v
+                            node --version
+                            call npm --version
+                            docker --version
+                            docker compose version
+                            docker info
                         '''
                     }
                 }
             }
         }
 
-        stage('3. Backend - Unit Test (Spring Boot)') {
+        stage('3. Test backend') {
             steps {
-                echo "=== [3/6] Chạy kiểm thử tự động Backend (Java 21 + Maven) ==="
                 dir("${env.BACKEND_DIR}") {
                     script {
                         if (isUnix()) {
@@ -68,27 +72,8 @@ pipeline {
             }
         }
 
-        stage('4. SonarQube - Code Quality Analysis') {
+        stage('4. Build backend JAR') {
             steps {
-                echo "=== [4/6] Phân tích chất lượng mã nguồn và bảo mật với SonarQube ==="
-                dir("${env.BACKEND_DIR}") {
-                    withSonarQubeEnv("${env.SONAR_SERVER}") {
-                        script {
-                            def sonarCmd = "mvn ${env.MAVEN_CLI_OPTS} org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar -Dsonar.projectKey=${env.SONAR_PROJECT} -Dsonar.projectName=\"GoPlant Backend\""
-                            if (isUnix()) {
-                                sh sonarCmd
-                            } else {
-                                bat sonarCmd
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('5. Backend - Package JAR Artifact') {
-            steps {
-                echo "=== [5/6] Đóng gói Backend Spring Boot thành file JAR ==="
                 dir("${env.BACKEND_DIR}") {
                     script {
                         if (isUnix()) {
@@ -102,9 +87,25 @@ pipeline {
             }
         }
 
-        stage('6. Frontend - Test & Typecheck (Expo / React Native)') {
+        stage('5. SonarQube analysis') {
             steps {
-                echo "=== [6/6] Cài đặt dependencies, chạy Unit Test & TypeScript Typecheck cho Frontend ==="
+                dir("${env.BACKEND_DIR}") {
+                    withSonarQubeEnv("${env.SONAR_SERVER}") {
+                        script {
+                            def sonarCommand = "mvn ${env.MAVEN_CLI_OPTS} org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar -Dsonar.projectKey=${env.SONAR_PROJECT} -Dsonar.projectName=GoPlant-Backend"
+                            if (isUnix()) {
+                                sh sonarCommand
+                            } else {
+                                bat sonarCommand
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('6. Test and export frontend web') {
+            steps {
                 dir("${env.FRONTEND_DIR}") {
                     script {
                         if (isUnix()) {
@@ -112,14 +113,34 @@ pipeline {
                                 npm ci
                                 npm test
                                 npx tsc --noEmit
+                                npx expo export --platform web
                             '''
                         } else {
                             bat '''
                                 call npm ci
                                 call npm test
                                 call npx tsc --noEmit
+                                call npx expo export --platform web
                             '''
                         }
+                    }
+                }
+            }
+        }
+
+        stage('7. Deploy local with Docker Compose') {
+            steps {
+                script {
+                    if (isUnix()) {
+                        sh '''
+                            docker compose --project-name "$COMPOSE_PROJECT_NAME" up -d --build --wait --wait-timeout 180
+                            curl --fail --silent --show-error http://localhost:8082/actuator/health
+                        '''
+                    } else {
+                        bat '''
+                            docker compose --project-name %COMPOSE_PROJECT_NAME% up -d --build --wait --wait-timeout 180
+                            powershell -NoProfile -Command "(Invoke-WebRequest -UseBasicParsing -Uri http://localhost:8082/actuator/health -TimeoutSec 10).Content"
+                        '''
                     }
                 }
             }
@@ -128,13 +149,19 @@ pipeline {
 
     post {
         success {
-            echo "CI/CD Pipeline (kèm SonarQube Analysis) cho dự án ${env.APP_NAME} đã hoàn tất THÀNH CÔNG!"
+            echo 'GoPlant is running locally: frontend http://localhost:8081, API http://localhost:8082, Prometheus http://localhost:9090, Grafana http://localhost:3000.'
         }
         failure {
-            echo "CI/CD Pipeline cho dự án ${env.APP_NAME} bị lỗi. Vui lòng kiểm tra Console Output."
+            script {
+                if (isUnix()) {
+                    sh 'docker compose --project-name "$COMPOSE_PROJECT_NAME" logs --no-color --tail=200 || true'
+                } else {
+                    bat 'docker compose --project-name %COMPOSE_PROJECT_NAME% logs --no-color --tail=200 || exit /b 0'
+                }
+            }
         }
         always {
-            echo "Kết thúc lượt chạy Pipeline #${env.BUILD_NUMBER}."
+            echo "Finished pipeline #${env.BUILD_NUMBER}."
         }
     }
 }
